@@ -1,0 +1,481 @@
+// ============================================================
+// INVENTORY MANAGEMENT SYSTEM - DATABASE SCHEMA (DBML)
+// Target DB: Azure SQL / SQL Server
+// Source of truth: prisma/schema.prisma
+// Paste into https://dbdiagram.io
+//
+// Notes:
+//  - SQL Server has no native enums; status/type fields are varchar
+//    with allowed values noted inline (centralized in lib/constants.ts).
+//  - created_by / updated_by are plain audit columns (NO FK relation)
+//    to avoid an explosion of back-relations on User. Only meaningful
+//    "actor" relations (submitter, requester, audit user) are FKs.
+// ============================================================
+
+
+// ============================================================
+// USER & ACCESS MANAGEMENT
+// ============================================================
+
+Table Role {
+  id int [pk, increment]
+  roleName varchar [not null, note: 'SuperAdmin, InternalAdmin, Editor, GrowerUser, VendorUser']
+  description varchar
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+}
+
+Table User {
+  id int [pk, increment]
+  firstName varchar [not null]
+  lastName varchar [not null]
+  email varchar [unique, not null]
+  passwordHash varchar
+  roleId int [not null, ref: > Role.id]
+  growerId int [ref: > Grower.id, note: 'populated for grower users']
+  vendorId int [ref: > Vendor.id, note: 'populated for vendor users']
+  isActive boolean [not null, default: true]
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+
+  Indexes {
+    roleId
+    growerId
+    vendorId
+  }
+}
+
+
+// ============================================================
+// MASTER DATA (ENTITIES)
+// ============================================================
+
+Table Grower {
+  id int [pk, increment]
+  growerName varchar [not null]
+  primaryEmail varchar
+  status varchar [not null, default: 'Active', note: 'Active, Inactive, Pending']
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+}
+
+Table Vendor {
+  id int [pk, increment]
+  vendorName varchar [not null]
+  vendorType varchar [note: 'Manufacturer, Pallet Pooling, 3PL']
+  region varchar
+  country varchar
+  primaryContact varchar
+  contactEmail varchar
+  contactPhone varchar
+  leadTime varchar
+  paymentTerms varchar
+  ptAccountNumber varchar
+  notes varchar
+  status varchar [not null, default: 'Active', note: 'Active, Inactive']
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+}
+
+Table Location {
+  id int [pk, increment]
+  locationName varchar [not null]
+  locationType varchar [note: 'Packing House, Warehouse, Cross-dock, Grower']
+  region varchar
+  commodityFocus varchar
+  keyPersonnel varchar
+  notes varchar
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+}
+
+
+// ============================================================
+// CATEGORY & ITEM MANAGEMENT
+// ============================================================
+
+Table Commodity {
+  code varchar [pk, note: 'e.g., AP (Asparagus), BP (Bell Peppers)']
+  name varchar [not null]
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+}
+
+Table MaterialCategory {
+  code varchar [pk, note: 'e.g., BX (Boxes), BG (Bags)']
+  name varchar [not null]
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+}
+
+Table SubCategory {
+  id int [pk, increment]
+  materialCategoryCode varchar [not null, ref: > MaterialCategory.code]
+  name varchar [not null, note: 'Cardboard Boxes, PLU Stickers']
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+
+  Indexes {
+    materialCategoryCode
+  }
+}
+
+Table Item {
+  id varchar [pk, note: 'CC-MM-NNNNN']
+  legacyFamousId varchar
+  itemName varchar [not null]
+  commodityCode varchar [ref: > Commodity.code]
+  materialCategoryCode varchar [ref: > MaterialCategory.code]
+  subCategoryId int [ref: > SubCategory.id]
+  applicationMethod varchar [note: 'Machine, Hand, Machine/Hand, N/A']
+  status varchar [not null, default: 'Active', note: 'Active, Inactive, Review']
+  notes varchar
+  region varchar
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+
+  Indexes {
+    commodityCode
+    materialCategoryCode
+    subCategoryId
+  }
+}
+
+
+// ============================================================
+// MAPPING TABLES
+// ============================================================
+
+Table GrowerItemAuthorization {
+  id int [pk, increment]
+  growerId int [not null, ref: > Grower.id]
+  itemId varchar [not null, ref: > Item.id]
+  isActive boolean [not null, default: true]
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+
+  Indexes {
+    (growerId, itemId) [unique]
+    itemId
+  }
+}
+
+Table ItemVendor {
+  id int [pk, increment]
+  vendorId int [not null, ref: > Vendor.id]
+  itemId varchar [not null, ref: > Item.id]
+  isActive boolean [not null, default: true]
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+
+  Indexes {
+    (vendorId, itemId) [unique]
+    itemId
+  }
+}
+
+
+// ============================================================
+// GROWER INVENTORY SUBMISSION & WORKFLOW
+// ============================================================
+
+Table InventorySubmission {
+  id int [pk, increment]
+  growerId int [not null, ref: > Grower.id]
+  submittedBy int [not null, ref: > User.id]
+  submissionDate datetime [not null, default: `now()`]
+  status varchar [not null, default: 'Approved', note: 'Pending, Approved, Rejected (direct-submit => Approved)']
+  reviewedBy int
+  reviewedAt datetime
+  comments varchar
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+
+  Indexes {
+    growerId
+    submissionDate
+  }
+}
+
+Table InventorySubmissionDetail {
+  id int [pk, increment]
+  submissionId int [not null, ref: > InventorySubmission.id, note: 'ON DELETE CASCADE']
+  itemId varchar [not null, ref: > Item.id]
+  locationId int [ref: > Location.id]
+  quantityOnHand decimal [not null, default: 0]
+  quantityOnOrder decimal [not null, default: 0]
+  unitOfMeasure varchar
+  isLowFlagged boolean [not null, default: false]
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+
+  Indexes {
+    submissionId
+    itemId
+  }
+}
+
+
+// ============================================================
+// ANALYTICS & LEDGER (Power BI friendly FACT table)
+// ============================================================
+
+Table InventoryLedger {
+  id int [pk, increment]
+  submissionId int [ref: > InventorySubmission.id]
+  date datetime [not null, note: 'Time-series axis for Power BI']
+  growerId int [not null, ref: > Grower.id]
+  itemId varchar [not null, ref: > Item.id]
+  locationId int [ref: > Location.id]
+  transactionType varchar [not null, default: 'Daily Count Update', note: 'Daily Count Update, Manual Adjustment']
+  finalQuantity decimal [not null]
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+
+  Indexes {
+    (growerId, itemId, date)
+    date
+  }
+
+  Note: 'Star-schema FACT table for Power BI.'
+}
+
+
+// ============================================================
+// VENDOR INVENTORY SUBMISSION
+// ============================================================
+
+Table VendorSubmission {
+  id int [pk, increment]
+  vendorId int [not null, ref: > Vendor.id]
+  submittedBy int [not null, ref: > User.id]
+  submissionDate datetime [not null, default: `now()`]
+  status varchar [not null, default: 'Approved']
+  comments varchar
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+
+  Indexes {
+    vendorId
+    submissionDate
+  }
+}
+
+Table VendorSubmissionDetail {
+  id int [pk, increment]
+  submissionId int [not null, ref: > VendorSubmission.id, note: 'ON DELETE CASCADE']
+  itemId varchar [not null, ref: > Item.id]
+  quantity decimal [not null, default: 0]
+  unitOfMeasure varchar
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+
+  Indexes {
+    submissionId
+    itemId
+  }
+}
+
+// Per-grower breakdown of a vendor's item quantity
+Table VendorAllocation {
+  id int [pk, increment]
+  vendorSubmissionDetailId int [not null, ref: > VendorSubmissionDetail.id, note: 'ON DELETE CASCADE']
+  growerId int [not null, ref: > Grower.id]
+  quantity decimal [not null, default: 0]
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+
+  Indexes {
+    vendorSubmissionDetailId
+    growerId
+  }
+}
+
+
+// ============================================================
+// GROWER REQUESTS & FLAGS
+// ============================================================
+
+Table MissingItemRequest {
+  id int [pk, increment]
+  growerId int [not null, ref: > Grower.id]
+  requestedBy int [not null, ref: > User.id]
+  itemName varchar [not null]
+  commodityHint varchar
+  categoryHint varchar
+  notes varchar
+  status varchar [not null, default: 'Open', note: 'Open, Reviewed, Fulfilled, Rejected']
+  reviewedBy int
+  reviewedAt datetime
+  reviewNotes varchar
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+
+  Indexes {
+    growerId
+    status
+  }
+}
+
+Table LowInventoryFlag {
+  id int [pk, increment]
+  growerId int [not null, ref: > Grower.id]
+  itemId varchar [not null, ref: > Item.id]
+  flaggedBy int [not null]
+  submissionId int
+  reason varchar
+  isActive boolean [not null, default: true]
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+
+  Indexes {
+    growerId
+    itemId
+  }
+}
+
+
+// ============================================================
+// THRESHOLDS, SETTINGS, CONVERSIONS
+// ============================================================
+
+// growerId null => global default threshold for the item
+Table ItemThreshold {
+  id int [pk, increment]
+  itemId varchar [not null, ref: > Item.id]
+  growerId int [ref: > Grower.id]
+  thresholdQuantity decimal [not null]
+  unitOfMeasure varchar
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+
+  Indexes {
+    (itemId, growerId) [unique]
+    itemId
+  }
+}
+
+// scope = Global (growerId null) or per-grower override
+Table SchedulerSetting {
+  id int [pk, increment]
+  scope varchar [not null, default: 'Global', note: 'Global, Grower']
+  growerId int [ref: > Grower.id]
+  cadenceType varchar [not null, default: 'AfterNDays', note: 'Daily, Weekly, Monthly, AfterNDays']
+  thresholdDays int [not null, default: 3, note: 'days of no submission before first reminder']
+  reminderFrequency varchar [not null, default: 'Daily', note: 'how often to remind after triggered']
+  isEnabled boolean [not null, default: true]
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+
+  Indexes {
+    growerId
+  }
+}
+
+Table UnitConversion {
+  id int [pk, increment]
+  fromUnit varchar [not null]
+  toUnit varchar [not null]
+  factor decimal [not null, note: '1 fromUnit = factor toUnit']
+  itemId varchar [ref: > Item.id]
+  commodityCode varchar [ref: > Commodity.code]
+  notes varchar
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+}
+
+
+// ============================================================
+// AUDIT, NOTIFICATIONS, REPORTS
+// ============================================================
+
+Table AuditLog {
+  id int [pk, increment]
+  userId int [not null, ref: > User.id]
+  action varchar [not null, note: 'Create, Update, Delete, Export']
+  entityType varchar [not null, note: 'Item, Grower, Vendor, User, ...']
+  entityId varchar
+  changes varchar [note: 'JSON string of before/after']
+  createdAt datetime [not null, default: `now()`]
+
+  Indexes {
+    userId
+    entityType
+    createdAt
+  }
+}
+
+Table NotificationLog {
+  id int [pk, increment]
+  type varchar [not null, note: 'SubmissionReceived, MissingItemRequest, LowInventory, ScheduledReminder']
+  toEmail varchar [not null]
+  growerId int [ref: > Grower.id]
+  vendorId int [ref: > Vendor.id]
+  subject varchar [not null]
+  body varchar [not null]
+  status varchar [not null, default: 'Mocked', note: 'Mocked, Sent, Failed']
+  relatedEntity varchar
+  createdAt datetime [not null, default: `now()`]
+  sentAt datetime
+
+  Indexes {
+    createdAt
+    type
+  }
+}
+
+Table PowerBiReport {
+  id int [pk, increment]
+  name varchar [not null]
+  embedUrl varchar [not null]
+  roleScope varchar [not null, default: 'Admin', note: 'which roles can view']
+  isActive boolean [not null, default: true]
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+}
