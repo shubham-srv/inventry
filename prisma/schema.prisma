@@ -1,0 +1,641 @@
+// ============================================================
+// INVENTORY MANAGEMENT SYSTEM — Prisma schema
+// Target DB: Azure SQL / SQL Server (provider = sqlserver)
+// Notes:
+//  - SQL Server has no native enums; status/type fields are String
+//    with allowed values centralized in lib/constants.ts + zod.
+//  - createdBy/updatedBy are plain audit columns (no FK relation) to
+//    avoid an explosion of back-relations on User. Meaningful "actor"
+//    relations (submitter, requester, audit user) are modeled explicitly.
+//  - SQL Server disallows multiple cascade paths, so FK relations use
+//    onDelete/onUpdate: NoAction (PKs are immutable; master data is
+//    deactivated via status flags, not hard-deleted). The only cascades
+//    are parent submission -> its detail/allocation children.
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// USER & ACCESS MANAGEMENT
+// ============================================================
+
+model Role {
+  id          Int     @id @default(autoincrement())
+  roleName    String // SuperAdmin, InternalAdmin, Editor, GrowerUser, VendorUser
+  description String?
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  users User[]
+}
+
+model User {
+  id           Int     @id @default(autoincrement())
+  firstName    String
+  lastName     String
+  email        String  @unique
+  passwordHash String?
+  roleId       Int
+  growerId     Int? // populated for grower users
+  vendorId     Int? // populated for vendor users
+  isActive     Boolean @default(true)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  role                Role                  @relation(fields: [roleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grower              Grower?               @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vendor              Vendor?               @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  submissions         GrowerSubmission[]    @relation("SubmissionSubmittedBy")
+  vendorSubmissions   VendorSubmission[]    @relation("VendorSubmissionSubmittedBy")
+  missingItemRequests MissingItemRequest[]  @relation("RequestRequestedBy")
+  auditLogs           AuditLog[]            @relation("AuditUser")
+
+  @@index([roleId])
+  @@index([growerId])
+  @@index([vendorId])
+}
+
+// ============================================================
+// MASTER DATA (ENTITIES)
+// ============================================================
+
+model Grower {
+  id           Int     @id @default(autoincrement())
+  growerName   String
+  primaryEmail String?
+  status       String  @default("Active") // Active, Inactive, Pending
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  users               User[]
+  authorizations      GrowerItemAuthorization[]
+  submissions         GrowerSubmission[]
+  ledgerEntries       InventoryLedger[]
+  allocations         VendorAllocation[]
+  orders              Order[]
+  missingItemRequests MissingItemRequest[]
+  lowInventoryFlags   LowInventoryFlag[]
+  thresholds          ItemThreshold[]
+  schedulerSettings   SchedulerSetting[]
+  notifications       NotificationLog[]
+}
+
+model Vendor {
+  id              Int     @id @default(autoincrement())
+  vendorName      String
+  vendorType      String? // Manufacturer, Pallet Pooling, 3PL
+  region          String?
+  country         String?
+  primaryContact  String?
+  contactEmail    String?
+  contactPhone    String?
+  leadTime        String?
+  paymentTerms    String?
+  ptAccountNumber String?
+  notes           String?
+  status          String  @default("Active") // Active, Inactive
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  users              User[]
+  itemVendors        ItemVendor[]
+  materialCategories VendorMaterialCategory[]
+  submissions        VendorSubmission[]
+  orders             Order[]
+  notifications      NotificationLog[]
+}
+
+model Location {
+  id             Int     @id @default(autoincrement())
+  locationName   String
+  locationType   String? // Packing House, Warehouse, Cross-dock, Grower
+  region         String?
+  commodityFocus String?
+  keyPersonnel   String?
+  notes          String?
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  submissionDetails GrowerSubmissionDetail[]
+  ledgerEntries     InventoryLedger[]
+}
+
+// ============================================================
+// CATEGORY & ITEM MANAGEMENT
+// ============================================================
+
+model Commodity {
+  code String @id // e.g., AP (Asparagus), BP (Bell Peppers)
+  name String
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  items           Item[]
+  unitConversions UnitConversion[]
+}
+
+model MaterialCategory {
+  code String @id // e.g., BX (Boxes), BG (Bags)
+  name String
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  subCategories SubCategory[]
+  items         Item[]
+  vendors       VendorMaterialCategory[]
+}
+
+model SubCategory {
+  id                   Int    @id @default(autoincrement())
+  materialCategoryCode String
+  name                 String // Cardboard Boxes, PLU Stickers
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  materialCategory MaterialCategory @relation(fields: [materialCategoryCode], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  items            Item[]
+
+  @@index([materialCategoryCode])
+}
+
+model Item {
+  id                   String  @id // CC-MM-NNNNN
+  legacyFamousId       String?
+  itemName             String
+  commodityCode        String?
+  materialCategoryCode String?
+  subCategoryId        Int?
+  productClass         String? // Packaging, Label, Pallet, Consumable, N/A (see PRODUCT_CLASSES)
+  countryOfOriginId    Int?
+  applicationMethod    String? // Machine, Hand, Machine/Hand, N/A
+  status               String  @default("Active") // Active, Inactive, Review
+  notes                String?
+  region               String?
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  commodity               Commodity?                @relation(fields: [commodityCode], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  materialCategory        MaterialCategory?         @relation(fields: [materialCategoryCode], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  subCategory             SubCategory?              @relation(fields: [subCategoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  countryOfOrigin         CountryOfOrigin?          @relation(fields: [countryOfOriginId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  authorizations          GrowerItemAuthorization[]
+  submissionDetails       GrowerSubmissionDetail[]
+  ledgerEntries           InventoryLedger[]
+  itemVendors             ItemVendor[]
+  orders                  Order[]
+  vendorSubmissionDetails VendorSubmissionDetail[]
+  lowInventoryFlags       LowInventoryFlag[]
+  thresholds              ItemThreshold[]
+  unitConversions         UnitConversion[]
+
+  @@index([commodityCode])
+  @@index([materialCategoryCode])
+  @@index([subCategoryId])
+  @@index([countryOfOriginId])
+}
+
+// Country of origin lookup (dropdown source for items). Seeded; no admin CRUD.
+model CountryOfOrigin {
+  id   Int    @id @default(autoincrement())
+  name String @unique // USA, Mexico, Canada, Peru, Ecuador, N/A
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  items Item[]
+}
+
+// ============================================================
+// MAPPING TABLES
+// ============================================================
+
+model GrowerItemAuthorization {
+  id       Int     @id @default(autoincrement())
+  growerId Int
+  itemId   String
+  isActive Boolean @default(true)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  grower Grower @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([growerId, itemId])
+  @@index([itemId])
+}
+
+model ItemVendor {
+  id       Int     @id @default(autoincrement())
+  vendorId Int
+  itemId   String
+  isActive Boolean @default(true)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([vendorId, itemId])
+  @@index([itemId])
+}
+
+// Which material categories a vendor supplies. Many-to-many mapping, soft-
+// toggled via isActive to mirror ItemVendor (kept for history).
+model VendorMaterialCategory {
+  id                   Int     @id @default(autoincrement())
+  vendorId             Int
+  materialCategoryCode String
+  isActive             Boolean @default(true)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  vendor           Vendor           @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  materialCategory MaterialCategory @relation(fields: [materialCategoryCode], references: [code], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([vendorId, materialCategoryCode])
+  @@index([materialCategoryCode])
+}
+
+// ============================================================
+// GROWER INVENTORY SUBMISSION & WORKFLOW
+// ============================================================
+
+model GrowerSubmission {
+  id             Int       @id @default(autoincrement())
+  growerId       Int
+  submittedBy    Int
+  submissionDate DateTime  @default(now())
+  status         String    @default("Approved") // Pending, Approved, Rejected (direct-submit => Approved)
+  reviewedBy     Int?
+  reviewedAt     DateTime?
+  comments       String?
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  grower    Grower                   @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  submitter User                     @relation("SubmissionSubmittedBy", fields: [submittedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  details   GrowerSubmissionDetail[]
+  ledger    InventoryLedger[]
+
+  @@index([growerId])
+  @@index([submissionDate])
+}
+
+model GrowerSubmissionDetail {
+  id              Int     @id @default(autoincrement())
+  submissionId    Int
+  itemId          String
+  locationId      Int?
+  quantityOnHand  Decimal @default(0)
+  unitOfMeasure   String?
+  isLowFlagged    Boolean @default(false)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  submission GrowerSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  item       Item             @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  location   Location?        @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([submissionId])
+  @@index([itemId])
+}
+
+// Grower purchase orders. Raised per item against one of the item's mapped
+// vendors, independently of the daily on-hand count. Multiple open orders per
+// item (and per vendor) are allowed. When an order is Received or Cancelled its
+// closedAt is stamped; the grower's active views show Open orders plus anything
+// closed today, so a same-day receipt stays visible but drops off the next day.
+model Order {
+  id            Int       @id @default(autoincrement())
+  growerId      Int
+  itemId        String
+  vendorId      Int
+  quantity             Decimal   @default(0)
+  unitOfMeasure        String?
+  status               String    @default("Open") // Open, Received, Cancelled
+  orderDate            DateTime  @default(now())
+  expectedDeliveryDate DateTime? // grower-editable expected arrival date
+  closedAt             DateTime? // set when Received or Cancelled
+  notes                String?
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  grower Grower @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([growerId, status])
+  @@index([itemId])
+  @@index([vendorId])
+}
+
+// ============================================================
+// ANALYTICS & LEDGER (Power BI friendly FACT table)
+// ============================================================
+
+model InventoryLedger {
+  id              Int      @id @default(autoincrement())
+  submissionId    Int?
+  date            DateTime
+  growerId        Int
+  itemId          String
+  locationId      Int?
+  transactionType String   @default("Daily Count Update") // Daily Count Update, Manual Adjustment
+  finalQuantity   Decimal
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  submission GrowerSubmission? @relation(fields: [submissionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grower     Grower            @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item       Item              @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  location   Location?         @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([growerId, itemId, date])
+  @@index([date])
+}
+
+// ============================================================
+// VENDOR INVENTORY SUBMISSION
+// ============================================================
+
+model VendorSubmission {
+  id             Int      @id @default(autoincrement())
+  vendorId       Int
+  submittedBy    Int
+  submissionDate DateTime @default(now())
+  status         String   @default("Approved")
+  comments       String?
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  vendor    Vendor                   @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  submitter User                     @relation("VendorSubmissionSubmittedBy", fields: [submittedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  details   VendorSubmissionDetail[]
+
+  @@index([vendorId])
+  @@index([submissionDate])
+}
+
+model VendorSubmissionDetail {
+  id            Int     @id @default(autoincrement())
+  submissionId  Int
+  itemId        String
+  quantity      Decimal @default(0)
+  unitOfMeasure String?
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  submission  VendorSubmission   @relation(fields: [submissionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  item        Item               @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  allocations VendorAllocation[]
+
+  @@index([submissionId])
+  @@index([itemId])
+}
+
+// Per-grower breakdown of a vendor's item quantity
+model VendorAllocation {
+  id                       Int     @id @default(autoincrement())
+  vendorSubmissionDetailId Int
+  growerId                 Int
+  quantity                 Decimal @default(0)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  detail VendorSubmissionDetail @relation(fields: [vendorSubmissionDetailId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  grower Grower                 @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([vendorSubmissionDetailId])
+  @@index([growerId])
+}
+
+// ============================================================
+// GROWER REQUESTS & FLAGS
+// ============================================================
+
+model MissingItemRequest {
+  id            Int       @id @default(autoincrement())
+  growerId      Int
+  requestedBy   Int
+  itemName      String
+  commodityHint String?
+  categoryHint  String?
+  notes         String?
+  status        String    @default("Open") // Open, Reviewed, Fulfilled, Rejected
+  reviewedBy    Int?
+  reviewedAt    DateTime?
+  reviewNotes   String?
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  grower    Grower @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  requester User   @relation("RequestRequestedBy", fields: [requestedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([growerId])
+  @@index([status])
+}
+
+model LowInventoryFlag {
+  id           Int     @id @default(autoincrement())
+  growerId     Int
+  itemId       String
+  flaggedBy    Int
+  submissionId Int?
+  reason       String?
+  isActive     Boolean @default(true)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  grower Grower @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([growerId])
+  @@index([itemId])
+}
+
+// ============================================================
+// THRESHOLDS, SETTINGS, CONVERSIONS
+// ============================================================
+
+// growerId null => global default threshold for the item
+model ItemThreshold {
+  id                Int     @id @default(autoincrement())
+  itemId            String
+  growerId          Int?
+  thresholdQuantity Decimal
+  unitOfMeasure     String?
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  item   Item    @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grower Grower? @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([itemId, growerId])
+  @@index([itemId])
+}
+
+// scope = Global (growerId null) or per-grower override
+model SchedulerSetting {
+  id                Int     @id @default(autoincrement())
+  scope             String  @default("Global") // Global, Grower
+  growerId          Int?
+  cadenceType       String  @default("AfterNDays") // Daily, Weekly, Monthly, AfterNDays
+  thresholdDays     Int     @default(3) // days of no submission before first reminder
+  reminderFrequency String  @default("Daily") // how often to remind after triggered
+  isEnabled         Boolean @default(true)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  grower Grower? @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([growerId])
+}
+
+model UnitConversion {
+  id            Int     @id @default(autoincrement())
+  fromUnit      String
+  toUnit        String
+  factor        Decimal // 1 fromUnit = factor toUnit
+  itemId        String?
+  commodityCode String?
+  notes         String?
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  item      Item?      @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  commodity Commodity? @relation(fields: [commodityCode], references: [code], onDelete: NoAction, onUpdate: NoAction)
+}
+
+// ============================================================
+// AUDIT, NOTIFICATIONS, REPORTS
+// ============================================================
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  action     String // Create, Update, Delete, Export
+  entityType String // Item, Grower, Vendor, User, ...
+  entityId   String?
+  changes    String? // JSON string of before/after
+  createdAt  DateTime @default(now())
+
+  user User @relation("AuditUser", fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([userId])
+  @@index([entityType])
+  @@index([createdAt])
+}
+
+model NotificationLog {
+  id            Int       @id @default(autoincrement())
+  type          String // SubmissionReceived, MissingItemRequest, LowInventory, ScheduledReminder
+  toEmail       String
+  growerId      Int?
+  vendorId      Int?
+  subject       String
+  body          String
+  status        String    @default("Mocked") // Mocked, Sent, Failed
+  relatedEntity String?
+  createdAt     DateTime  @default(now())
+  sentAt        DateTime?
+
+  grower Grower? @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vendor Vendor? @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([createdAt])
+  @@index([type])
+}
+
+model PowerBiReport {
+  id        Int     @id @default(autoincrement())
+  name      String
+  embedUrl  String
+  roleScope String  @default("Admin") // which roles can view
+  isActive  Boolean @default(true)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+}

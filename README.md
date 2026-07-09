@@ -1,21 +1,80 @@
-# Next.js template
+# Inventory Management & Tracking
 
-This is a Next.js template with shadcn/ui.
+Full-stack Next.js app for inventory management across three personas:
 
-## Adding components
+- **Internal users** — Admins (master data, onboarding, user↔grower/vendor mapping, settings) and Editors (master data only). Items carry their own grower (who uses it) and vendor (who supplies it) mappings, editable from the item form.
+- **Growers** — submit daily on-hand counts, raise & track orders (per vendor, marked received/cancelled), flag low inventory, request missing items, view history + analytics. Mobile-first.
+- **Vendors** — report item quantities with per-grower allocation breakdowns, view history + analytics.
 
-To add components to your app, run the following command:
+Strict data isolation: growers/vendors only ever see their own data (enforced server-side by the session's grower/vendor mapping).
+
+## Stack
+
+Next.js 16 (App Router, Server Actions) · React 19 · TypeScript · Tailwind v4 · shadcn/ui · Prisma 6 · **Azure SQL / SQL Server** · zod · recharts · ExcelJS.
+
+The app runs **fully offline for the demo** via pluggable providers:
+- **Auth** — local user-picker + signed cookie (real **Entra ID** code is in `integration/`).
+- **Email** — triggers recorded to an in-app **Outbox** (real **ACS** sender at `lib/email/acs/`).
+- **Scheduler** — manual button / `npm run reminders` (real **Azure Timer Function** in `integration/`).
+
+See [`integration/INTEGRATION.md`](integration/INTEGRATION.md) to switch any of these on.
+
+## Getting started
 
 ```bash
-npx shadcn@latest add button
+npm install
+
+# 1. Configure the database
+cp .env.example .env
+#   edit DATABASE_URL to point at your SQL Server (Azure SQL / SQL Express / etc.)
+
+# 2. Create schema + demo data
+npm run db:push
+npm run db:seed
+
+# 3. Run
+npm run dev          # http://localhost:3000
 ```
 
-This will place the ui components in the `components` directory.
+Open `/login` and pick any seeded user. Reset data anytime with `npm run db:reset`.
 
-## Using components
+### Demo accounts
+`admin@demo.local` (admin) · `editor@demo.local` (editor) · `james@agribar.local`, `diago@brigo.local`, `priya@pdg.local` (growers) · `sam@packright.local`, `lena@palletpool.local`, `omar@labelworks.local` (vendors).
 
-To use the components in your app, import them as follows:
+## Scripts
 
-```tsx
-import { Button } from "@/components/ui/button";
+| Script | Purpose |
+|---|---|
+| `npm run dev` | Start the app |
+| `npm run db:push` | Sync Prisma schema to the DB |
+| `npm run db:seed` | Load demo data |
+| `npm run db:reset` | Force-reset schema + reseed |
+| `npm run reminders` | Run the scheduled-reminder check locally |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm run lint` | ESLint |
+
+## Project structure
+
 ```
+app/(auth)/login        demo user picker
+app/(app)/admin         internal: master data, growers/vendors, users, authorizations,
+                        requests, conversions, reports, settings (schedulers/thresholds/
+                        audit-logs/outbox), Excel export route
+app/(app)/grower        submit, on-order, history, requests, dashboard
+app/(app)/vendor        submit (with grower allocation), history, dashboard
+app/api/cron/reminders  secret-protected scheduler endpoint
+lib/auth                session (cookie/jose) + RBAC; entra/ is reference-only
+lib/actions             server actions (per domain), validated with zod
+lib/email               notify() abstraction + acs/ sender
+lib/scheduler           shared reminder logic
+lib/admin               shared list filters + Excel export
+prisma/                 schema + seed
+integration/            Entra, ACS, Azure Function — drop-in, build-excluded
+```
+
+Verification checklist: [`VERIFICATION.md`](VERIFICATION.md).
+
+> **Database note:** Prisma 6 is pinned intentionally — Prisma 7 removed `url` from
+> the datasource block and requires a driver adapter. The schema avoids SQL Server
+> incompatibilities (no native enums; status fields are strings; `NoAction` FKs to
+> avoid multiple cascade paths), so it targets Azure SQL directly.

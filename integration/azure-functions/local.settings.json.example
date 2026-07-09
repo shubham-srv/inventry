@@ -1,0 +1,9 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "APP_URL": "http://localhost:3000",
+    "CRON_SECRET": "dev-only-cron-secret"
+  }
+}

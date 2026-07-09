@@ -1,0 +1,17 @@
+{
+  "name": "inventory-reminders-function",
+  "version": "1.0.0",
+  "description": "Azure Timer Function that triggers the inventory reminder check.",
+  "main": "dist/src/functions/*.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "func start"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "@types/node": "^20"
+  }
+}

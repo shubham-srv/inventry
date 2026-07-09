@@ -48,72 +48,72 @@
 }
 
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.148 0.004 228.8);
+    --background: oklch(0.992 0.004 220);
+    --foreground: oklch(0.21 0.025 250);
     --card: oklch(1 0 0);
-    --card-foreground: oklch(0.148 0.004 228.8);
+    --card-foreground: oklch(0.21 0.025 250);
     --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.148 0.004 228.8);
-    --primary: oklch(0.52 0.105 223.128);
-    --primary-foreground: oklch(0.984 0.019 200.873);
-    --secondary: oklch(0.967 0.001 286.375);
-    --secondary-foreground: oklch(0.21 0.006 285.885);
-    --muted: oklch(0.963 0.002 197.1);
-    --muted-foreground: oklch(0.56 0.021 213.5);
-    --accent: oklch(0.963 0.002 197.1);
-    --accent-foreground: oklch(0.218 0.008 223.9);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.925 0.005 214.3);
-    --input: oklch(0.925 0.005 214.3);
-    --ring: oklch(0.723 0.014 214.4);
-    --chart-1: oklch(0.872 0.007 219.6);
-    --chart-2: oklch(0.56 0.021 213.5);
-    --chart-3: oklch(0.45 0.017 213.2);
-    --chart-4: oklch(0.378 0.015 216);
-    --chart-5: oklch(0.275 0.011 216.9);
+    --popover-foreground: oklch(0.21 0.025 250);
+    --primary: oklch(0.56 0.13 200);
+    --primary-foreground: oklch(0.99 0.01 200);
+    --secondary: oklch(0.955 0.025 200);
+    --secondary-foreground: oklch(0.32 0.05 215);
+    --muted: oklch(0.965 0.01 220);
+    --muted-foreground: oklch(0.52 0.035 225);
+    --accent: oklch(0.93 0.05 195);
+    --accent-foreground: oklch(0.32 0.07 210);
+    --destructive: oklch(0.585 0.22 25);
+    --border: oklch(0.9 0.012 220);
+    --input: oklch(0.9 0.012 220);
+    --ring: oklch(0.56 0.13 200);
+    --chart-1: oklch(0.6 0.14 200);
+    --chart-2: oklch(0.66 0.15 150);
+    --chart-3: oklch(0.76 0.15 80);
+    --chart-4: oklch(0.6 0.18 290);
+    --chart-5: oklch(0.63 0.2 22);
     --radius: 0.625rem;
-    --sidebar: oklch(0.987 0.002 197.1);
-    --sidebar-foreground: oklch(0.148 0.004 228.8);
-    --sidebar-primary: oklch(0.609 0.126 221.723);
-    --sidebar-primary-foreground: oklch(0.984 0.019 200.873);
-    --sidebar-accent: oklch(0.963 0.002 197.1);
-    --sidebar-accent-foreground: oklch(0.218 0.008 223.9);
-    --sidebar-border: oklch(0.925 0.005 214.3);
-    --sidebar-ring: oklch(0.723 0.014 214.4);
+    --sidebar: oklch(0.975 0.014 210);
+    --sidebar-foreground: oklch(0.21 0.025 250);
+    --sidebar-primary: oklch(0.56 0.13 200);
+    --sidebar-primary-foreground: oklch(0.99 0.01 200);
+    --sidebar-accent: oklch(0.93 0.05 200);
+    --sidebar-accent-foreground: oklch(0.32 0.07 210);
+    --sidebar-border: oklch(0.9 0.014 215);
+    --sidebar-ring: oklch(0.56 0.13 200);
 }
 
 .dark {
-    --background: oklch(0.148 0.004 228.8);
-    --foreground: oklch(0.987 0.002 197.1);
-    --card: oklch(0.218 0.008 223.9);
-    --card-foreground: oklch(0.987 0.002 197.1);
-    --popover: oklch(0.218 0.008 223.9);
-    --popover-foreground: oklch(0.987 0.002 197.1);
-    --primary: oklch(0.45 0.085 224.283);
-    --primary-foreground: oklch(0.984 0.019 200.873);
-    --secondary: oklch(0.274 0.006 286.033);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.275 0.011 216.9);
-    --muted-foreground: oklch(0.723 0.014 214.4);
-    --accent: oklch(0.275 0.011 216.9);
-    --accent-foreground: oklch(0.987 0.002 197.1);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
+    --background: oklch(0.17 0.02 245);
+    --foreground: oklch(0.97 0.006 210);
+    --card: oklch(0.215 0.025 245);
+    --card-foreground: oklch(0.97 0.006 210);
+    --popover: oklch(0.215 0.025 245);
+    --popover-foreground: oklch(0.97 0.006 210);
+    --primary: oklch(0.72 0.14 200);
+    --primary-foreground: oklch(0.18 0.03 230);
+    --secondary: oklch(0.28 0.025 245);
+    --secondary-foreground: oklch(0.97 0.006 210);
+    --muted: oklch(0.27 0.022 245);
+    --muted-foreground: oklch(0.72 0.025 220);
+    --accent: oklch(0.33 0.05 210);
+    --accent-foreground: oklch(0.95 0.02 200);
+    --destructive: oklch(0.7 0.19 22);
+    --border: oklch(1 0 0 / 12%);
     --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.56 0.021 213.5);
-    --chart-1: oklch(0.872 0.007 219.6);
-    --chart-2: oklch(0.56 0.021 213.5);
-    --chart-3: oklch(0.45 0.017 213.2);
-    --chart-4: oklch(0.378 0.015 216);
-    --chart-5: oklch(0.275 0.011 216.9);
-    --sidebar: oklch(0.218 0.008 223.9);
-    --sidebar-foreground: oklch(0.987 0.002 197.1);
-    --sidebar-primary: oklch(0.715 0.143 215.221);
-    --sidebar-primary-foreground: oklch(0.302 0.056 229.695);
-    --sidebar-accent: oklch(0.275 0.011 216.9);
-    --sidebar-accent-foreground: oklch(0.987 0.002 197.1);
+    --ring: oklch(0.72 0.14 200);
+    --chart-1: oklch(0.72 0.14 200);
+    --chart-2: oklch(0.72 0.15 150);
+    --chart-3: oklch(0.79 0.15 82);
+    --chart-4: oklch(0.7 0.16 290);
+    --chart-5: oklch(0.7 0.19 22);
+    --sidebar: oklch(0.2 0.025 245);
+    --sidebar-foreground: oklch(0.97 0.006 210);
+    --sidebar-primary: oklch(0.72 0.14 200);
+    --sidebar-primary-foreground: oklch(0.18 0.03 230);
+    --sidebar-accent: oklch(0.3 0.045 215);
+    --sidebar-accent-foreground: oklch(0.95 0.02 200);
     --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.56 0.021 213.5);
+    --sidebar-ring: oklch(0.72 0.14 200);
 }
 
 @layer base {
@@ -129,4 +129,27 @@
   html {
     @apply font-sans;
     }
+}
+
+/* --- Radix / react-remove-scroll layout-shift fix ---
+   Opening a Radix menu/dialog (dropdown, select, popover, dialog, sheet) locks
+   page scroll via react-remove-scroll. That hides the vertical scrollbar AND
+   adds a compensating `margin-right` to <body> (gapMode defaults to 'margin').
+   Because our pages scroll on the viewport while the sidebar/header are
+   fixed/sticky, this causes a visible shift.
+
+   Fix in two parts:
+   1. Reserve the scrollbar gutter permanently, so hiding the scrollbar never
+      changes layout geometry (also covers the fixed/sticky elements).
+   2. Cancel react-remove-scroll's now-redundant compensation. It targets
+      `body[data-scroll-locked]` with `margin-right: <gap>px !important` from an
+      UNLAYERED injected <style>, so we override it unlayered, with higher
+      specificity (`html body[...]`) and `!important`. We keep overflow:hidden
+      (the actual scroll lock) untouched. */
+html {
+  scrollbar-gutter: stable;
+}
+html body[data-scroll-locked] {
+  margin-right: 0 !important;
+  padding-right: 0 !important;
 }
