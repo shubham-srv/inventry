@@ -2,7 +2,7 @@
 // and the isolated Azure Timer Function.)
 import { startOfDay, differenceInCalendarDays } from "date-fns"
 import { prisma } from "@/lib/db"
-import { notify } from "@/lib/email/notify"
+import { notifyScheduledReminder } from "@/lib/email/notify"
 import { NOTIFICATION_TYPES, SUBMISSION_STATUS } from "@/lib/constants"
 
 // Shared reminder logic. Invoked by:
@@ -73,13 +73,14 @@ export async function runReminderCheck(): Promise<ReminderResult> {
     if (already) continue
 
     const overdueLabel = Number.isFinite(daysSince) ? `${daysSince} day(s)` : "a while"
-    await notify({
-      type: NOTIFICATION_TYPES.SCHEDULED_REMINDER,
-      toEmail: g.primaryEmail ?? `ops+${g.id}@example.com`,
+    // Language comes from the grower record (headless run — no request cookie).
+    await notifyScheduledReminder({
       growerId: g.id,
-      subject: `Reminder: please submit your inventory count — ${g.growerName}`,
-      body: `${g.growerName} has not submitted an inventory count in ${overdueLabel} (cadence: ${setting.cadenceType}). Please update your inventory.`,
-      relatedEntity: "SchedulerSetting",
+      growerName: g.growerName,
+      toEmail: g.primaryEmail ?? `ops+${g.id}@example.com`,
+      locale: g.preferredLocale,
+      daysSince: Number.isFinite(daysSince) ? daysSince : null,
+      cadenceType: setting.cadenceType,
     })
     remindersCreated++
     messages.push(`${g.growerName}: overdue ${overdueLabel} → reminder queued`)

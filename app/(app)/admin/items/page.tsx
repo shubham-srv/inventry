@@ -4,7 +4,7 @@ import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { itemsWhere } from "@/lib/admin/queries"
 import { parseListParams } from "@/lib/query"
-import { ENTITY_STATUS, APPLICATION_METHODS, PRODUCT_CLASSES } from "@/lib/constants"
+import { ENTITY_STATUS, APPLICATION_METHODS } from "@/lib/constants"
 import { createItem, updateItem, deleteItem } from "@/lib/actions/items"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
@@ -90,13 +90,6 @@ export default async function ItemsPage({
       })),
     },
     {
-      name: "productClass",
-      label: "Product class",
-      type: "select",
-      placeholder: "Select class",
-      options: PRODUCT_CLASSES.map((p) => ({ label: p, value: p })),
-    },
-    {
       name: "countryOfOriginId",
       label: "Country of origin",
       type: "select",
@@ -143,7 +136,6 @@ export default async function ItemsPage({
     { key: "itemName", header: "Name", cell: (r) => <span className="font-medium">{r.itemName}</span> },
     { key: "commodity", header: "Commodity", cell: (r) => r.commodity?.name ?? "—" },
     { key: "category", header: "Category", cell: (r) => r.materialCategory?.name ?? "—" },
-    { key: "class", header: "Class", cell: (r) => r.productClass ?? "—" },
     { key: "coo", header: "Origin", cell: (r) => r.countryOfOrigin?.name ?? "—" },
     { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
     {
@@ -164,7 +156,6 @@ export default async function ItemsPage({
               commodityCode: r.commodityCode ?? "",
               materialCategoryCode: r.materialCategoryCode ?? "",
               subCategoryId: r.subCategoryId ?? "",
-              productClass: r.productClass ?? "",
               countryOfOriginId: r.countryOfOriginId ?? "",
               applicationMethod: r.applicationMethod ?? "",
               status: r.status,

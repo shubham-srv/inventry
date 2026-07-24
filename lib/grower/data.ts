@@ -30,6 +30,13 @@ export type OrderView = {
   closedAt: string | null // ISO; set when Received/Cancelled
 }
 
+export type ItemMessageView = {
+  id: number
+  type: string // translatable key (see itemMessage.type.* in the dictionaries)
+  severity: string // info, warning, critical
+  body: string | null // optional free-text note, shown as-authored
+}
+
 export type SubmitRow = {
   itemId: string
   itemName: string
@@ -45,6 +52,7 @@ export type SubmitRow = {
   lowFlagged: boolean
   orders: OrderView[] // open orders + anything closed today
   vendorOptions: { id: number; name: string }[] // vendors this item can be ordered from
+  messages: ItemMessageView[] // admin notices shown under this item
 }
 
 export async function getGrowerSubmitData(growerId: number) {
@@ -56,7 +64,7 @@ export async function getGrowerSubmitData(growerId: number) {
   const itemIds = auths.map((a) => a.itemId)
   const todayStart = startOfDay(new Date())
 
-  const [todaySub, prevLedger, thresholds, lowFlags, orders, itemVendors, activeVendors] =
+  const [todaySub, prevLedger, thresholds, lowFlags, orders, itemVendors, activeVendors, itemMessages] =
     await Promise.all([
       prisma.growerSubmission.findFirst({
         where: { growerId, submissionDate: { gte: todayStart } },
@@ -88,6 +96,20 @@ export async function getGrowerSubmitData(growerId: number) {
         where: { status: "Active" },
         select: { id: true, vendorName: true },
         orderBy: { vendorName: "asc" },
+      }),
+      // Active item messages for this grower: all-growers or specifically
+      // targeted, within their optional start/end window.
+      prisma.itemMessage.findMany({
+        where: {
+          itemId: { in: itemIds },
+          isActive: true,
+          AND: [
+            { OR: [{ startsAt: null }, { startsAt: { lte: new Date() } }] },
+            { OR: [{ endsAt: null }, { endsAt: { gte: new Date() } }] },
+          ],
+          OR: [{ audience: "All" }, { targets: { some: { growerId } } }],
+        },
+        orderBy: { createdAt: "desc" },
       }),
     ])
 
@@ -127,6 +149,13 @@ export async function getGrowerSubmitData(growerId: number) {
   }
   const allVendorOptions = activeVendors.map((v) => ({ id: v.id, name: v.vendorName }))
 
+  const messagesByItem = new Map<string, ItemMessageView[]>()
+  for (const m of itemMessages) {
+    const list = messagesByItem.get(m.itemId) ?? []
+    list.push({ id: m.id, type: m.type, severity: m.severity, body: m.body })
+    messagesByItem.set(m.itemId, list)
+  }
+
   const rows: SubmitRow[] = auths.map((a) => {
     const t = thresholds.get(a.itemId)
     const prev = prevByItem.has(a.itemId) ? prevByItem.get(a.itemId)! : null
@@ -147,6 +176,7 @@ export async function getGrowerSubmitData(growerId: number) {
       lowFlagged: lowSet.has(a.itemId),
       orders: ordersByItem.get(a.itemId) ?? [],
       vendorOptions: vendorsByItem.get(a.itemId) ?? allVendorOptions,
+      messages: messagesByItem.get(a.itemId) ?? [],
     }
   })
 

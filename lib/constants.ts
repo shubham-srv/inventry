@@ -54,8 +54,11 @@ export type CadenceType = (typeof CADENCE_TYPES)[number]
 export const NOTIFICATION_TYPES = {
   SUBMISSION_RECEIVED: "SubmissionReceived",
   MISSING_ITEM_REQUEST: "MissingItemRequest",
+  REQUEST_REVIEWED: "RequestReviewed",
   LOW_INVENTORY: "LowInventory",
+  LOW_INVENTORY_REVIEWED: "LowInventoryReviewed",
   SCHEDULED_REMINDER: "ScheduledReminder",
+  ORDER_PLACED: "OrderPlaced",
 } as const
 
 export const AUDIT_ACTIONS = {
@@ -69,15 +72,6 @@ export const APPLICATION_METHODS = [
   "Machine",
   "Hand",
   "Machine/Hand",
-  "N/A",
-] as const
-
-// Item product class — hardcoded dropdown (no dedicated table).
-export const PRODUCT_CLASSES = [
-  "Packaging",
-  "Label",
-  "Pallet",
-  "Consumable",
   "N/A",
 ] as const
 
@@ -100,3 +94,23 @@ export const UNITS_OF_MEASURE = [
   "Each",
   "Bundles",
 ] as const
+
+// Global item messages shown to growers under an item on their submit view.
+export const ITEM_MESSAGE_TYPES = [
+  "Retiring",
+  "IncreaseStock",
+  "ClearInventory",
+  "Info",
+] as const
+export type ItemMessageType = (typeof ITEM_MESSAGE_TYPES)[number]
+
+export const ITEM_MESSAGE_SEVERITIES = ["info", "warning", "critical"] as const
+export const ITEM_MESSAGE_AUDIENCES = ["All", "Selected"] as const
+
+// Admin-facing English labels (the grower view translates via i18n instead).
+export const ITEM_MESSAGE_TYPE_LABELS: Record<ItemMessageType, string> = {
+  Retiring: "Retiring",
+  IncreaseStock: "Increase stock",
+  ClearInventory: "Clear inventory",
+  Info: "Notice",
+}

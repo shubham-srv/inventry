@@ -5,6 +5,7 @@ import { CAPABILITIES } from "@/lib/rbac"
 import { vendorsWhere } from "@/lib/admin/queries"
 import { parseListParams } from "@/lib/query"
 import { ENTITY_STATUS } from "@/lib/constants"
+import { LOCALE_OPTIONS } from "@/lib/i18n/config"
 import { createVendor, updateVendor, deleteVendor } from "@/lib/actions/partners"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
@@ -31,6 +32,7 @@ type Row = {
   ptAccountNumber: string | null
   notes: string | null
   status: string
+  preferredLocale: string
   itemVendors: { itemId: string }[]
   materialCategories: { materialCategoryCode: string }[]
   _count: { users: number }
@@ -65,6 +67,7 @@ export default async function VendorsPage({
     { name: "vendorName", label: "Name", type: "text", required: true, colSpan: 2 },
     { name: "vendorType", label: "Type", type: "select", placeholder: "Select type", options: VENDOR_TYPES.map((t) => ({ label: t, value: t })) },
     { name: "status", label: "Status", type: "select", required: true, options: STATUSES.map((s) => ({ label: s, value: s })) },
+    { name: "preferredLocale", label: "Email language", type: "select", required: true, options: LOCALE_OPTIONS },
     { name: "region", label: "Region", type: "text" },
     { name: "country", label: "Country", type: "text" },
     { name: "primaryContact", label: "Primary contact", type: "text" },
@@ -112,7 +115,7 @@ export default async function VendorsPage({
             fields={fields}
             action={updateVendor}
             values={{
-              id: r.id, vendorName: r.vendorName, vendorType: r.vendorType ?? "", status: r.status,
+              id: r.id, vendorName: r.vendorName, vendorType: r.vendorType ?? "", status: r.status, preferredLocale: r.preferredLocale,
               region: r.region ?? "", country: r.country ?? "", primaryContact: r.primaryContact ?? "",
               contactEmail: r.contactEmail ?? "", contactPhone: r.contactPhone ?? "", leadTime: r.leadTime ?? "",
               paymentTerms: r.paymentTerms ?? "", ptAccountNumber: r.ptAccountNumber ?? "", notes: r.notes ?? "",

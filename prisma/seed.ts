@@ -55,6 +55,15 @@ async function clearAll() {
 }
 
 async function main() {
+  // Safety: this seed WIPES the database (clearAll below) — it's for the local
+  // demo only. Production reference data is created idempotently by
+  // prisma/bootstrap.ts. Refuse to run if NODE_ENV=production.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "Refusing to run the demo seed with NODE_ENV=production (it deletes all data). Use `npm run db:bootstrap` instead."
+    )
+  }
+
   console.log("Clearing existing data…")
   await clearAll()
 
@@ -79,7 +88,8 @@ async function main() {
     data: { growerName: "Agribar", primaryEmail: "ops@agribar.example", status: "Active" },
   })
   const brigo = await prisma.grower.create({
-    data: { growerName: "Brigo", primaryEmail: "ops@brigo.example", status: "Active" },
+    // Spanish-preference grower — demoes bilingual emails out of the box.
+    data: { growerName: "Brigo", primaryEmail: "ops@brigo.example", status: "Active", preferredLocale: "es" },
   })
   const pdg = await prisma.grower.create({
     data: { growerName: "PDG", primaryEmail: "ops@pdg.example", status: "Active" },
@@ -112,6 +122,7 @@ async function main() {
       leadTime: "3 days",
       paymentTerms: "Net 15",
       status: "Active",
+      preferredLocale: "es", // Spanish-preference vendor
     },
   })
   const labelWorks = await prisma.vendor.create({
@@ -153,7 +164,7 @@ async function main() {
   const growerUserDefs = [
     { firstName: "James", lastName: "Field", email: "james@agribar.local", growerId: agribar.id },
     { firstName: "Maria", lastName: "Lopez", email: "maria@agribar.local", growerId: agribar.id },
-    { firstName: "Diago", lastName: "Santos", email: "diago@brigo.local", growerId: brigo.id },
+    { firstName: "Diago", lastName: "Santos", email: "diago@brigo.local", growerId: brigo.id, preferredLocale: "es" },
     { firstName: "Priya", lastName: "Nair", email: "priya@pdg.local", growerId: pdg.id },
   ]
   for (const u of growerUserDefs) {
@@ -164,7 +175,7 @@ async function main() {
 
   const vendorUserDefs = [
     { firstName: "Sam", lastName: "Carter", email: "sam@packright.local", vendorId: packRight.id },
-    { firstName: "Lena", lastName: "Ortiz", email: "lena@palletpool.local", vendorId: palletPool.id },
+    { firstName: "Lena", lastName: "Ortiz", email: "lena@palletpool.local", vendorId: palletPool.id, preferredLocale: "es" },
     { firstName: "Omar", lastName: "Reed", email: "omar@labelworks.local", vendorId: labelWorks.id },
   ]
   for (const u of vendorUserDefs) {
@@ -244,18 +255,18 @@ async function main() {
 
   // ---- Items ----------------------------------------------------------
   const itemDefs = [
-    { id: "AP-BX-00001", itemName: "Asparagus Cardboard Box 11lb", commodityCode: "AP", materialCategoryCode: "BX", subCategory: "Cardboard Boxes", uom: "Cases", productClass: "Packaging", coo: "USA" },
-    { id: "AP-BG-00002", itemName: "Asparagus Mesh Bag 2lb", commodityCode: "AP", materialCategoryCode: "BG", subCategory: "Mesh Bags", uom: "Bags", productClass: "Packaging", coo: "Mexico" },
-    { id: "BP-BX-00003", itemName: "Bell Pepper Box 25lb", commodityCode: "BP", materialCategoryCode: "BX", subCategory: "Cardboard Boxes", uom: "Cases", productClass: "Packaging", coo: "USA" },
-    { id: "BP-LB-00004", itemName: "Bell Pepper PLU Sticker", commodityCode: "BP", materialCategoryCode: "LB", subCategory: "PLU Stickers", uom: "Rolls", productClass: "Label", coo: "USA" },
-    { id: "CG-BX-00005", itemName: "Grape Clamshell Box", commodityCode: "CG", materialCategoryCode: "BX", subCategory: "Packaged Boxes", uom: "Cases", productClass: "Packaging", coo: "Peru" },
-    { id: "CG-PL-00006", itemName: "Grape Wooden Pallet", commodityCode: "CG", materialCategoryCode: "PL", subCategory: "Wooden Pallets", uom: "Pallets", productClass: "Pallet", coo: "Canada" },
-    { id: "BR-BX-00007", itemName: "Berry Clamshell 6oz", commodityCode: "BR", materialCategoryCode: "BX", subCategory: "Packaged Boxes", uom: "Cases", productClass: "Packaging", coo: "Mexico" },
-    { id: "BR-LB-00008", itemName: "Berry Brand Label", commodityCode: "BR", materialCategoryCode: "LB", subCategory: "Brand Labels", uom: "Rolls", productClass: "Label", coo: "USA" },
-    { id: "AV-BX-00009", itemName: "Avocado Box 25lb", commodityCode: "AV", materialCategoryCode: "BX", subCategory: "Cardboard Boxes", uom: "Cases", productClass: "Packaging", coo: "Mexico" },
-    { id: "AV-BG-00010", itemName: "Avocado Poly Bag 4ct", commodityCode: "AV", materialCategoryCode: "BG", subCategory: "Poly Bags", uom: "Bags", productClass: "Packaging", coo: "Ecuador" },
-    { id: "BP-PL-00011", itemName: "Bell Pepper Pallet", commodityCode: "BP", materialCategoryCode: "PL", subCategory: "Wooden Pallets", uom: "Pallets", productClass: "Pallet", coo: "USA" },
-    { id: "CG-ST-00012", itemName: "Grape Adhesive Sticker", commodityCode: "CG", materialCategoryCode: "ST", subCategory: "Adhesive Stickers", uom: "Rolls", productClass: "Label", coo: "N/A" },
+    { id: "AP-BX-00001", itemName: "Asparagus Cardboard Box 11lb", commodityCode: "AP", materialCategoryCode: "BX", subCategory: "Cardboard Boxes", uom: "Cases", coo: "USA" },
+    { id: "AP-BG-00002", itemName: "Asparagus Mesh Bag 2lb", commodityCode: "AP", materialCategoryCode: "BG", subCategory: "Mesh Bags", uom: "Bags", coo: "Mexico" },
+    { id: "BP-BX-00003", itemName: "Bell Pepper Box 25lb", commodityCode: "BP", materialCategoryCode: "BX", subCategory: "Cardboard Boxes", uom: "Cases", coo: "USA" },
+    { id: "BP-LB-00004", itemName: "Bell Pepper PLU Sticker", commodityCode: "BP", materialCategoryCode: "LB", subCategory: "PLU Stickers", uom: "Rolls", coo: "USA" },
+    { id: "CG-BX-00005", itemName: "Grape Clamshell Box", commodityCode: "CG", materialCategoryCode: "BX", subCategory: "Packaged Boxes", uom: "Cases", coo: "Peru" },
+    { id: "CG-PL-00006", itemName: "Grape Wooden Pallet", commodityCode: "CG", materialCategoryCode: "PL", subCategory: "Wooden Pallets", uom: "Pallets", coo: "Canada" },
+    { id: "BR-BX-00007", itemName: "Berry Clamshell 6oz", commodityCode: "BR", materialCategoryCode: "BX", subCategory: "Packaged Boxes", uom: "Cases", coo: "Mexico" },
+    { id: "BR-LB-00008", itemName: "Berry Brand Label", commodityCode: "BR", materialCategoryCode: "LB", subCategory: "Brand Labels", uom: "Rolls", coo: "USA" },
+    { id: "AV-BX-00009", itemName: "Avocado Box 25lb", commodityCode: "AV", materialCategoryCode: "BX", subCategory: "Cardboard Boxes", uom: "Cases", coo: "Mexico" },
+    { id: "AV-BG-00010", itemName: "Avocado Poly Bag 4ct", commodityCode: "AV", materialCategoryCode: "BG", subCategory: "Poly Bags", uom: "Bags", coo: "Ecuador" },
+    { id: "BP-PL-00011", itemName: "Bell Pepper Pallet", commodityCode: "BP", materialCategoryCode: "PL", subCategory: "Wooden Pallets", uom: "Pallets", coo: "USA" },
+    { id: "CG-ST-00012", itemName: "Grape Adhesive Sticker", commodityCode: "CG", materialCategoryCode: "ST", subCategory: "Adhesive Stickers", uom: "Rolls", coo: "N/A" },
   ]
   for (const it of itemDefs) {
     await prisma.item.create({
@@ -265,7 +276,6 @@ async function main() {
         commodityCode: it.commodityCode,
         materialCategoryCode: it.materialCategoryCode,
         subCategoryId: subCats[it.subCategory],
-        productClass: it.productClass,
         countryOfOriginId: cooByName[it.coo],
         applicationMethod: "Machine/Hand",
         status: "Active",
@@ -570,6 +580,48 @@ async function main() {
       reviewedAt: daysAgo(1),
       reviewNotes: "Sourcing with vendor",
       createdBy: priyaUser.id,
+    },
+  })
+
+  // ---- Global item messages (grower-facing notices) -------------------
+  // All-growers notice on a retiring item.
+  await prisma.itemMessage.create({
+    data: {
+      itemId: "CG-ST-00012",
+      type: "Retiring",
+      severity: "warning",
+      audience: "All",
+      body: "Being phased out — please run down remaining stock.",
+      createdBy: adminId,
+      updatedBy: adminId,
+    },
+  })
+  // Selected-growers notice (only Brigo, a Spanish-preference grower — the type
+  // label renders localized in their view).
+  const increaseStock = await prisma.itemMessage.create({
+    data: {
+      itemId: "CG-BX-00005",
+      type: "IncreaseStock",
+      severity: "info",
+      audience: "Selected",
+      body: "Seasonal demand high — increase stock for the coming weeks.",
+      createdBy: adminId,
+      updatedBy: adminId,
+    },
+  })
+  await prisma.itemMessageGrower.create({
+    data: { itemMessageId: increaseStock.id, growerId: brigo.id },
+  })
+  // All-growers critical notice.
+  await prisma.itemMessage.create({
+    data: {
+      itemId: "AV-BG-00010",
+      type: "ClearInventory",
+      severity: "critical",
+      audience: "All",
+      body: "Material out of manufacturing — clear inventory soon.",
+      createdBy: adminId,
+      updatedBy: adminId,
     },
   })
 

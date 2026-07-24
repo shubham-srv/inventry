@@ -70,7 +70,18 @@ export default async function OutboxPage({
                       {m.grower && ` · ${m.grower.growerName}`}
                       {m.vendor && ` · ${m.vendor.vendorName}`}
                     </p>
-                    <p className="mt-1 text-sm">{m.body}</p>
+                    {m.bodyHtml ? (
+                      // Rendered React Email HTML. sandbox="" (no allow-scripts)
+                      // keeps the preview inert; the HTML is our own template output.
+                      <iframe
+                        title={m.subject}
+                        srcDoc={m.bodyHtml}
+                        sandbox=""
+                        className="mt-2 h-72 w-full rounded-md border bg-white"
+                      />
+                    ) : (
+                      <p className="mt-1 text-sm">{m.body}</p>
+                    )}
                   </div>
                   <span className="text-muted-foreground shrink-0 text-xs">
                     {format(m.createdAt, "MMM d, HH:mm")}

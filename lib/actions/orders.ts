@@ -8,6 +8,7 @@ import { ROLES, ORDER_STATUS } from "@/lib/constants"
 import { ok, fail, type ActionState } from "@/lib/actions/types"
 import { parseForm } from "@/lib/actions/_shared"
 import { getT } from "@/lib/i18n/server"
+import { notifyOrderPlaced } from "@/lib/email/notify"
 
 async function requireGrower(): Promise<{ user: SessionUser; growerId: number }> {
   const user = await requireRole([ROLES.GROWER_USER])
@@ -80,6 +81,23 @@ export async function createOrder(_prev: ActionState, fd: FormData): Promise<Act
       updatedBy: user.id,
     },
   })
+
+  // Confirm the order to the grower in their language.
+  const [grower, item, vendor] = await Promise.all([
+    prisma.grower.findUnique({ where: { id: growerId }, select: { primaryEmail: true, preferredLocale: true } }),
+    prisma.item.findUnique({ where: { id: data.itemId }, select: { itemName: true } }),
+    prisma.vendor.findUnique({ where: { id: data.vendorId }, select: { vendorName: true } }),
+  ])
+  await notifyOrderPlaced({
+    growerId,
+    toEmail: grower?.primaryEmail ?? null,
+    locale: grower?.preferredLocale ?? null,
+    itemName: item?.itemName ?? data.itemId,
+    vendorName: vendor?.vendorName ?? "",
+    quantity: data.quantity,
+    uom: data.unitOfMeasure || null,
+  })
+
   revalidateGrower()
   return ok(t("grower.orders.actions.created"))
 }

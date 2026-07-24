@@ -1,0 +1,100 @@
+# Azure DevOps pipeline — build → migrate → deploy to Azure Container Apps (staging).
+#
+# One-time prerequisites (see docs/azure-staging-setup.md §"CI/CD pipeline"):
+#   1. An ARM service connection — put its name in `azureSubscription` below.
+#   2. A variable group `inventory-staging-secrets` linked to Key Vault, exposing:
+#        DATABASE_URL, BOOTSTRAP_ADMIN_EMAIL,
+#        BOOTSTRAP_ADMIN_FIRST_NAME, BOOTSTRAP_ADMIN_LAST_NAME
+#   3. ACR + the ACA app already created (Portal), and the ACA app's managed
+#      identity granted AcrPull on the registry (docs §8).
+
+trigger:
+  branches:
+    include:
+      - master
+
+variables:
+  - group: inventory-staging-secrets   # Key Vault-linked: DATABASE_URL, BOOTSTRAP_ADMIN_*
+  - name: azureSubscription
+    value: azure-staging-sc            # <-- your ARM service connection name
+  - name: acrName
+    value: acrinventorystaging
+  - name: resourceGroup
+    value: rg-staging
+  - name: acaApp
+    value: ca-inventory-web-staging
+  - name: imageRepo
+    value: inventory-web
+  - name: tag
+    value: $(Build.BuildId)
+
+stages:
+  # 1) Build the image in the cloud (ACR Tasks) — no Docker daemon on the agent.
+  - stage: Build
+    displayName: Build & push image
+    jobs:
+      - job: build
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: AzureCLI@2
+            displayName: az acr build
+            inputs:
+              azureSubscription: $(azureSubscription)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az acr build \
+                  --registry $(acrName) \
+                  --image $(imageRepo):$(tag) \
+                  --image $(imageRepo):latest \
+                  .
+
+  # 2) Apply migrations, then the idempotent bootstrap (roles + first admin).
+  #    Runs BEFORE the new image serves traffic. Needs DB reachability — see the
+  #    firewall note in docs §"CI/CD pipeline" (hosted-agent IPs vs Azure SQL).
+  - stage: Migrate
+    displayName: Migrate DB & bootstrap admin
+    dependsOn: Build
+    jobs:
+      - job: migrate
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: 20.x
+          - script: npm ci
+            displayName: npm ci
+          - script: npx prisma migrate deploy
+            displayName: prisma migrate deploy
+            env:
+              DATABASE_URL: $(DATABASE_URL)
+          - script: npm run db:bootstrap
+            displayName: bootstrap admin (idempotent)
+            env:
+              DATABASE_URL: $(DATABASE_URL)
+              BOOTSTRAP_ADMIN_EMAIL: $(BOOTSTRAP_ADMIN_EMAIL)
+              BOOTSTRAP_ADMIN_FIRST_NAME: $(BOOTSTRAP_ADMIN_FIRST_NAME)
+              BOOTSTRAP_ADMIN_LAST_NAME: $(BOOTSTRAP_ADMIN_LAST_NAME)
+
+  # 3) Point the Container App at the new image → rolls a fresh revision.
+  - stage: Deploy
+    displayName: Roll ACA revision
+    dependsOn: Migrate
+    jobs:
+      - job: deploy
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: AzureCLI@2
+            displayName: az containerapp update
+            inputs:
+              azureSubscription: $(azureSubscription)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az containerapp update \
+                  --name $(acaApp) \
+                  --resource-group $(resourceGroup) \
+                  --image $(acrName).azurecr.io/$(imageRepo):$(tag)

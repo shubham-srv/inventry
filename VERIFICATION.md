@@ -199,7 +199,7 @@ the trigger in a client-created `<span className="contents">` (layout-inert).
 > / `InventorySubmissionDetail` tables to `GrowerSubmission` /
 > `GrowerSubmissionDetail`, adds a `CountryOfOrigin` lookup table and a
 > `VendorMaterialCategory` mapping table, and adds columns
-> (`Item.productClass`, `Item.countryOfOriginId`, `Order.expectedDeliveryDate`).
+> (`Item.countryOfOriginId`, `Order.expectedDeliveryDate`).
 > `npx prisma generate` has been run (the query-engine DLL was locked by a
 > running dev server on Windows — restart `npm run dev` if types look stale).
 
@@ -210,12 +210,12 @@ the trigger in a client-created `<span className="contents">` (layout-inert).
 - [ ] **Settings → Schedulers → Run reminder check now** still works (reads submissions).
 - [ ] DB check: tables are now `GrowerSubmission` / `GrowerSubmissionDetail`.
 
-### Item: Product class + Country of origin (admin@demo.local, `/admin/items`)
-- [ ] **Add / Edit item** dialog has a **Product class** dropdown (Packaging, Label,
-      Pallet, Consumable, N/A) and a **Country of origin** dropdown (USA, Mexico,
-      Canada, Peru, Ecuador, N/A). Pick values → save → they persist and pre-fill on edit.
-- [ ] The items table shows **Class** and **Origin** columns; seeded items have values.
-- [ ] **Export items** (.xlsx) includes Product class + Country of origin columns.
+### Item: Country of origin (admin@demo.local, `/admin/items`)
+- [ ] **Add / Edit item** dialog has a **Country of origin** dropdown (USA, Mexico,
+      Canada, Peru, Ecuador, N/A). Pick a value → save → it persists and pre-fills on edit.
+- [ ] The items table shows an **Origin** column; seeded items have values.
+- [ ] **Export items** (.xlsx) includes a Country of origin column.
+- [ ] (Product class was later removed — see Round 7.)
 
 ### Vendor material categories (admin@demo.local, `/admin/vendors`)
 - [ ] **Add / Edit vendor** dialog has a **Material categories (this vendor supplies)**
@@ -233,6 +233,113 @@ the trigger in a client-created `<span className="contents">` (layout-inert).
       (open orders only) to edit it; seeded open orders show future ETAs.
 - [ ] Isolation: editing another grower's order id is rejected server-side.
 - [ ] Spanish: switch to Español → "Fecha de entrega prevista", "Entrega <date>".
+
+## Round 7 — remove Item product class + first real migration (July 2026)
+
+> **First change on the new migrate workflow** (see `MIGRATIONS.md`). This drops
+> the `Item.productClass` column. It ships as migration
+> `prisma/migrations/<ts>_remove_item_product_class/` (a `DROP COLUMN`), applied
+> with `npm run db:migrate:deploy`. If your dev server was running during
+> generate, **restart `npm run dev`** so it loads the client without `productClass`.
+
+- [ ] `/admin/items`: the Add/Edit dialog no longer has a **Product class** field;
+      the table no longer has a **Class** column. Country of origin is unaffected.
+- [ ] Creating/editing an item still saves correctly.
+- [ ] **Export items** (.xlsx) no longer has a Product class column (Origin remains).
+- [ ] `npm run db:migrate:status` → up to date; the DB `Item` table has no
+      `productClass` column.
+
+## Round 8 — email language, React Email, low-inventory review, item messages (July 2026)
+
+> **Requires schema changes.** Four additive migrations ship under
+> `prisma/migrations/` (`add_preferred_locale`, `notification_body_html`,
+> `low_inventory_review`, `item_messages`). `npx prisma generate` has already been
+> run, so the client types are current.
+>
+> - Apply to your existing DB: `npm run db:migrate:deploy` (all four are additive —
+>   new columns default sensibly; existing growers/vendors stay English).
+> - **For the full bilingual demo** (Brigo/PalletPool pre-set to Español + seeded
+>   item messages): `npm run db:reset` (force-reset + reseed).
+>
+> New optional env var: `APP_URL` (base URL for the button links in emails;
+> defaults to `http://localhost:3000`). Restart `npm run dev` after migrating.
+
+### P8.1 — Preferred language (both admin-set and self-served)
+- [ ] **Self-serve**: log in as **james@agribar.local**, switch language via the globe
+      icon → the choice persists across reload **and** across sign-out/in (it's now
+      saved to the user, then re-applied to the cookie on next login — try a private
+      window and log in again).
+- [ ] **Admin-set (grower)**: `/admin/growers` → Edit a grower → new **Email language**
+      dropdown (English / Español) saves and pre-fills on re-open.
+- [ ] **Admin-set (vendor)**: `/admin/vendors` → Edit → same **Email language** field.
+- [ ] Seeded Spanish orgs: **Brigo** grower and **PalletPool Co** vendor default to Español.
+
+### P8.2 — Localized React Email + Outbox HTML preview (admin → Settings → Outbox)
+All emails are now branded HTML (with a plaintext fallback) in the **recipient's**
+language. In the Outbox each row shows the **rendered HTML** in a preview frame.
+Trigger each and confirm language + content:
+- [ ] **Grower submission** — submit as **james** (English email) and as
+      **diago@brigo.local** (Brigo → **Spanish** email: "Envío de inventario recibido").
+- [ ] **Vendor submission** — submit as **lena@palletpool.local** → **Spanish** email.
+- [ ] **Scheduled reminder** — Settings → Schedulers → Run reminder check now (or
+      `npm run reminders`) → Brigo's reminder is in **Spanish**, Agribar/PDG in English.
+- [ ] **Item request received** — as a grower, raise a request → **every admin** gets
+      an email (fan-out), each in **their own** language (not the grower's).
+- [ ] **Item request reviewed** — as admin review it (`/admin/requests`) → the grower
+      gets a "reviewed" email in their language (new).
+- [ ] **Order placed** — as a grower add an order → grower gets an order-confirmation
+      email (new; there was none before).
+- [ ] **Low-inventory reviewed** — see P8.3.
+- [ ] Raising a low flag sends **no** email (it only appears in the admin queue).
+
+### P8.3 — Low-inventory admin review (`/admin/low-inventory`)
+- [ ] As **james**, on Submit toggle **Low** on an item and Submit. Submit again 2–3×
+      with it still on → the admin sees **one** row, not three (idempotent).
+- [ ] New nav **Low Inventory** (admin) lists **Awaiting review** flags (item, grower,
+      flagged-by, reason). Filters: State (Awaiting/Reviewed/All) + Grower + item search.
+- [ ] **Review & clear** (with optional notes) → the flag flips to **Reviewed**, and the
+      grower gets a **low-inventory-reviewed** email in their language.
+- [ ] Back as the grower: the item's **Low** checkbox is now **cleared** (disappeared).
+- [ ] Grower can still self-clear (toggle Low off + Submit) before admin review — that
+      removes it from the queue with no email.
+- [ ] Seeded: Agribar (BR-BX-00007) and Brigo (CG-BX-00005) start with an active flag.
+
+### P8.4 — Global item messages (`/admin/item-messages`)
+- [ ] New nav **Item Messages** (admin). **Add message**: pick an item, a **type**
+      (Retiring / Increase stock / Clear inventory / Notice), severity, **audience**
+      (All growers **or** Selected + a grower multi-select), an optional note, and an
+      optional start/end window. Create.
+- [ ] As an authorized grower, `/grower/submit` shows the message **under that item**
+      (colored by severity, with the type label + your note).
+- [ ] **Audience = Selected** reaches only the chosen growers; **All** reaches every
+      authorized grower. **Disable** a message (Edit → State: Disabled) → it vanishes
+      from grower views; re-enable → returns. Delete works too.
+- [ ] Window: set an end date in the past → the message stops showing.
+- [ ] **Localized type label**: seeded "Increase stock" message targets **Brigo** only
+      — log in as **diago@brigo.local** in Español → it reads **"Aumentar stock"**.
+      Seeded "Retiring" (all growers) shows on PDG's items; "Clear inventory" (critical,
+      all) on Avocado Poly Bag.
+
+### P8.5 — Load previous values (grower Submit)
+- [ ] `/grower/submit` has a **Load previous values** button next to Save draft/Submit.
+      Click it → every box with a last-submitted value is filled in (so you only edit
+      the ones that changed). Disabled when there's no prior history to load. (Español:
+      "Cargar valores anteriores".)
+
+### P8.6 — Deployment (Azure Container Apps + Cron Job) — code/doc check
+- [ ] Reminder path is headless (no cookie): `npm run reminders` localizes off
+      `Grower.preferredLocale`. See updated `integration/INTEGRATION.md` §3 — the
+      production scheduler is now an **ACA Cron Job** running `npm run reminders`
+      (or curling `/api/cron/reminders`); the Azure Functions Timer is the legacy path.
+
+### P8.7 — Multi-item authorization (`/admin/authorizations`)
+- [ ] **Authorize item** dialog: the single Item dropdown is now a **multi-select** ("Items")
+      — pick a grower and **several items** in one go, then Authorize.
+- [ ] Result toast reads "N authorizations added"; one row appears per selected item, all Active.
+- [ ] Re-authorizing an item the grower already has (in the same batch or a later one) is
+      **idempotent** — it re-activates rather than erroring or duplicating (upsert).
+- [ ] Selecting a single item still works and reads "Authorization added".
+- [ ] Submitting with no item selected shows the "At least one item is required" error.
 
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean.

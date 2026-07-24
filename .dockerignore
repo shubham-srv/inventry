@@ -1,0 +1,28 @@
+# deps & build output (rebuilt inside the image)
+node_modules
+.next
+out
+
+# env & secrets — never bake into the image
+.env
+.env.*
+
+# vcs & editor tooling
+.git
+.gitignore
+.gitattributes
+.vscode
+
+# docker meta
+Dockerfile
+.dockerignore
+
+# docs & reference code not needed at runtime
+# (integration/ is already excluded from the app build via tsconfig)
+docs
+integration
+*.md
+
+# logs
+npm-debug.log*
+yarn-error.log*

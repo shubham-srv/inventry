@@ -22,6 +22,7 @@ export async function sendViaAcs(n: NotificationInput): Promise<void> {
       toEmail: n.toEmail,
       subject: n.subject,
       body: n.body,
+      bodyHtml: n.html ?? null,
       growerId: n.growerId ?? null,
       vendorId: n.vendorId ?? null,
       relatedEntity: n.relatedEntity ?? null,
@@ -47,7 +48,11 @@ export async function sendViaAcs(n: NotificationInput): Promise<void> {
 
     const poller = await client.beginSend({
       senderAddress,
-      content: { subject: n.subject, plainText: n.body },
+      content: {
+        subject: n.subject,
+        plainText: n.body,
+        ...(n.html ? { html: n.html } : {}),
+      },
       recipients: { to: [{ address: n.toEmail }] },
     })
     await poller.pollUntilDone()

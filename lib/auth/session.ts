@@ -6,6 +6,7 @@ import { SignJWT, jwtVerify } from "jose"
 import { prisma } from "@/lib/db"
 import { type RoleName } from "@/lib/constants"
 import { type Capability, can as roleCan } from "@/lib/rbac"
+import { LOCALE_COOKIE, isLocale } from "@/lib/i18n/config"
 
 // ============================================================
 // Local "dummy" session provider.
@@ -54,6 +55,22 @@ export async function createSession(userId: number): Promise<void> {
     path: "/",
     maxAge: MAX_AGE,
   })
+
+  // Sync the UI language cookie to the user's saved preference, so a returning
+  // user gets their language even in a fresh browser. Centralized here so every
+  // auth path (dummy login, Entra, magic-link) inherits it. The switcher writes
+  // preferredLocale back whenever they change it in-app.
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { preferredLocale: true },
+  })
+  if (u && isLocale(u.preferredLocale)) {
+    store.set(LOCALE_COOKIE, u.preferredLocale, {
+      path: "/",
+      maxAge: 60 * 60 * 24 * 365,
+      sameSite: "lax",
+    })
+  }
 }
 
 export async function destroySession(): Promise<void> {

@@ -12,7 +12,6 @@ import { getT } from "@/lib/i18n/server"
 import {
   notifySubmissionReceived,
   notifyMissingItemRequest,
-  notifyLowInventory,
 } from "@/lib/email/notify"
 
 async function requireGrower(): Promise<{ user: SessionUser; growerId: number }> {
@@ -178,6 +177,7 @@ export async function submitInventory(
       growerId,
       growerName: grower?.growerName ?? "",
       toEmail: grower?.primaryEmail ?? null,
+      locale: grower?.preferredLocale ?? null,
       submittedByName: `${user.firstName} ${user.lastName}`,
       itemCount: submittedCount,
     })
@@ -197,17 +197,11 @@ export async function toggleLowFlag(itemId: string, active: boolean): Promise<Ac
   const t = await getT()
   const existing = await prisma.lowInventoryFlag.findFirst({ where: { growerId, itemId, isActive: true } })
   if (active && !existing) {
+    // Raising a flag does NOT email anyone — it surfaces in the admin
+    // low-inventory review queue. The grower is emailed only once an admin
+    // reviews it (see reviewLowFlag / notifyLowInventoryReviewed).
     await prisma.lowInventoryFlag.create({
       data: { growerId, itemId, flaggedBy: user.id, reason: "Manually flagged low", isActive: true, createdBy: user.id },
-    })
-    const grower = await prisma.grower.findUnique({ where: { id: growerId } })
-    const item = await prisma.item.findUnique({ where: { id: itemId } })
-    await notifyLowInventory({
-      growerId,
-      growerName: grower?.growerName ?? "",
-      toEmail: grower?.primaryEmail ?? null,
-      flaggedByName: `${user.firstName} ${user.lastName}`,
-      itemName: item?.itemName ?? itemId,
     })
   } else if (!active && existing) {
     await prisma.lowInventoryFlag.update({ where: { id: existing.id }, data: { isActive: false, updatedBy: user.id } })
@@ -250,7 +244,6 @@ export async function createMissingItemRequest(
   await notifyMissingItemRequest({
     growerId,
     growerName: grower?.growerName ?? "",
-    toEmail: grower?.primaryEmail ?? null,
     requestedByName: `${user.firstName} ${user.lastName}`,
     itemName: data.itemName,
   })

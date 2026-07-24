@@ -19,7 +19,8 @@ const PATH = "/admin/authorizations"
 
 const schema = z.object({
   growerId: z.string().trim().min(1, "Grower is required"),
-  itemId: z.string().trim().min(1, "Item is required"),
+  // Posted by the multiselect field as a comma-joined string of item ids.
+  itemIds: z.string().trim().min(1, "At least one item is required"),
 })
 
 export async function createAuthorization(_p: ActionState, fd: FormData): Promise<ActionState> {
@@ -27,15 +28,21 @@ export async function createAuthorization(_p: ActionState, fd: FormData): Promis
   const { data, error } = parseForm(schema, fd)
   if (error) return error
   const growerId = Number(data.growerId)
+  const itemIds = [...new Set(data.itemIds.split(",").map((s) => s.trim()).filter(Boolean))]
+  if (itemIds.length === 0) return fail("At least one item is required")
   try {
-    await prisma.growerItemAuthorization.upsert({
-      where: { growerId_itemId: { growerId, itemId: data.itemId } },
-      update: { isActive: true, updatedBy: user.id },
-      create: { growerId, itemId: data.itemId, isActive: true, createdBy: user.id, updatedBy: user.id },
-    })
-    await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.CREATE, entityType: "GrowerItemAuthorization", entityId: `${growerId}:${data.itemId}`, changes: data })
+    await prisma.$transaction(
+      itemIds.map((itemId) =>
+        prisma.growerItemAuthorization.upsert({
+          where: { growerId_itemId: { growerId, itemId } },
+          update: { isActive: true, updatedBy: user.id },
+          create: { growerId, itemId, isActive: true, createdBy: user.id, updatedBy: user.id },
+        })
+      )
+    )
+    await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.CREATE, entityType: "GrowerItemAuthorization", entityId: `${growerId}:${itemIds.join("+")}`, changes: { growerId, itemIds } })
     revalidatePath(PATH)
-    return ok("Authorization added")
+    return ok(itemIds.length === 1 ? "Authorization added" : `${itemIds.length} authorizations added`)
   } catch (e) {
     return fail(prismaErrorMessage(e))
   }

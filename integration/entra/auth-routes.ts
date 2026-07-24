@@ -5,7 +5,7 @@
  * Nothing here runs until you wire it in. The design keeps the SESSION layer
  * (signed cookie + getCurrentUser in lib/auth/session.ts) UNCHANGED — Entra only
  * replaces *how the user proves who they are*. After a successful Entra login we
- * match the Entra email to a provisioned `User` row and call the same
+ * match the Entra oid (falling back to the provisioned email) to a `User` row and call the same
  * `createSession(user.id)` the local demo uses.
  *
  * To activate:
@@ -45,11 +45,31 @@ export async function callback(req: NextRequest): Promise<NextResponse> {
   if (!code) return NextResponse.redirect(new URL("/login?error=nocode", req.url))
 
   const result = await msal.acquireTokenByCode({ code, scopes: SCOPES, redirectUri })
-  const email = result.account?.username?.toLowerCase()
-  if (!email) return NextResponse.redirect(new URL("/login?error=noemail", req.url))
 
-  // Map the Entra identity to a user provisioned by an admin (by email).
-  const user = await prisma.user.findUnique({ where: { email } })
+  // Entra's immutable object id (oid) is the durable identity; email/UPN can change.
+  const oid = result.uniqueId || null
+  const email = result.account?.username?.toLowerCase() || null
+  if (!oid && !email) {
+    return NextResponse.redirect(new URL("/login?error=noidentity", req.url))
+  }
+
+  // Match on the stable oid first; fall back to the admin-provisioned email and
+  // backfill the oid so a future email change doesn't lock the user out.
+  // findFirst (not findUnique): entraObjectId is enforced by a filtered unique
+  // index, not a Prisma @unique, so it isn't a findUnique key — the DB still
+  // guarantees at most one row per non-null oid.
+  let user = oid
+    ? await prisma.user.findFirst({ where: { entraObjectId: oid } })
+    : null
+  if (!user && email) {
+    user = await prisma.user.findUnique({ where: { email } })
+    if (user && oid && !user.entraObjectId) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { entraObjectId: oid },
+      })
+    }
+  }
   if (!user || !user.isActive) {
     return NextResponse.redirect(new URL("/login?error=unprovisioned", req.url))
   }

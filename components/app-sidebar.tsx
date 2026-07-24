@@ -23,6 +23,8 @@ import {
   Gauge,
   ScrollText,
   Mail,
+  TriangleAlert,
+  Megaphone,
   Boxes,
   type LucideIcon,
 } from "lucide-react"
@@ -62,6 +64,8 @@ const ICONS: Record<string, LucideIcon> = {
   gauge: Gauge,
   scrollText: ScrollText,
   mail: Mail,
+  triangleAlert: TriangleAlert,
+  megaphone: Megaphone,
 }
 
 export function AppSidebar({ sections }: { sections: NavSection[] }) {

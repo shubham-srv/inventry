@@ -5,6 +5,7 @@ import { CAPABILITIES } from "@/lib/rbac"
 import { growersWhere } from "@/lib/admin/queries"
 import { parseListParams } from "@/lib/query"
 import { ENTITY_STATUS } from "@/lib/constants"
+import { LOCALE_OPTIONS } from "@/lib/i18n/config"
 import { createGrower, updateGrower, deleteGrower } from "@/lib/actions/partners"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
@@ -21,6 +22,7 @@ type Row = {
   growerName: string
   primaryEmail: string | null
   status: string
+  preferredLocale: string
   authorizations: { itemId: string }[]
   _count: { users: number }
 }
@@ -52,6 +54,7 @@ export default async function GrowersPage({
     { name: "growerName", label: "Name", type: "text", required: true, colSpan: 2 },
     { name: "primaryEmail", label: "Primary email", type: "text", colSpan: 2 },
     { name: "status", label: "Status", type: "select", required: true, options: STATUSES.map((s) => ({ label: s, value: s })) },
+    { name: "preferredLocale", label: "Email language", type: "select", required: true, options: LOCALE_OPTIONS },
     {
       name: "itemIds",
       label: "Items (this grower can access)",
@@ -75,7 +78,7 @@ export default async function GrowersPage({
       className: "text-right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
-          <EntityFormDialog title="Edit grower" fields={fields} action={updateGrower} values={{ id: r.id, growerName: r.growerName, primaryEmail: r.primaryEmail ?? "", status: r.status, itemIds: r.authorizations.map((a) => a.itemId).join(",") }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
+          <EntityFormDialog title="Edit grower" fields={fields} action={updateGrower} values={{ id: r.id, growerName: r.growerName, primaryEmail: r.primaryEmail ?? "", status: r.status, preferredLocale: r.preferredLocale, itemIds: r.authorizations.map((a) => a.itemId).join(",") }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
           <ConfirmButton title="Delete grower" description={`Delete ${r.growerName}? If it has users or history, set status Inactive instead.`} confirmLabel="Delete" action={deleteGrower.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
         </div>
       ),

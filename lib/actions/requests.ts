@@ -8,6 +8,7 @@ import { ok, fail } from "@/lib/actions/types"
 import { recordAudit } from "@/lib/audit"
 import { CAPABILITIES } from "@/lib/rbac"
 import { AUDIT_ACTIONS } from "@/lib/constants"
+import { notifyRequestReviewed } from "@/lib/email/notify"
 
 const schema = z.object({
   id: z.string().trim().min(1),
@@ -20,7 +21,7 @@ export async function reviewRequest(_p: ActionState, fd: FormData): Promise<Acti
   const { data, error } = parseForm(schema, fd)
   if (error) return error
   try {
-    await prisma.missingItemRequest.update({
+    const updated = await prisma.missingItemRequest.update({
       where: { id: Number(data.id) },
       data: {
         status: data.status,
@@ -29,8 +30,18 @@ export async function reviewRequest(_p: ActionState, fd: FormData): Promise<Acti
         reviewedAt: new Date(),
         updatedBy: user.id,
       },
+      include: { grower: true },
     })
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.UPDATE, entityType: "MissingItemRequest", entityId: data.id, changes: { status: data.status } })
+    // Notify the requesting grower (in their language) that it was reviewed.
+    await notifyRequestReviewed({
+      growerId: updated.growerId,
+      toEmail: updated.grower.primaryEmail ?? null,
+      locale: updated.grower.preferredLocale ?? null,
+      itemName: updated.itemName,
+      status: updated.status,
+      reviewNotes: updated.reviewNotes,
+    })
     revalidatePath("/admin/requests")
     return ok("Request updated")
   } catch (e) {

@@ -43,7 +43,7 @@ export default async function AuthorizationsPage({
 
   const fields: Field[] = [
     { name: "growerId", label: "Grower", type: "select", required: true, placeholder: "Select grower", options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })), colSpan: 2 },
-    { name: "itemId", label: "Item", type: "select", required: true, placeholder: "Select item", options: items.map((i) => ({ label: `${i.id} — ${i.itemName}`, value: i.id })), colSpan: 2 },
+    { name: "itemIds", label: "Items", type: "multiselect", required: true, placeholder: "Select one or more items", options: items.map((i) => ({ label: `${i.id} — ${i.itemName}`, value: i.id })), colSpan: 2 },
   ]
 
   const columns: Column<Row>[] = [

@@ -63,7 +63,9 @@ export function getNavForUser(roleName: RoleName): NavSection[] {
       { title: "nav.growers", href: "/admin/growers", icon: "sprout" },
       { title: "nav.vendors", href: "/admin/vendors", icon: "store" },
       { title: "nav.authorizations", href: "/admin/authorizations", icon: "shieldCheck" },
-      { title: "nav.itemRequests", href: "/admin/requests", icon: "inbox" }
+      { title: "nav.itemRequests", href: "/admin/requests", icon: "inbox" },
+      { title: "nav.lowInventory", href: "/admin/low-inventory", icon: "triangleAlert" },
+      { title: "nav.itemMessages", href: "/admin/item-messages", icon: "megaphone" }
     )
   }
   if (can(roleName, CAPABILITIES.MANAGE_USERS)) {

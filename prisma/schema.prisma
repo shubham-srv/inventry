@@ -20,6 +20,7 @@ generator client {
 datasource db {
   provider = "sqlserver"
   url      = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 // ============================================================
@@ -28,7 +29,7 @@ datasource db {
 
 model Role {
   id          Int     @id @default(autoincrement())
-  roleName    String // SuperAdmin, InternalAdmin, Editor, GrowerUser, VendorUser
+  roleName    String  @unique // SuperAdmin, InternalAdmin, Editor, GrowerUser, VendorUser
   description String?
 
   createdBy Int?
@@ -40,28 +41,30 @@ model Role {
 }
 
 model User {
-  id           Int     @id @default(autoincrement())
-  firstName    String
-  lastName     String
-  email        String  @unique
-  passwordHash String?
-  roleId       Int
-  growerId     Int? // populated for grower users
-  vendorId     Int? // populated for vendor users
-  isActive     Boolean @default(true)
+  id              Int     @id @default(autoincrement())
+  firstName       String
+  lastName        String
+  email           String  @unique
+  passwordHash    String?
+  entraObjectId   String? // Entra oid (SSO), backfilled on first login. Uniqueness is a FILTERED unique index (migration 20260723090000), NOT @unique — a plain SQL Server UNIQUE treats all NULLs as equal (only one allowed) and breaks multi-user seeding.
+  roleId          Int
+  growerId        Int? // populated for grower users
+  vendorId        Int? // populated for vendor users
+  isActive        Boolean @default(true)
+  preferredLocale String  @default("en") // personal UI + email language: en, es
 
   createdBy Int?
   createdAt DateTime @default(now())
   updatedBy Int?
   updatedAt DateTime @updatedAt
 
-  role                Role                  @relation(fields: [roleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  grower              Grower?               @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  vendor              Vendor?               @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  submissions         GrowerSubmission[]    @relation("SubmissionSubmittedBy")
-  vendorSubmissions   VendorSubmission[]    @relation("VendorSubmissionSubmittedBy")
-  missingItemRequests MissingItemRequest[]  @relation("RequestRequestedBy")
-  auditLogs           AuditLog[]            @relation("AuditUser")
+  role                Role                 @relation(fields: [roleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grower              Grower?              @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vendor              Vendor?              @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  submissions         GrowerSubmission[]   @relation("SubmissionSubmittedBy")
+  vendorSubmissions   VendorSubmission[]   @relation("VendorSubmissionSubmittedBy")
+  missingItemRequests MissingItemRequest[] @relation("RequestRequestedBy")
+  auditLogs           AuditLog[]           @relation("AuditUser")
 
   @@index([roleId])
   @@index([growerId])
@@ -73,10 +76,11 @@ model User {
 // ============================================================
 
 model Grower {
-  id           Int     @id @default(autoincrement())
-  growerName   String
-  primaryEmail String?
-  status       String  @default("Active") // Active, Inactive, Pending
+  id              Int     @id @default(autoincrement())
+  growerName      String
+  primaryEmail    String?
+  status          String  @default("Active") // Active, Inactive, Pending
+  preferredLocale String  @default("en") // language for emails sent to primaryEmail: en, es
 
   createdBy Int?
   createdAt DateTime @default(now())
@@ -94,6 +98,7 @@ model Grower {
   thresholds          ItemThreshold[]
   schedulerSettings   SchedulerSetting[]
   notifications       NotificationLog[]
+  itemMessageTargets  ItemMessageGrower[]
 }
 
 model Vendor {
@@ -110,6 +115,7 @@ model Vendor {
   ptAccountNumber String?
   notes           String?
   status          String  @default("Active") // Active, Inactive
+  preferredLocale String  @default("en") // language for emails sent to contactEmail: en, es
 
   createdBy Int?
   createdAt DateTime @default(now())
@@ -196,7 +202,6 @@ model Item {
   commodityCode        String?
   materialCategoryCode String?
   subCategoryId        Int?
-  productClass         String? // Packaging, Label, Pallet, Consumable, N/A (see PRODUCT_CLASSES)
   countryOfOriginId    Int?
   applicationMethod    String? // Machine, Hand, Machine/Hand, N/A
   status               String  @default("Active") // Active, Inactive, Review
@@ -221,6 +226,7 @@ model Item {
   lowInventoryFlags       LowInventoryFlag[]
   thresholds              ItemThreshold[]
   unitConversions         UnitConversion[]
+  messages                ItemMessage[]
 
   @@index([commodityCode])
   @@index([materialCategoryCode])
@@ -330,13 +336,13 @@ model GrowerSubmission {
 }
 
 model GrowerSubmissionDetail {
-  id              Int     @id @default(autoincrement())
-  submissionId    Int
-  itemId          String
-  locationId      Int?
-  quantityOnHand  Decimal @default(0)
-  unitOfMeasure   String?
-  isLowFlagged    Boolean @default(false)
+  id             Int     @id @default(autoincrement())
+  submissionId   Int
+  itemId         String
+  locationId     Int?
+  quantityOnHand Decimal @default(0)
+  unitOfMeasure  String?
+  isLowFlagged   Boolean @default(false)
 
   createdBy Int?
   createdAt DateTime @default(now())
@@ -357,10 +363,10 @@ model GrowerSubmissionDetail {
 // closedAt is stamped; the grower's active views show Open orders plus anything
 // closed today, so a same-day receipt stays visible but drops off the next day.
 model Order {
-  id            Int       @id @default(autoincrement())
-  growerId      Int
-  itemId        String
-  vendorId      Int
+  id                   Int       @id @default(autoincrement())
+  growerId             Int
+  itemId               String
+  vendorId             Int
   quantity             Decimal   @default(0)
   unitOfMeasure        String?
   status               String    @default("Open") // Open, Received, Cancelled
@@ -505,13 +511,20 @@ model MissingItemRequest {
 }
 
 model LowInventoryFlag {
-  id           Int     @id @default(autoincrement())
+  id           Int       @id @default(autoincrement())
   growerId     Int
   itemId       String
   flaggedBy    Int
   submissionId Int?
   reason       String?
-  isActive     Boolean @default(true)
+  // isActive drives BOTH the grower's checkbox and the admin review queue:
+  //   true                       => awaiting admin review (checkbox shown to grower)
+  //   false, reviewedAt set      => cleared by an admin review
+  //   false, reviewedAt null     => cleared by the grower (self-unflag)
+  isActive     Boolean   @default(true)
+  reviewedBy   Int?
+  reviewedAt   DateTime?
+  reviewNotes  String?
 
   createdBy Int?
   createdAt DateTime @default(now())
@@ -614,7 +627,8 @@ model NotificationLog {
   growerId      Int?
   vendorId      Int?
   subject       String
-  body          String
+  body          String // plaintext (used by the Outbox list + as the email text part)
+  bodyHtml      String?   @db.NVarChar(Max) // rendered React Email HTML (Outbox preview + email html part)
   status        String    @default("Mocked") // Mocked, Sent, Failed
   relatedEntity String?
   createdAt     DateTime  @default(now())
@@ -638,4 +652,47 @@ model PowerBiReport {
   createdAt DateTime @default(now())
   updatedBy Int?
   updatedAt DateTime @updatedAt
+}
+
+// ============================================================
+// GLOBAL ITEM MESSAGES
+// Admin-authored notices shown to growers under a specific item on their
+// submit view (e.g. "Retiring", "Increase stock", "Clear inventory"). Targeted
+// at all growers (audience=All) or a selected subset (audience=Selected, via
+// ItemMessageGrower). `type` is a translatable key; `body` is an optional
+// free-text note shown as-authored. Optional startsAt/endsAt schedule visibility.
+// ============================================================
+
+model ItemMessage {
+  id       Int       @id @default(autoincrement())
+  itemId   String
+  type     String // Retiring, IncreaseStock, ClearInventory, Info (translatable)
+  body     String? // optional free-text note, shown as-authored
+  severity String    @default("info") // info, warning, critical
+  audience String    @default("All") // All, Selected
+  isActive Boolean   @default(true)
+  startsAt DateTime?
+  endsAt   DateTime?
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  item    Item                @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  targets ItemMessageGrower[]
+
+  @@index([itemId])
+}
+
+model ItemMessageGrower {
+  id            Int @id @default(autoincrement())
+  itemMessageId Int
+  growerId      Int
+
+  message ItemMessage @relation(fields: [itemMessageId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  grower  Grower      @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([itemMessageId, growerId])
+  @@index([growerId])
 }

@@ -114,6 +114,8 @@ const growerSchema = z.object({
   growerName: z.string().trim().min(1, "Name is required"),
   primaryEmail: z.string().trim().email("Enter a valid email").optional().or(z.literal("")),
   status: z.string().trim().min(1),
+  // Language for emails sent to this grower (en/es); makeT falls back to en.
+  preferredLocale: z.string().trim().optional().default("en"),
   // Comma-joined item ids from the mapping multi-select.
   itemIds: z.string().trim().optional().default(""),
 })
@@ -125,7 +127,7 @@ export async function createGrower(_p: ActionState, fd: FormData): Promise<Actio
   try {
     const created = await prisma.$transaction(async (tx) => {
       const grower = await tx.grower.create({
-        data: { growerName: data.growerName, primaryEmail: data.primaryEmail || null, status: data.status, createdBy: user.id, updatedBy: user.id },
+        data: { growerName: data.growerName, primaryEmail: data.primaryEmail || null, status: data.status, preferredLocale: data.preferredLocale, createdBy: user.id, updatedBy: user.id },
       })
       await syncGrowerItems(tx, grower.id, parseItemIds(data.itemIds), user.id)
       return grower
@@ -147,7 +149,7 @@ export async function updateGrower(_p: ActionState, fd: FormData): Promise<Actio
     await prisma.$transaction(async (tx) => {
       await tx.grower.update({
         where: { id: growerId },
-        data: { growerName: data.growerName, primaryEmail: data.primaryEmail || null, status: data.status, updatedBy: user.id },
+        data: { growerName: data.growerName, primaryEmail: data.primaryEmail || null, status: data.status, preferredLocale: data.preferredLocale, updatedBy: user.id },
       })
       await syncGrowerItems(tx, growerId, parseItemIds(data.itemIds), user.id)
     })
@@ -186,6 +188,8 @@ const vendorSchema = z.object({
   ptAccountNumber: z.string().trim().optional().default(""),
   notes: z.string().trim().optional().default(""),
   status: z.string().trim().min(1),
+  // Language for emails sent to this vendor (en/es).
+  preferredLocale: z.string().trim().optional().default("en"),
   // Comma-joined item ids the vendor can supply.
   itemIds: z.string().trim().optional().default(""),
   // Comma-joined material-category codes the vendor supplies.
@@ -207,6 +211,7 @@ function vendorData(d: VendorInput) {
     ptAccountNumber: d.ptAccountNumber || null,
     notes: d.notes || null,
     status: d.status,
+    preferredLocale: d.preferredLocale,
   }
 }
 

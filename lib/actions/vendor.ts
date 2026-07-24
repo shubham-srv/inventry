@@ -142,6 +142,7 @@ export async function submitVendorReport(
     vendorId,
     vendorName: vendor?.vendorName ?? "",
     toEmail: vendor?.contactEmail ?? null,
+    locale: vendor?.preferredLocale ?? null,
     submittedByName: `${user.firstName} ${user.lastName}`,
     itemCount: valid.length,
   })

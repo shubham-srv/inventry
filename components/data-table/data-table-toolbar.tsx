@@ -44,8 +44,9 @@ export function DataTableToolbar({
     if (value == null || value === "" || value === ALL) params.delete(key)
     else params.set(key, value)
     params.delete("page") // reset pagination on filter change
+    const qs = params.toString()
     startTransition(() => {
-      router.replace(`${pathname}?${params.toString()}`)
+      router.replace(qs ? `${pathname}?${qs}` : pathname)
     })
   }
 

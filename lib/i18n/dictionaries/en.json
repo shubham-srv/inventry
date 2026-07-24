@@ -58,6 +58,8 @@
     "vendors": "Vendors",
     "authorizations": "Item Authorizations",
     "itemRequests": "Item Requests",
+    "lowInventory": "Low Inventory",
+    "itemMessages": "Item Messages",
     "users": "Users",
     "conversions": "Conversions",
     "reports": "Reports",
@@ -112,6 +114,7 @@
       "draftBadge": "Draft saved — not submitted yet",
       "submit": "Submit counts",
       "saveDraft": "Save draft",
+      "loadPrevious": "Load previous values",
       "onHand": "On hand",
       "low": "Low",
       "belowThreshold": "Below threshold",
@@ -245,6 +248,74 @@
       "noItems": "Enter at least one item quantity first.",
       "noSupplied": "No supplied items in this submission.",
       "overAllocated": "Allocation for {item} ({allocated}) exceeds its quantity ({quantity})."
+    }
+  },
+  "email": {
+    "brand": "Inventory Management",
+    "footer": "Automated message from the Inventory Management system. Please do not reply to this email.",
+    "detail": {
+      "grower": "Grower",
+      "vendor": "Vendor",
+      "item": "Item",
+      "items": "Items covered",
+      "submittedBy": "Submitted by",
+      "requestedBy": "Requested by",
+      "quantity": "Quantity",
+      "status": "Status",
+      "reviewNotes": "Review notes",
+      "cadence": "Cadence"
+    },
+    "submissionReceived": {
+      "subject": "Inventory submission received — {grower}",
+      "heading": "Inventory submission received",
+      "intro": "A daily inventory count was just submitted for {grower} by {submittedBy}.",
+      "cta": "View submissions"
+    },
+    "vendorSubmissionReceived": {
+      "subject": "Supply report received — {vendor}",
+      "heading": "Supply report received",
+      "intro": "A supply report was just submitted for {vendor} by {submittedBy}.",
+      "cta": "View reports"
+    },
+    "scheduledReminder": {
+      "subject": "Reminder: submit your inventory count — {grower}",
+      "heading": "Time to submit your inventory count",
+      "intro": "{grower} has not submitted an inventory count in {overdue}. Please update your on-hand counts so stock stays accurate.",
+      "overdueDays": "{days} day(s)",
+      "overdueUnknown": "a while",
+      "cta": "Submit inventory"
+    },
+    "missingItemRequest": {
+      "subject": "New item request — {grower}",
+      "heading": "New item request",
+      "intro": "{requestedBy} at {grower} requested a new item to be added to their authorized list.",
+      "cta": "Review requests"
+    },
+    "requestReviewed": {
+      "subject": "Your item request was reviewed — {item}",
+      "heading": "Your item request was reviewed",
+      "intro": "Your request for \"{item}\" has been reviewed and is now marked {status}.",
+      "cta": "View your requests"
+    },
+    "lowInventoryReviewed": {
+      "subject": "Low-inventory flag reviewed — {item}",
+      "heading": "Low-inventory flag reviewed",
+      "intro": "An admin has reviewed the low-inventory flag you raised for \"{item}\". It has been cleared from your list.",
+      "cta": "Open inventory"
+    },
+    "orderPlaced": {
+      "subject": "Order placed — {item}",
+      "heading": "Order placed",
+      "intro": "Your order for \"{item}\" has been placed with {vendor}.",
+      "cta": "View orders"
+    }
+  },
+  "itemMessage": {
+    "type": {
+      "Retiring": "Retiring",
+      "IncreaseStock": "Increase stock",
+      "ClearInventory": "Clear inventory",
+      "Info": "Notice"
     }
   }
 }

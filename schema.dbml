@@ -143,7 +143,6 @@ Table Item {
   commodityCode varchar [ref: > Commodity.code]
   materialCategoryCode varchar [ref: > MaterialCategory.code]
   subCategoryId int [ref: > SubCategory.id]
-  productClass varchar [note: 'Packaging, Label, Pallet, Consumable, N/A']
   countryOfOriginId int [ref: > CountryOfOrigin.id]
   applicationMethod varchar [note: 'Machine, Hand, Machine/Hand, N/A']
   status varchar [not null, default: 'Active', note: 'Active, Inactive, Review']

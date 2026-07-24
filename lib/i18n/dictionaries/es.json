@@ -58,6 +58,8 @@
     "vendors": "Proveedores",
     "authorizations": "Autorizaciones de artículos",
     "itemRequests": "Solicitudes de artículos",
+    "lowInventory": "Inventario Bajo",
+    "itemMessages": "Mensajes de artículos",
     "users": "Usuarios",
     "conversions": "Conversiones",
     "reports": "Informes",
@@ -112,6 +114,7 @@
       "draftBadge": "Borrador guardado — aún sin enviar",
       "submit": "Enviar conteos",
       "saveDraft": "Guardar borrador",
+      "loadPrevious": "Cargar valores anteriores",
       "onHand": "Disponible",
       "low": "Bajo",
       "belowThreshold": "Bajo el umbral",
@@ -245,6 +248,74 @@
       "noItems": "Ingresa al menos una cantidad primero.",
       "noSupplied": "No hay artículos suministrados en este envío.",
       "overAllocated": "La asignación de {item} ({allocated}) supera su cantidad ({quantity})."
+    }
+  },
+  "email": {
+    "brand": "Gestión de Inventario",
+    "footer": "Mensaje automático del sistema de Gestión de Inventario. Por favor, no responda a este correo.",
+    "detail": {
+      "grower": "Productor",
+      "vendor": "Proveedor",
+      "item": "Artículo",
+      "items": "Artículos incluidos",
+      "submittedBy": "Enviado por",
+      "requestedBy": "Solicitado por",
+      "quantity": "Cantidad",
+      "status": "Estado",
+      "reviewNotes": "Notas de revisión",
+      "cadence": "Frecuencia"
+    },
+    "submissionReceived": {
+      "subject": "Envío de inventario recibido — {grower}",
+      "heading": "Envío de inventario recibido",
+      "intro": "Se acaba de enviar un conteo diario de inventario para {grower} por {submittedBy}.",
+      "cta": "Ver envíos"
+    },
+    "vendorSubmissionReceived": {
+      "subject": "Informe de suministro recibido — {vendor}",
+      "heading": "Informe de suministro recibido",
+      "intro": "Se acaba de enviar un informe de suministro para {vendor} por {submittedBy}.",
+      "cta": "Ver informes"
+    },
+    "scheduledReminder": {
+      "subject": "Recordatorio: envíe su conteo de inventario — {grower}",
+      "heading": "Es hora de enviar su conteo de inventario",
+      "intro": "{grower} no ha enviado un conteo de inventario en {overdue}. Actualice sus cantidades disponibles para mantener el stock preciso.",
+      "overdueDays": "{days} día(s)",
+      "overdueUnknown": "un tiempo",
+      "cta": "Enviar inventario"
+    },
+    "missingItemRequest": {
+      "subject": "Nueva solicitud de artículo — {grower}",
+      "heading": "Nueva solicitud de artículo",
+      "intro": "{requestedBy} de {grower} solicitó agregar un nuevo artículo a su lista autorizada.",
+      "cta": "Revisar solicitudes"
+    },
+    "requestReviewed": {
+      "subject": "Su solicitud de artículo fue revisada — {item}",
+      "heading": "Su solicitud de artículo fue revisada",
+      "intro": "Su solicitud de \"{item}\" ha sido revisada y ahora está marcada como {status}.",
+      "cta": "Ver sus solicitudes"
+    },
+    "lowInventoryReviewed": {
+      "subject": "Alerta de inventario bajo revisada — {item}",
+      "heading": "Alerta de inventario bajo revisada",
+      "intro": "Un administrador revisó la alerta de inventario bajo que generó para \"{item}\". Se ha eliminado de su lista.",
+      "cta": "Abrir inventario"
+    },
+    "orderPlaced": {
+      "subject": "Pedido realizado — {item}",
+      "heading": "Pedido realizado",
+      "intro": "Su pedido de \"{item}\" se ha realizado con {vendor}.",
+      "cta": "Ver pedidos"
+    }
+  },
+  "itemMessage": {
+    "type": {
+      "Retiring": "En retiro",
+      "IncreaseStock": "Aumentar stock",
+      "ClearInventory": "Liquidar inventario",
+      "Info": "Aviso"
     }
   }
 }
