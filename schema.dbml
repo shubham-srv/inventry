@@ -69,7 +69,7 @@ Table Vendor {
   id int [pk, increment]
   vendorName varchar [not null]
   vendorType varchar [note: 'Manufacturer, Pallet Pooling, 3PL']
-  region varchar
+  regionId int [ref: > Region.id]
   country varchar
   primaryContact varchar
   contactEmail varchar
@@ -89,7 +89,7 @@ Table Location {
   id int [pk, increment]
   locationName varchar [not null]
   locationType varchar [note: 'Packing House, Warehouse, Cross-dock, Grower']
-  region varchar
+  regionId int [ref: > Region.id]
   commodityFocus varchar
   keyPersonnel varchar
   notes varchar
@@ -137,17 +137,18 @@ Table SubCategory {
 }
 
 Table Item {
-  id varchar [pk, note: 'CC-MM-NNNNN']
-  legacyFamousId varchar
+  id varchar [pk, note: 'CC-MM-NNNNN, auto-generated on create']
+  legacyFamousId varchar [note: 'from the initial data upload only']
   itemName varchar [not null]
   commodityCode varchar [ref: > Commodity.code]
   materialCategoryCode varchar [ref: > MaterialCategory.code]
   subCategoryId int [ref: > SubCategory.id]
   countryOfOriginId int [ref: > CountryOfOrigin.id]
+  unitOfMeasure varchar [note: 'the item unit; inherited by counts and orders']
   applicationMethod varchar [note: 'Machine, Hand, Machine/Hand, N/A']
   status varchar [not null, default: 'Active', note: 'Active, Inactive, Review']
   notes varchar
-  region varchar
+  regionId int [ref: > Region.id]
   createdBy int
   createdAt datetime [not null, default: `now()`]
   updatedBy int
@@ -158,13 +159,25 @@ Table Item {
     materialCategoryCode
     subCategoryId
     countryOfOriginId
+    regionId
   }
 }
 
-// Country of origin lookup (dropdown source for items). Seeded; no admin CRUD.
+// Country of origin lookup (dropdown source for items), managed at /admin/countries.
 Table CountryOfOrigin {
   id int [pk, increment]
   name varchar [not null, unique, note: 'USA, Mexico, Canada, Peru, Ecuador, N/A']
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+}
+
+// Region lookup (dropdown source for items, vendors and locations). Seeded; no
+// admin page - values are managed in the seed / by migration.
+Table Region {
+  id int [pk, increment]
+  name varchar [not null, unique, note: 'West, Central, East']
   createdBy int
   createdAt datetime [not null, default: `now()`]
   updatedBy int

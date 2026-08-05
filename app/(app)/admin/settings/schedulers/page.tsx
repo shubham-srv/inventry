@@ -60,7 +60,7 @@ export default async function SchedulersPage() {
       cell: (r) => (
         <div className="flex justify-end gap-1">
           <EntityFormDialog title="Edit schedule" fields={fields} action={updateScheduler} values={{ id: r.id, scope: r.scope, growerId: r.growerId ? String(r.growerId) : "", cadenceType: r.cadenceType, thresholdDays: r.thresholdDays, reminderFrequency: r.reminderFrequency, isEnabled: r.isEnabled }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
-          <ConfirmButton title="Delete schedule" description="Delete this schedule?" confirmLabel="Delete" action={deleteScheduler.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
+          <ConfirmButton title="Delete schedule" description="Delete this schedule?" confirmLabel="Delete" typeToConfirm action={deleteScheduler.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
         </div>
       ),
     },

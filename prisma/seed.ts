@@ -4,6 +4,7 @@ import {
   NOTIFICATION_TYPES,
   AUDIT_ACTIONS,
   COUNTRIES_OF_ORIGIN,
+  REGIONS,
 } from "../lib/constants"
 
 const prisma = new PrismaClient()
@@ -41,6 +42,10 @@ async function clearAll() {
   await prisma.vendorMaterialCategory.deleteMany()
   await prisma.itemVendor.deleteMany()
   await prisma.growerItemAuthorization.deleteMany()
+  // Both FK to Item/Grower with NoAction, so they must go before item/grower
+  // below — otherwise a re-run of the seed dies on a FK constraint violation.
+  await prisma.itemMessageGrower.deleteMany()
+  await prisma.itemMessage.deleteMany()
   await prisma.item.deleteMany()
   await prisma.countryOfOrigin.deleteMany()
   await prisma.subCategory.deleteMany()
@@ -52,6 +57,7 @@ async function clearAll() {
   await prisma.location.deleteMany()
   await prisma.vendor.deleteMany()
   await prisma.grower.deleteMany()
+  await prisma.region.deleteMany()
 }
 
 async function main() {
@@ -68,6 +74,10 @@ async function main() {
   await clearAll()
 
   // ---- Roles ----------------------------------------------------------
+  // Rows whose generated id is needed later are inserted with createMany (one
+  // statement) and then read back in a single findMany — `createManyAndReturn`
+  // is not supported on the sqlserver provider, so that pair is how we get ids
+  // in bulk. Write-only rows just use createMany.
   console.log("Seeding roles…")
   const roleDefs = [
     { roleName: ROLES.SUPER_ADMIN, description: "Full access incl. settings" },
@@ -76,11 +86,10 @@ async function main() {
     { roleName: ROLES.GROWER_USER, description: "On-field grower inventory user" },
     { roleName: ROLES.VENDOR_USER, description: "Vendor supply reporting user" },
   ]
-  const roles: Record<string, number> = {}
-  for (const r of roleDefs) {
-    const created = await prisma.role.create({ data: r })
-    roles[r.roleName] = created.id
-  }
+  await prisma.role.createMany({ data: roleDefs })
+  const roles: Record<string, number> = Object.fromEntries(
+    (await prisma.role.findMany({ select: { id: true, roleName: true } })).map((r) => [r.roleName, r.id])
+  )
 
   // ---- Growers --------------------------------------------------------
   console.log("Seeding growers & vendors…")
@@ -96,12 +105,18 @@ async function main() {
   })
   const growers = [agribar, brigo, pdg]
 
+  // ---- Regions (lookup shared by items, vendors and locations) --------
+  await prisma.region.createMany({ data: REGIONS.map((name) => ({ name })) })
+  const regionByName: Record<string, number> = Object.fromEntries(
+    (await prisma.region.findMany({ select: { id: true, name: true } })).map((r) => [r.name, r.id])
+  )
+
   // ---- Vendors --------------------------------------------------------
   const packRight = await prisma.vendor.create({
     data: {
       vendorName: "PackRight Manufacturing",
       vendorType: "Manufacturer",
-      region: "West",
+      regionId: regionByName["West"],
       country: "USA",
       primaryContact: "Sam Carter",
       contactEmail: "sam@packright.example",
@@ -115,7 +130,7 @@ async function main() {
     data: {
       vendorName: "PalletPool Co",
       vendorType: "Pallet Pooling",
-      region: "Central",
+      regionId: regionByName["Central"],
       country: "USA",
       primaryContact: "Lena Ortiz",
       contactEmail: "lena@palletpool.example",
@@ -129,7 +144,7 @@ async function main() {
     data: {
       vendorName: "LabelWorks 3PL",
       vendorType: "3PL",
-      region: "East",
+      regionId: regionByName["East"],
       country: "USA",
       primaryContact: "Omar Reed",
       contactEmail: "omar@labelworks.example",
@@ -151,62 +166,49 @@ async function main() {
   })
   const adminId = admin.id
 
-  await prisma.user.create({
-    data: {
-      firstName: "Eddie",
-      lastName: "Editor",
-      email: "editor@demo.local",
-      roleId: roles[ROLES.EDITOR],
-      createdBy: adminId,
-    },
-  })
-
   const growerUserDefs = [
     { firstName: "James", lastName: "Field", email: "james@agribar.local", growerId: agribar.id },
     { firstName: "Maria", lastName: "Lopez", email: "maria@agribar.local", growerId: agribar.id },
     { firstName: "Diago", lastName: "Santos", email: "diago@brigo.local", growerId: brigo.id, preferredLocale: "es" },
     { firstName: "Priya", lastName: "Nair", email: "priya@pdg.local", growerId: pdg.id },
   ]
-  for (const u of growerUserDefs) {
-    await prisma.user.create({
-      data: { ...u, roleId: roles[ROLES.GROWER_USER], createdBy: adminId },
-    })
-  }
-
   const vendorUserDefs = [
     { firstName: "Sam", lastName: "Carter", email: "sam@packright.local", vendorId: packRight.id },
     { firstName: "Lena", lastName: "Ortiz", email: "lena@palletpool.local", vendorId: palletPool.id, preferredLocale: "es" },
     { firstName: "Omar", lastName: "Reed", email: "omar@labelworks.local", vendorId: labelWorks.id },
   ]
-  for (const u of vendorUserDefs) {
-    await prisma.user.create({
-      data: { ...u, roleId: roles[ROLES.VENDOR_USER], createdBy: adminId },
-    })
-  }
-  const jamesUser = await prisma.user.findUniqueOrThrow({ where: { email: "james@agribar.local" } })
-  const diagoUser = await prisma.user.findUniqueOrThrow({ where: { email: "diago@brigo.local" } })
-  const priyaUser = await prisma.user.findUniqueOrThrow({ where: { email: "priya@pdg.local" } })
+  await prisma.user.createMany({
+    data: [
+      { firstName: "Eddie", lastName: "Editor", email: "editor@demo.local", roleId: roles[ROLES.EDITOR], createdBy: adminId },
+      ...growerUserDefs.map((u) => ({ ...u, roleId: roles[ROLES.GROWER_USER], createdBy: adminId })),
+      ...vendorUserDefs.map((u) => ({ ...u, roleId: roles[ROLES.VENDOR_USER], createdBy: adminId })),
+    ],
+  })
+  // One read-back for every user id the rest of the seed needs.
+  const userIdByEmail: Record<string, number> = Object.fromEntries(
+    (await prisma.user.findMany({ select: { id: true, email: true } })).map((u) => [u.email, u.id])
+  )
+  const jamesUserId = userIdByEmail["james@agribar.local"]
+  const diagoUserId = userIdByEmail["diago@brigo.local"]
+  const priyaUserId = userIdByEmail["priya@pdg.local"]
   const growerUserByGrower: Record<number, number> = {
-    [agribar.id]: jamesUser.id,
-    [brigo.id]: diagoUser.id,
-    [pdg.id]: priyaUser.id,
+    [agribar.id]: jamesUserId,
+    [brigo.id]: diagoUserId,
+    [pdg.id]: priyaUserId,
   }
-  const samUser = await prisma.user.findUniqueOrThrow({ where: { email: "sam@packright.local" } })
-  const lenaUser = await prisma.user.findUniqueOrThrow({ where: { email: "lena@palletpool.local" } })
-  const omarUser = await prisma.user.findUniqueOrThrow({ where: { email: "omar@labelworks.local" } })
   const vendorUserByVendor: Record<number, number> = {
-    [packRight.id]: samUser.id,
-    [palletPool.id]: lenaUser.id,
-    [labelWorks.id]: omarUser.id,
+    [packRight.id]: userIdByEmail["sam@packright.local"],
+    [palletPool.id]: userIdByEmail["lena@palletpool.local"],
+    [labelWorks.id]: userIdByEmail["omar@labelworks.local"],
   }
 
   // ---- Locations ------------------------------------------------------
   console.log("Seeding locations…")
   const loc = await Promise.all(
     [
-      { locationName: "Salinas Packing House", locationType: "Packing House", region: "West", commodityFocus: "Asparagus" },
-      { locationName: "Central Warehouse", locationType: "Warehouse", region: "Central", commodityFocus: "Mixed" },
-      { locationName: "East Cross-dock", locationType: "Cross-dock", region: "East", commodityFocus: "Berries" },
+      { locationName: "Salinas Packing House", locationType: "Packing House", regionId: regionByName["West"], commodityFocus: "Asparagus" },
+      { locationName: "Central Warehouse", locationType: "Warehouse", regionId: regionByName["Central"], commodityFocus: "Mixed" },
+      { locationName: "East Cross-dock", locationType: "Cross-dock", regionId: regionByName["East"], commodityFocus: "Berries" },
     ].map((l) => prisma.location.create({ data: { ...l, createdBy: adminId } }))
   )
 
@@ -219,7 +221,7 @@ async function main() {
     { code: "BR", name: "Berries" },
     { code: "AV", name: "Avocado" },
   ]
-  for (const c of commodities) await prisma.commodity.create({ data: { ...c, createdBy: adminId } })
+  await prisma.commodity.createMany({ data: commodities.map((c) => ({ ...c, createdBy: adminId })) })
 
   const materialCategories = [
     { code: "BX", name: "Boxes" },
@@ -228,14 +230,13 @@ async function main() {
     { code: "PL", name: "Pallets" },
     { code: "ST", name: "Stickers" },
   ]
-  for (const m of materialCategories) await prisma.materialCategory.create({ data: { ...m, createdBy: adminId } })
+  await prisma.materialCategory.createMany({ data: materialCategories.map((m) => ({ ...m, createdBy: adminId })) })
 
   // ---- Countries of origin (lookup) -----------------------------------
-  const cooByName: Record<string, number> = {}
-  for (const name of COUNTRIES_OF_ORIGIN) {
-    const created = await prisma.countryOfOrigin.create({ data: { name, createdBy: adminId } })
-    cooByName[name] = created.id
-  }
+  await prisma.countryOfOrigin.createMany({ data: COUNTRIES_OF_ORIGIN.map((name) => ({ name, createdBy: adminId })) })
+  const cooByName: Record<string, number> = Object.fromEntries(
+    (await prisma.countryOfOrigin.findMany({ select: { id: true, name: true } })).map((c) => [c.name, c.id])
+  )
 
   const subCatDefs = [
     { materialCategoryCode: "BX", name: "Cardboard Boxes" },
@@ -247,11 +248,12 @@ async function main() {
     { materialCategoryCode: "PL", name: "Wooden Pallets" },
     { materialCategoryCode: "ST", name: "Adhesive Stickers" },
   ]
-  const subCats: Record<string, number> = {}
-  for (const s of subCatDefs) {
-    const created = await prisma.subCategory.create({ data: { ...s, createdBy: adminId } })
-    subCats[s.name] = created.id
-  }
+  await prisma.subCategory.createMany({ data: subCatDefs.map((s) => ({ ...s, createdBy: adminId })) })
+  // Sub-category names are distinct across the seed, so keying the id map by
+  // name is safe here (the table itself has no unique constraint on name).
+  const subCats: Record<string, number> = Object.fromEntries(
+    (await prisma.subCategory.findMany({ select: { id: true, name: true } })).map((s) => [s.name, s.id])
+  )
 
   // ---- Items ----------------------------------------------------------
   const itemDefs = [
@@ -268,22 +270,23 @@ async function main() {
     { id: "BP-PL-00011", itemName: "Bell Pepper Pallet", commodityCode: "BP", materialCategoryCode: "PL", subCategory: "Wooden Pallets", uom: "Pallets", coo: "USA" },
     { id: "CG-ST-00012", itemName: "Grape Adhesive Sticker", commodityCode: "CG", materialCategoryCode: "ST", subCategory: "Adhesive Stickers", uom: "Rolls", coo: "N/A" },
   ]
-  for (const it of itemDefs) {
-    await prisma.item.create({
-      data: {
-        id: it.id,
-        itemName: it.itemName,
-        commodityCode: it.commodityCode,
-        materialCategoryCode: it.materialCategoryCode,
-        subCategoryId: subCats[it.subCategory],
-        countryOfOriginId: cooByName[it.coo],
-        applicationMethod: "Machine/Hand",
-        status: "Active",
-        region: "West",
-        createdBy: adminId,
-      },
-    })
-  }
+  await prisma.item.createMany({
+    data: itemDefs.map((it) => ({
+      id: it.id,
+      itemName: it.itemName,
+      commodityCode: it.commodityCode,
+      materialCategoryCode: it.materialCategoryCode,
+      subCategoryId: subCats[it.subCategory],
+      countryOfOriginId: cooByName[it.coo],
+      // The item's own unit — the source of truth resolveItemUnits() reads.
+      // Without it only items that happen to have a threshold get a unit.
+      unitOfMeasure: it.uom,
+      applicationMethod: "Machine/Hand",
+      status: "Active",
+      regionId: regionByName["West"],
+      createdBy: adminId,
+    })),
+  })
   const uomByItem: Record<string, string> = Object.fromEntries(itemDefs.map((i) => [i.id, i.uom]))
 
   // ---- Grower ↔ Item authorizations -----------------------------------
@@ -292,13 +295,11 @@ async function main() {
     [brigo.id]: ["BP-BX-00003", "BP-LB-00004", "CG-BX-00005", "CG-PL-00006", "BR-BX-00007", "BR-LB-00008", "AV-BX-00009", "AV-BG-00010"],
     [pdg.id]: ["AP-BX-00001", "AP-BG-00002", "CG-BX-00005", "CG-PL-00006", "AV-BX-00009", "AV-BG-00010", "BP-PL-00011", "CG-ST-00012"],
   }
-  for (const g of growers) {
-    for (const itemId of authMap[g.id]) {
-      await prisma.growerItemAuthorization.create({
-        data: { growerId: g.id, itemId, isActive: true, createdBy: adminId },
-      })
-    }
-  }
+  await prisma.growerItemAuthorization.createMany({
+    data: growers.flatMap((g) =>
+      authMap[g.id].map((itemId) => ({ growerId: g.id, itemId, isActive: true, createdBy: adminId }))
+    ),
+  })
 
   // ---- Item ↔ Vendor mappings -----------------------------------------
   const vendorItemMap: Record<number, string[]> = {
@@ -306,13 +307,11 @@ async function main() {
     [palletPool.id]: ["CG-PL-00006", "BP-PL-00011"],
     [labelWorks.id]: ["BP-LB-00004", "BR-LB-00008", "CG-ST-00012"],
   }
-  for (const [vendorId, items] of Object.entries(vendorItemMap)) {
-    for (const itemId of items) {
-      await prisma.itemVendor.create({
-        data: { vendorId: Number(vendorId), itemId, isActive: true, createdBy: adminId },
-      })
-    }
-  }
+  await prisma.itemVendor.createMany({
+    data: Object.entries(vendorItemMap).flatMap(([vendorId, items]) =>
+      items.map((itemId) => ({ vendorId: Number(vendorId), itemId, isActive: true, createdBy: adminId }))
+    ),
+  })
 
   // ---- Vendor ↔ Material category mappings ----------------------------
   const vendorCategoryMap: Record<number, string[]> = {
@@ -320,13 +319,11 @@ async function main() {
     [palletPool.id]: ["PL"], // pallets
     [labelWorks.id]: ["LB", "ST"], // labels & stickers
   }
-  for (const [vendorId, codes] of Object.entries(vendorCategoryMap)) {
-    for (const materialCategoryCode of codes) {
-      await prisma.vendorMaterialCategory.create({
-        data: { vendorId: Number(vendorId), materialCategoryCode, isActive: true, createdBy: adminId },
-      })
-    }
-  }
+  await prisma.vendorMaterialCategory.createMany({
+    data: Object.entries(vendorCategoryMap).flatMap(([vendorId, codes]) =>
+      codes.map((materialCategoryCode) => ({ vendorId: Number(vendorId), materialCategoryCode, isActive: true, createdBy: adminId }))
+    ),
+  })
 
   // ---- Thresholds (some global, one per-grower override) --------------
   console.log("Seeding thresholds, schedulers, conversions…")
@@ -338,24 +335,22 @@ async function main() {
     { itemId: "AV-BX-00009", growerId: null, qty: 35 },
     { itemId: "AP-BX-00001", growerId: agribar.id, qty: 80 }, // per-grower override
   ]
-  for (const t of thresholdDefs) {
-    await prisma.itemThreshold.create({
-      data: {
-        itemId: t.itemId,
-        growerId: t.growerId,
-        thresholdQuantity: new Prisma.Decimal(t.qty),
-        unitOfMeasure: uomByItem[t.itemId],
-        createdBy: adminId,
-      },
-    })
-  }
+  await prisma.itemThreshold.createMany({
+    data: thresholdDefs.map((t) => ({
+      itemId: t.itemId,
+      growerId: t.growerId,
+      thresholdQuantity: new Prisma.Decimal(t.qty),
+      unitOfMeasure: uomByItem[t.itemId],
+      createdBy: adminId,
+    })),
+  })
 
   // ---- Scheduler settings (global + one per-grower) -------------------
-  await prisma.schedulerSetting.create({
-    data: { scope: "Global", cadenceType: "AfterNDays", thresholdDays: 3, reminderFrequency: "Daily", isEnabled: true, createdBy: adminId },
-  })
-  await prisma.schedulerSetting.create({
-    data: { scope: "Grower", growerId: pdg.id, cadenceType: "Weekly", thresholdDays: 7, reminderFrequency: "Daily", isEnabled: true, createdBy: adminId },
+  await prisma.schedulerSetting.createMany({
+    data: [
+      { scope: "Global", cadenceType: "AfterNDays", thresholdDays: 3, reminderFrequency: "Daily", isEnabled: true, createdBy: adminId },
+      { scope: "Grower", growerId: pdg.id, cadenceType: "Weekly", thresholdDays: 7, reminderFrequency: "Daily", isEnabled: true, createdBy: adminId },
+    ],
   })
 
   // ---- Unit conversions -----------------------------------------------
@@ -366,11 +361,9 @@ async function main() {
     { fromUnit: "Cases", toUnit: "Pallets", factor: 0.0167, notes: "60 cases = 1 pallet" },
     { fromUnit: "Rolls", toUnit: "Stickers", factor: 5000, notes: "1 roll = 5000 stickers" },
   ]
-  for (const c of conversions) {
-    await prisma.unitConversion.create({
-      data: { ...c, factor: new Prisma.Decimal(c.factor), createdBy: adminId },
-    })
-  }
+  await prisma.unitConversion.createMany({
+    data: conversions.map((c) => ({ ...c, factor: new Prisma.Decimal(c.factor), createdBy: adminId })),
+  })
 
   // ---- Historical grower submissions ----------------------------------
   // Agribar: submits through yesterday (active).
@@ -385,6 +378,12 @@ async function main() {
   // base quantity per item to keep history coherent
   const baseQty: Record<string, number> = {}
   itemDefs.forEach((it, i) => (baseQty[it.id] = 40 + ((i * 13) % 60)))
+
+  // Each submission still needs its own create (its generated id is the FK for
+  // the children), but the ~100 detail and ~100 ledger rows hanging off them
+  // are accumulated here and written as two bulk inserts at the end.
+  const growerDetailRows: Prisma.GrowerSubmissionDetailCreateManyInput[] = []
+  const ledgerRows: Prisma.InventoryLedgerCreateManyInput[] = []
 
   for (const g of growers) {
     const itemIds = authMap[g.id]
@@ -408,31 +407,30 @@ async function main() {
         const drift = Math.round((rng(g.id * 100 + ii * 10 + di) - 0.5) * 20)
         const isStable = ii === itemIds.length - 1
         const onHand = Math.max(0, baseQty[itemId] + (isStable ? 0 : drift) - di * 2)
-        const detail = await prisma.growerSubmissionDetail.create({
-          data: {
-            submissionId: submission.id,
-            itemId,
-            locationId: loc[ii % loc.length].id,
-            quantityOnHand: new Prisma.Decimal(onHand),
-            unitOfMeasure: uomByItem[itemId],
-            createdAt: date,
-          },
+        const locationId = loc[ii % loc.length].id
+        growerDetailRows.push({
+          submissionId: submission.id,
+          itemId,
+          locationId,
+          quantityOnHand: new Prisma.Decimal(onHand),
+          unitOfMeasure: uomByItem[itemId],
+          createdAt: date,
         })
-        await prisma.inventoryLedger.create({
-          data: {
-            submissionId: submission.id,
-            date,
-            growerId: g.id,
-            itemId,
-            locationId: detail.locationId,
-            transactionType: "Daily Count Update",
-            finalQuantity: new Prisma.Decimal(onHand),
-            createdAt: date,
-          },
+        ledgerRows.push({
+          submissionId: submission.id,
+          date,
+          growerId: g.id,
+          itemId,
+          locationId,
+          transactionType: "Daily Count Update",
+          finalQuantity: new Prisma.Decimal(onHand),
+          createdAt: date,
         })
       }
     }
   }
+  await prisma.growerSubmissionDetail.createMany({ data: growerDetailRows })
+  await prisma.inventoryLedger.createMany({ data: ledgerRows })
 
   // ---- Grower orders --------------------------------------------------
   // Orders are raised per item against one of the item's mapped vendors, and
@@ -443,26 +441,25 @@ async function main() {
     for (const itemId of items) (itemToVendors[itemId] ??= []).push(Number(vendorId))
   }
   const now = new Date()
+  const orderRows: Prisma.OrderCreateManyInput[] = []
   for (const g of growers) {
     const orderable = authMap[g.id].filter((id) => itemToVendors[id]?.length)
     // A few open orders spread across recent days.
     for (let i = 0; i < Math.min(3, orderable.length); i++) {
       const itemId = orderable[i]
       const vendors = itemToVendors[itemId]
-      await prisma.order.create({
-        data: {
-          growerId: g.id,
-          itemId,
-          vendorId: vendors[i % vendors.length],
-          quantity: new Prisma.Decimal(10 + Math.round(rng(g.id * 5 + i) * 40)),
-          unitOfMeasure: uomByItem[itemId],
-          status: "Open",
-          orderDate: daysAgo(i + 1),
-          // Expected a few days out (daysAgo(negative) => future date).
-          expectedDeliveryDate: daysAgo(-(i + 3)),
-          createdBy: growerUserByGrower[g.id],
-          createdAt: daysAgo(i + 1),
-        },
+      orderRows.push({
+        growerId: g.id,
+        itemId,
+        vendorId: vendors[i % vendors.length],
+        quantity: new Prisma.Decimal(10 + Math.round(rng(g.id * 5 + i) * 40)),
+        unitOfMeasure: uomByItem[itemId],
+        status: "Open",
+        orderDate: daysAgo(i + 1),
+        // Expected a few days out (daysAgo(negative) => future date).
+        expectedDeliveryDate: daysAgo(-(i + 3)),
+        createdBy: growerUserByGrower[g.id],
+        createdAt: daysAgo(i + 1),
       })
     }
   }
@@ -471,21 +468,23 @@ async function main() {
   const agriOrderable = authMap[agribar.id].filter((id) => itemToVendors[id]?.length)
   if (agriOrderable.length >= 2) {
     const [a0, a1] = agriOrderable
-    await prisma.order.create({
-      data: { growerId: agribar.id, itemId: a0, vendorId: itemToVendors[a0][0], quantity: new Prisma.Decimal(25), unitOfMeasure: uomByItem[a0], status: "Received", orderDate: daysAgo(3), closedAt: now, createdBy: growerUserByGrower[agribar.id], createdAt: daysAgo(3) },
-    })
-    await prisma.order.create({
-      data: { growerId: agribar.id, itemId: a1, vendorId: itemToVendors[a1][0], quantity: new Prisma.Decimal(15), unitOfMeasure: uomByItem[a1], status: "Cancelled", orderDate: daysAgo(2), closedAt: now, createdBy: growerUserByGrower[agribar.id], createdAt: daysAgo(2) },
-    })
-    await prisma.order.create({
-      data: { growerId: agribar.id, itemId: a0, vendorId: itemToVendors[a0][0], quantity: new Prisma.Decimal(30), unitOfMeasure: uomByItem[a0], status: "Received", orderDate: daysAgo(5), closedAt: daysAgo(1), createdBy: growerUserByGrower[agribar.id], createdAt: daysAgo(5) },
-    })
+    orderRows.push(
+      { growerId: agribar.id, itemId: a0, vendorId: itemToVendors[a0][0], quantity: new Prisma.Decimal(25), unitOfMeasure: uomByItem[a0], status: "Received", orderDate: daysAgo(3), closedAt: now, createdBy: growerUserByGrower[agribar.id], createdAt: daysAgo(3) },
+      { growerId: agribar.id, itemId: a1, vendorId: itemToVendors[a1][0], quantity: new Prisma.Decimal(15), unitOfMeasure: uomByItem[a1], status: "Cancelled", orderDate: daysAgo(2), closedAt: now, createdBy: growerUserByGrower[agribar.id], createdAt: daysAgo(2) },
+      { growerId: agribar.id, itemId: a0, vendorId: itemToVendors[a0][0], quantity: new Prisma.Decimal(30), unitOfMeasure: uomByItem[a0], status: "Received", orderDate: daysAgo(5), closedAt: daysAgo(1), createdBy: growerUserByGrower[agribar.id], createdAt: daysAgo(5) }
+    )
   }
+  await prisma.order.createMany({ data: orderRows })
 
   // ---- Historical vendor submissions + allocations --------------------
   console.log("Seeding vendor submissions + allocations…")
   const vendorSubmitDays = [6, 4, 2, 1]
   const vendors = [packRight, palletPool, labelWorks]
+  // Allocations hang off the *detail* id, so unlike the grower loop above the
+  // details have to be read back after their bulk insert. (submissionId, itemId)
+  // is unique within a submission here, which makes a safe key to match them on.
+  const vendorDetailPlan: { submissionId: number; itemId: string; qty: number; date: Date }[] = []
+
   for (const v of vendors) {
     const items = vendorItemMap[v.id]
     for (let di = 0; di < vendorSubmitDays.length; di++) {
@@ -503,101 +502,122 @@ async function main() {
       for (let ii = 0; ii < items.length; ii++) {
         const itemId = items[ii]
         const qty = 100 + Math.round(rng(v.id * 7 + ii * 3 + di) * 150)
-        const detail = await prisma.vendorSubmissionDetail.create({
-          data: {
-            submissionId: submission.id,
-            itemId,
-            quantity: new Prisma.Decimal(qty),
-            unitOfMeasure: uomByItem[itemId],
-            createdAt: date,
-          },
-        })
-        // allocate to growers authorized for this item
-        const eligibleGrowers = growers.filter((g) => authMap[g.id].includes(itemId))
-        if (eligibleGrowers.length > 0) {
-          const per = Math.floor(qty / eligibleGrowers.length)
-          for (let gi = 0; gi < eligibleGrowers.length; gi++) {
-            const amount = gi === eligibleGrowers.length - 1 ? qty - per * (eligibleGrowers.length - 1) : per
-            await prisma.vendorAllocation.create({
-              data: {
-                vendorSubmissionDetailId: detail.id,
-                growerId: eligibleGrowers[gi].id,
-                quantity: new Prisma.Decimal(amount),
-                createdAt: date,
-              },
-            })
-          }
-        }
+        vendorDetailPlan.push({ submissionId: submission.id, itemId, qty, date })
       }
     }
   }
+  await prisma.vendorSubmissionDetail.createMany({
+    data: vendorDetailPlan.map((d) => ({
+      submissionId: d.submissionId,
+      itemId: d.itemId,
+      quantity: new Prisma.Decimal(d.qty),
+      unitOfMeasure: uomByItem[d.itemId],
+      createdAt: d.date,
+    })),
+  })
+  const detailIdByKey = new Map(
+    (await prisma.vendorSubmissionDetail.findMany({ select: { id: true, submissionId: true, itemId: true } })).map(
+      (d) => [`${d.submissionId}:${d.itemId}`, d.id]
+    )
+  )
+
+  // allocate to growers authorized for this item
+  const allocationRows: Prisma.VendorAllocationCreateManyInput[] = []
+  for (const d of vendorDetailPlan) {
+    const detailId = detailIdByKey.get(`${d.submissionId}:${d.itemId}`)
+    const eligibleGrowers = growers.filter((g) => authMap[g.id].includes(d.itemId))
+    if (detailId == null || eligibleGrowers.length === 0) continue
+    const per = Math.floor(d.qty / eligibleGrowers.length)
+    for (let gi = 0; gi < eligibleGrowers.length; gi++) {
+      const amount = gi === eligibleGrowers.length - 1 ? d.qty - per * (eligibleGrowers.length - 1) : per
+      allocationRows.push({
+        vendorSubmissionDetailId: detailId,
+        growerId: eligibleGrowers[gi].id,
+        quantity: new Prisma.Decimal(amount),
+        createdAt: d.date,
+      })
+    }
+  }
+  await prisma.vendorAllocation.createMany({ data: allocationRows })
 
   // ---- Low inventory flags + missing item requests --------------------
   console.log("Seeding flags, requests, audit logs, notifications, reports…")
-  await prisma.lowInventoryFlag.create({
-    data: {
-      growerId: agribar.id,
-      itemId: "BR-BX-00007",
-      flaggedBy: jamesUser.id,
-      reason: "Running low ahead of weekend harvest",
-      isActive: true,
-      createdBy: jamesUser.id,
-    },
-  })
-  await prisma.lowInventoryFlag.create({
-    data: {
-      growerId: brigo.id,
-      itemId: "CG-BX-00005",
-      flaggedBy: diagoUser.id,
-      reason: "Unexpected demand spike",
-      isActive: true,
-      createdBy: diagoUser.id,
-    },
+  await prisma.lowInventoryFlag.createMany({
+    data: [
+      {
+        growerId: agribar.id,
+        itemId: "BR-BX-00007",
+        flaggedBy: jamesUserId,
+        reason: "Running low ahead of weekend harvest",
+        isActive: true,
+        createdBy: jamesUserId,
+      },
+      {
+        growerId: brigo.id,
+        itemId: "CG-BX-00005",
+        flaggedBy: diagoUserId,
+        reason: "Unexpected demand spike",
+        isActive: true,
+        createdBy: diagoUserId,
+      },
+    ],
   })
 
-  await prisma.missingItemRequest.create({
-    data: {
-      growerId: agribar.id,
-      requestedBy: jamesUser.id,
-      itemName: "Asparagus Banding Rubber 9in",
-      commodityHint: "Asparagus",
-      categoryHint: "Bands",
-      notes: "Need for bunching line, not in my list",
-      status: "Open",
-      createdBy: jamesUser.id,
-    },
-  })
-  await prisma.missingItemRequest.create({
-    data: {
-      growerId: pdg.id,
-      requestedBy: priyaUser.id,
-      itemName: "Avocado Tissue Wrap",
-      commodityHint: "Avocado",
-      categoryHint: "Wrap",
-      notes: "Protective wrap for export",
-      status: "Reviewed",
-      reviewedBy: adminId,
-      reviewedAt: daysAgo(1),
-      reviewNotes: "Sourcing with vendor",
-      createdBy: priyaUser.id,
-    },
+  await prisma.missingItemRequest.createMany({
+    data: [
+      {
+        growerId: agribar.id,
+        requestedBy: jamesUserId,
+        itemName: "Asparagus Banding Rubber 9in",
+        commodityHint: "Asparagus",
+        categoryHint: "Bands",
+        notes: "Need for bunching line, not in my list",
+        status: "Open",
+        createdBy: jamesUserId,
+      },
+      {
+        growerId: pdg.id,
+        requestedBy: priyaUserId,
+        itemName: "Avocado Tissue Wrap",
+        commodityHint: "Avocado",
+        categoryHint: "Wrap",
+        notes: "Protective wrap for export",
+        status: "Reviewed",
+        reviewedBy: adminId,
+        reviewedAt: daysAgo(1),
+        reviewNotes: "Sourcing with vendor",
+        createdBy: priyaUserId,
+      },
+    ],
   })
 
   // ---- Global item messages (grower-facing notices) -------------------
-  // All-growers notice on a retiring item.
-  await prisma.itemMessage.create({
-    data: {
-      itemId: "CG-ST-00012",
-      type: "Retiring",
-      severity: "warning",
-      audience: "All",
-      body: "Being phased out — please run down remaining stock.",
-      createdBy: adminId,
-      updatedBy: adminId,
-    },
+  // Two all-growers notices: one on a retiring item, one critical.
+  await prisma.itemMessage.createMany({
+    data: [
+      {
+        itemId: "CG-ST-00012",
+        type: "Retiring",
+        severity: "warning",
+        audience: "All",
+        body: "Being phased out — please run down remaining stock.",
+        createdBy: adminId,
+        updatedBy: adminId,
+      },
+      {
+        itemId: "AV-BG-00010",
+        type: "ClearInventory",
+        severity: "critical",
+        audience: "All",
+        body: "Material out of manufacturing — clear inventory soon.",
+        createdBy: adminId,
+        updatedBy: adminId,
+      },
+    ],
   })
   // Selected-growers notice (only Brigo, a Spanish-preference grower — the type
-  // label renders localized in their view).
+  // label renders localized in their view). Created singly because its id is the
+  // FK for the ItemMessageGrower target row below.
   const increaseStock = await prisma.itemMessage.create({
     data: {
       itemId: "CG-BX-00005",
@@ -612,66 +632,52 @@ async function main() {
   await prisma.itemMessageGrower.create({
     data: { itemMessageId: increaseStock.id, growerId: brigo.id },
   })
-  // All-growers critical notice.
-  await prisma.itemMessage.create({
-    data: {
-      itemId: "AV-BG-00010",
-      type: "ClearInventory",
-      severity: "critical",
-      audience: "All",
-      body: "Material out of manufacturing — clear inventory soon.",
-      createdBy: adminId,
-      updatedBy: adminId,
-    },
-  })
 
   // ---- Audit logs (sample of internal CRUD) ---------------------------
   const auditSamples = [
     { action: AUDIT_ACTIONS.CREATE, entityType: "Item", entityId: "AP-BX-00001", changes: '{"itemName":"Asparagus Cardboard Box 11lb"}' },
     { action: AUDIT_ACTIONS.CREATE, entityType: "Grower", entityId: String(agribar.id), changes: '{"growerName":"Agribar"}' },
     { action: AUDIT_ACTIONS.UPDATE, entityType: "Vendor", entityId: String(packRight.id), changes: '{"status":["Pending","Active"]}' },
-    { action: AUDIT_ACTIONS.CREATE, entityType: "User", entityId: String(jamesUser.id), changes: '{"email":"james@agribar.local"}' },
+    { action: AUDIT_ACTIONS.CREATE, entityType: "User", entityId: String(jamesUserId), changes: '{"email":"james@agribar.local"}' },
   ]
-  for (let i = 0; i < auditSamples.length; i++) {
-    await prisma.auditLog.create({
-      data: { userId: adminId, ...auditSamples[i], createdAt: daysAgo(8 - i) },
-    })
-  }
+  await prisma.auditLog.createMany({
+    data: auditSamples.map((a, i) => ({ userId: adminId, ...a, createdAt: daysAgo(8 - i) })),
+  })
 
   // ---- Notification log (mocked emails) -------------------------------
-  await prisma.notificationLog.create({
-    data: {
-      type: NOTIFICATION_TYPES.SUBMISSION_RECEIVED,
-      toEmail: "ops@agribar.example",
-      growerId: agribar.id,
-      subject: "Inventory submission received — Agribar",
-      body: "Thanks James, your daily count was recorded.",
-      status: "Mocked",
-      relatedEntity: "GrowerSubmission",
-      createdAt: daysAgo(1),
-      sentAt: daysAgo(1),
-    },
-  })
-  await prisma.notificationLog.create({
-    data: {
-      type: NOTIFICATION_TYPES.SCHEDULED_REMINDER,
-      toEmail: "ops@brigo.example",
-      growerId: brigo.id,
-      subject: "Reminder: please submit your inventory count",
-      body: "Brigo has not submitted in 4 days. Please update your inventory.",
-      status: "Mocked",
-      relatedEntity: "SchedulerSetting",
-      createdAt: daysAgo(1),
-      sentAt: daysAgo(1),
-    },
+  await prisma.notificationLog.createMany({
+    data: [
+      {
+        type: NOTIFICATION_TYPES.SUBMISSION_RECEIVED,
+        toEmail: "ops@agribar.example",
+        growerId: agribar.id,
+        subject: "Inventory submission received — Agribar",
+        body: "Thanks James, your daily count was recorded.",
+        status: "Mocked",
+        relatedEntity: "GrowerSubmission",
+        createdAt: daysAgo(1),
+        sentAt: daysAgo(1),
+      },
+      {
+        type: NOTIFICATION_TYPES.SCHEDULED_REMINDER,
+        toEmail: "ops@brigo.example",
+        growerId: brigo.id,
+        subject: "Reminder: please submit your inventory count",
+        body: "Brigo has not submitted in 4 days. Please update your inventory.",
+        status: "Mocked",
+        relatedEntity: "SchedulerSetting",
+        createdAt: daysAgo(1),
+        sentAt: daysAgo(1),
+      },
+    ],
   })
 
   // ---- Power BI placeholder reports -----------------------------------
-  await prisma.powerBiReport.create({
-    data: { name: "Inventory Overview", embedUrl: "https://app.powerbi.com/view?r=DEMO_OVERVIEW", roleScope: "Admin", createdBy: adminId },
-  })
-  await prisma.powerBiReport.create({
-    data: { name: "Grower Submission Trends", embedUrl: "https://app.powerbi.com/view?r=DEMO_TRENDS", roleScope: "Admin", createdBy: adminId },
+  await prisma.powerBiReport.createMany({
+    data: [
+      { name: "Inventory Overview", embedUrl: "https://app.powerbi.com/view?r=DEMO_OVERVIEW", roleScope: "Admin", createdBy: adminId },
+      { name: "Grower Submission Trends", embedUrl: "https://app.powerbi.com/view?r=DEMO_TRENDS", roleScope: "Admin", createdBy: adminId },
+    ],
   })
 
   console.log("✅ Seed complete.")

@@ -38,18 +38,34 @@ export type FieldType =
   | "multiselect"
   | "switch"
   | "hidden"
+  | "preview" // read-only, not posted: shows `pattern` filled from other fields
 
 export type Field = {
   name: string
   label?: string
   type: FieldType
-  options?: { label: string; value: string }[]
+  // `parent` narrows a select to the value picked in `dependsOn` (see below).
+  options?: { label: string; value: string; parent?: string }[]
   required?: boolean
   placeholder?: string
   description?: string
   step?: string
-  lockOnEdit?: boolean // disabled when editing (e.g. id/code)
+  lockOnEdit?: boolean // read-only when editing (e.g. id/code) — still posted
+  readOnly?: boolean // always read-only (e.g. a unit inherited from the item)
   colSpan?: 1 | 2
+  /**
+   * Name of another select this one is filtered by: only options whose `parent`
+   * matches the parent's current value are offered, and the value is cleared
+   * whenever the parent changes (e.g. sub-category filtered by category).
+   */
+  dependsOn?: string
+  /**
+   * `preview` fields only: a template whose `{fieldName}` placeholders are
+   * replaced with the current values of those fields, e.g.
+   * "{commodityCode}-{materialCategoryCode}-00013". Until every referenced
+   * field has a value the `placeholder` is shown instead. Never posted.
+   */
+  pattern?: string
 }
 
 type Props = {
@@ -123,6 +139,40 @@ export function EntityFormDialog({
 
   const hasIdField = fields.some((f) => f.name === "id")
 
+  // Set a select's value and reset anything filtered by it, so a stale child
+  // selection can't survive a parent change.
+  function selectValue(name: string, value: string) {
+    setControlled((c) => {
+      const next = { ...c, [name]: value }
+      for (const f of fields) if (f.dependsOn === name) next[f.name] = ""
+      return next
+    })
+  }
+
+  /**
+   * Fill a preview pattern from the other fields' current values, or return
+   * null while any of them is still empty.
+   */
+  function previewValue(f: Field): string | null {
+    const pattern = f.pattern ?? ""
+    let complete = true
+    const filled = pattern.replace(/\{(\w+)\}/g, (_m, name: string) => {
+      const v = controlled[name] ?? String(values?.[name] ?? "")
+      if (!v) complete = false
+      return v
+    })
+    return complete ? filled : null
+  }
+
+  /** Options of a dependent select, narrowed to the parent's current value. */
+  function optionsFor(f: Field) {
+    const all = f.options ?? []
+    if (!f.dependsOn) return all
+    const parent = controlled[f.dependsOn] ?? ""
+    if (!parent) return []
+    return all.filter((o) => o.parent === undefined || o.parent === parent)
+  }
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {/*
@@ -179,6 +229,9 @@ export function EntityFormDialog({
                 )}
 
                 {f.type === "text" || f.type === "number" || f.type === "date" ? (
+                  // A locked field is READ-ONLY, never `disabled`: disabled
+                  // inputs are omitted from the FormData, which made every edit
+                  // fail validation on its own primary key.
                   <Input
                     id={f.name}
                     name={f.name}
@@ -187,7 +240,12 @@ export function EntityFormDialog({
                     required={f.required}
                     placeholder={f.placeholder}
                     defaultValue={String(values?.[f.name] ?? "")}
-                    disabled={isEdit && f.lockOnEdit}
+                    readOnly={f.readOnly || (isEdit && f.lockOnEdit)}
+                    className={
+                      f.readOnly || (isEdit && f.lockOnEdit)
+                        ? "bg-muted text-muted-foreground cursor-not-allowed"
+                        : undefined
+                    }
                     aria-invalid={!!err}
                   />
                 ) : f.type === "textarea" ? (
@@ -199,20 +257,29 @@ export function EntityFormDialog({
                     defaultValue={String(values?.[f.name] ?? "")}
                     aria-invalid={!!err}
                   />
+                ) : f.type === "preview" ? (
+                  // Display only — the value is derived, so nothing is posted.
+                  <div className="bg-muted text-muted-foreground flex h-9 items-center rounded-md border px-3 font-mono text-sm">
+                    {previewValue(f) ?? (
+                      <span className="font-sans text-xs">{f.placeholder}</span>
+                    )}
+                  </div>
                 ) : f.type === "select" ? (
                   <>
                     <input type="hidden" name={f.name} value={controlled[f.name] ?? ""} />
                     <Select
                       value={controlled[f.name] ?? ""}
-                      onValueChange={(v) =>
-                        setControlled((c) => ({ ...c, [f.name]: v }))
+                      onValueChange={(v) => selectValue(f.name, v)}
+                      disabled={
+                        (isEdit && f.lockOnEdit) ||
+                        (!!f.dependsOn && !controlled[f.dependsOn])
                       }
                     >
                       <SelectTrigger id={f.name} aria-invalid={!!err} className="w-full">
                         <SelectValue placeholder={f.placeholder ?? t("common.select")} />
                       </SelectTrigger>
                       <SelectContent>
-                        {f.options?.map((o) => (
+                        {optionsFor(f).map((o) => (
                           <SelectItem key={o.value} value={o.value}>
                             {o.label}
                           </SelectItem>

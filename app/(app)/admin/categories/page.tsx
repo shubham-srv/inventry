@@ -45,7 +45,7 @@ export default async function CategoriesPage({
       cell: (r) => (
         <div className="flex justify-end gap-1">
           <EntityFormDialog title="Edit category" fields={fields} action={updateCategory} values={{ code: r.code, name: r.name }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
-          <ConfirmButton title="Delete category" description={`Delete ${r.code}?`} confirmLabel="Delete" action={deleteCategory.bind(null, r.code)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
+          <ConfirmButton title="Delete category" description={`Delete ${r.code}?`} confirmLabel="Delete" typeToConfirm action={deleteCategory.bind(null, r.code)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
         </div>
       ),
     },

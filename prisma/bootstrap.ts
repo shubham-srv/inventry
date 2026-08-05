@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client"
-import { ROLES } from "../lib/constants"
+import { ROLES, REGIONS, COUNTRIES_OF_ORIGIN } from "../lib/constants"
 
 /**
  * Idempotent production bootstrap — SAFE to run on every deploy.
@@ -38,7 +38,18 @@ async function main() {
     })
   }
 
-  // 2. First admin — provisioned by email, authenticates via Entra (no password).
+  // 2. Lookup values the item form depends on (region + country dropdowns).
+  // Upserted by name, so re-running never duplicates and never renames what an
+  // admin has since added through /admin/countries.
+  console.log("Ensuring region + country lookups…")
+  for (const name of REGIONS) {
+    await prisma.region.upsert({ where: { name }, update: {}, create: { name } })
+  }
+  for (const name of COUNTRIES_OF_ORIGIN) {
+    await prisma.countryOfOrigin.upsert({ where: { name }, update: {}, create: { name } })
+  }
+
+  // 3. First admin — provisioned by email, authenticates via Entra (no password).
   const email = process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase()
   if (!email) {
     console.log("BOOTSTRAP_ADMIN_EMAIL not set — roles ensured, skipping admin.")

@@ -160,7 +160,9 @@ export async function getGrowerSubmitData(growerId: number) {
     const t = thresholds.get(a.itemId)
     const prev = prevByItem.has(a.itemId) ? prevByItem.get(a.itemId)! : null
     const detail = todayDetail.get(a.itemId)
-    const uom = detail?.unitOfMeasure ?? t?.uom ?? null
+    // The item's own unit wins: it is what every count and order is recorded in.
+    // Older items without one fall back to the unit on their threshold.
+    const uom = a.item.unitOfMeasure ?? t?.uom ?? detail?.unitOfMeasure ?? null
     return {
       itemId: a.itemId,
       itemName: a.item.itemName,

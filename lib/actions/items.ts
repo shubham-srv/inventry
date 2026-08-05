@@ -13,42 +13,73 @@ import {
 import { ok, fail } from "@/lib/actions/types"
 import { recordAudit } from "@/lib/audit"
 import { CAPABILITIES } from "@/lib/rbac"
-import { AUDIT_ACTIONS } from "@/lib/constants"
+import { AUDIT_ACTIONS, UNITS_OF_MEASURE } from "@/lib/constants"
+import { nextItemId } from "@/lib/items/item-id"
 
 const PATH = "/admin/items"
 
-const schema = z.object({
-  id: z.string().trim().min(3, "Item ID is required (e.g. AP-BX-00001)"),
+// Commodity, category, sub-category, country, region and unit are all required:
+// the first two build the item id, and the unit is inherited by every quantity
+// entered for the item later on. `legacyFamousId` is intentionally absent — it
+// only ever comes from the initial data upload, never from this form.
+const baseSchema = z.object({
   itemName: z.string().trim().min(1, "Name is required"),
-  commodityCode: z.string().trim().optional().default(""),
-  materialCategoryCode: z.string().trim().optional().default(""),
-  subCategoryId: z.string().trim().optional().default(""),
-  countryOfOriginId: z.string().trim().optional().default(""),
+  commodityCode: z.string().trim().min(1, "Commodity is required"),
+  materialCategoryCode: z.string().trim().min(1, "Category is required"),
+  subCategoryId: z.string().trim().min(1, "Sub-category is required"),
+  countryOfOriginId: z.string().trim().min(1, "Country of origin is required"),
+  regionId: z.string().trim().min(1, "Region is required"),
+  unitOfMeasure: z
+    .string()
+    .trim()
+    .min(1, "Unit of measure is required")
+    .refine(
+      (u) => (UNITS_OF_MEASURE as readonly string[]).includes(u),
+      "Unknown unit of measure"
+    ),
   applicationMethod: z.string().trim().optional().default(""),
   status: z.string().trim().min(1, "Status is required"),
-  region: z.string().trim().optional().default(""),
-  legacyFamousId: z.string().trim().optional().default(""),
   notes: z.string().trim().optional().default(""),
   // Comma-joined id lists from the mapping multi-selects.
   growerIds: z.string().trim().optional().default(""),
   vendorIds: z.string().trim().optional().default(""),
 })
 
-type ItemInput = z.infer<typeof schema>
+// Create posts no id (it is generated); update posts the immutable PK.
+const createSchema = baseSchema
+const updateSchema = baseSchema.extend({
+  id: z.string().trim().min(1, "Item ID is missing"),
+})
+
+type ItemInput = z.infer<typeof baseSchema>
 
 function toData(d: ItemInput) {
   return {
     itemName: d.itemName,
-    commodityCode: d.commodityCode || null,
-    materialCategoryCode: d.materialCategoryCode || null,
-    subCategoryId: d.subCategoryId ? Number(d.subCategoryId) : null,
-    countryOfOriginId: d.countryOfOriginId ? Number(d.countryOfOriginId) : null,
+    commodityCode: d.commodityCode,
+    materialCategoryCode: d.materialCategoryCode,
+    subCategoryId: Number(d.subCategoryId),
+    countryOfOriginId: Number(d.countryOfOriginId),
+    regionId: Number(d.regionId),
+    unitOfMeasure: d.unitOfMeasure,
     applicationMethod: d.applicationMethod || null,
     status: d.status,
-    region: d.region || null,
-    legacyFamousId: d.legacyFamousId || null,
     notes: d.notes || null,
   }
+}
+
+/** The sub-category dropdown is filtered client-side; re-check it server-side. */
+async function subCategoryMismatch(d: ItemInput): Promise<ActionState | null> {
+  const sub = await prisma.subCategory.findUnique({
+    where: { id: Number(d.subCategoryId) },
+    select: { materialCategoryCode: true },
+  })
+  if (!sub) return fail("Please fix the highlighted fields.", { subCategoryId: ["Sub-category not found"] })
+  if (sub.materialCategoryCode !== d.materialCategoryCode)
+    return fail("Please fix the highlighted fields.", {
+      subCategoryId: ["This sub-category belongs to a different category"],
+    })
+  return null
 }
 
 const parseIds = (s?: string): number[] =>
@@ -111,28 +142,40 @@ export async function createItem(
   fd: FormData
 ): Promise<ActionState> {
   const user = await guard(CAPABILITIES.MANAGE_MASTER_DATA)
-  const { data, error } = parseForm(schema, fd)
+  const { data, error } = parseForm(createSchema, fd)
   if (error) return error
-  const id = data.id.trim().toUpperCase()
-  try {
-    await prisma.$transaction(async (tx) => {
-      await tx.item.create({
-        data: { id, ...toData(data), createdBy: user.id, updatedBy: user.id },
+  const mismatch = await subCategoryMismatch(data)
+  if (mismatch) return mismatch
+
+  // The id is derived from commodity+category+sequence. Two admins creating an
+  // item at the same instant can compute the same sequence, so a duplicate-key
+  // collision just means "recompute and try again".
+  let lastError: unknown = null
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const id = await prisma.$transaction(async (tx) => {
+        const generated = await nextItemId(tx, data.commodityCode, data.materialCategoryCode)
+        await tx.item.create({
+          data: { id: generated, ...toData(data), createdBy: user.id, updatedBy: user.id },
+        })
+        await syncItemMappings(tx, generated, parseIds(data.growerIds), parseIds(data.vendorIds), user.id)
+        return generated
       })
-      await syncItemMappings(tx, id, parseIds(data.growerIds), parseIds(data.vendorIds), user.id)
-    })
-    await recordAudit({
-      userId: user.id,
-      action: AUDIT_ACTIONS.CREATE,
-      entityType: "Item",
-      entityId: id,
-      changes: toData(data),
-    })
-    revalidatePath(PATH)
-    return ok("Item created")
-  } catch (e) {
-    return fail(prismaErrorMessage(e))
+      await recordAudit({
+        userId: user.id,
+        action: AUDIT_ACTIONS.CREATE,
+        entityType: "Item",
+        entityId: id,
+        changes: toData(data),
+      })
+      revalidatePath(PATH)
+      return ok(`Item ${id} created`)
+    } catch (e) {
+      lastError = e
+      if ((e as { code?: string })?.code !== "P2002") break
+    }
   }
+  return fail(prismaErrorMessage(lastError))
 }
 
 export async function updateItem(
@@ -140,9 +183,12 @@ export async function updateItem(
   fd: FormData
 ): Promise<ActionState> {
   const user = await guard(CAPABILITIES.MANAGE_MASTER_DATA)
-  const { data, error } = parseForm(schema, fd)
+  const { data, error } = parseForm(updateSchema, fd)
   if (error) return error
+  const mismatch = await subCategoryMismatch(data)
+  if (mismatch) return mismatch
   try {
+    // The id is never re-derived on edit — history rows point at it.
     await prisma.$transaction(async (tx) => {
       await tx.item.update({
         where: { id: data.id },

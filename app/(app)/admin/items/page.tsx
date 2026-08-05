@@ -4,8 +4,9 @@ import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { itemsWhere } from "@/lib/admin/queries"
 import { parseListParams } from "@/lib/query"
-import { ENTITY_STATUS, APPLICATION_METHODS } from "@/lib/constants"
+import { ENTITY_STATUS, APPLICATION_METHODS, UNITS_OF_MEASURE } from "@/lib/constants"
 import { createItem, updateItem, deleteItem } from "@/lib/actions/items"
+import { peekNextSequence, padSequence } from "@/lib/items/item-id"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { DataTable, type Column } from "@/components/data-table/data-table"
@@ -25,6 +26,7 @@ async function getItems(where: ReturnType<typeof itemsWhere>, skip: number, take
         materialCategory: true,
         subCategory: true,
         countryOfOrigin: true,
+        region: true,
         authorizations: { where: { isActive: true }, select: { growerId: true } },
         itemVendors: { where: { isActive: true }, select: { vendorId: true } },
       },
@@ -47,9 +49,10 @@ export default async function ItemsPage({
   const { page, pageSize, skip, take, raw } = parseListParams(sp)
   const where = itemsWhere(raw)
 
-  const [{ rows, total }, commodities, categories, subCategories, countries, growers, vendors] =
+  const [{ rows, total }, nextSequence, commodities, categories, subCategories, countries, regions, growers, vendors] =
     await Promise.all([
       getItems(where, skip, take),
+      peekNextSequence(prisma),
       prisma.commodity.findMany({ orderBy: { name: "asc" } }),
       prisma.materialCategory.findMany({ orderBy: { name: "asc" } }),
       prisma.subCategory.findMany({
@@ -57,18 +60,22 @@ export default async function ItemsPage({
         orderBy: { name: "asc" },
       }),
       prisma.countryOfOrigin.findMany({ orderBy: { name: "asc" } }),
+      prisma.region.findMany({ orderBy: { name: "asc" } }),
       prisma.grower.findMany({ where: { status: "Active" }, orderBy: { growerName: "asc" } }),
       prisma.vendor.findMany({ where: { status: "Active" }, orderBy: { vendorName: "asc" } }),
     ])
   const pageCount = Math.ceil(total / pageSize)
 
+  // Shared by the create and edit dialogs. The item ID is NOT here: it is
+  // generated from commodity + category on create (see lib/items/item-id.ts)
+  // and immutable afterwards, so only the edit dialog shows it (read-only).
   const fields: Field[] = [
-    { name: "id", label: "Item ID", type: "text", required: true, placeholder: "AP-BX-00001", lockOnEdit: true },
     { name: "itemName", label: "Name", type: "text", required: true, colSpan: 2 },
     {
       name: "commodityCode",
       label: "Commodity",
       type: "select",
+      required: true,
       placeholder: "Select commodity",
       options: commodities.map((c) => ({ label: `${c.code} — ${c.name}`, value: c.code })),
     },
@@ -76,6 +83,7 @@ export default async function ItemsPage({
       name: "materialCategoryCode",
       label: "Category",
       type: "select",
+      required: true,
       placeholder: "Select category",
       options: categories.map((c) => ({ label: `${c.code} — ${c.name}`, value: c.code })),
     },
@@ -83,18 +91,39 @@ export default async function ItemsPage({
       name: "subCategoryId",
       label: "Sub-category",
       type: "select",
-      placeholder: "Select sub-category",
+      required: true,
+      placeholder: "Select category first",
+      dependsOn: "materialCategoryCode",
       options: subCategories.map((s) => ({
-        label: `${s.materialCategory.name} · ${s.name}`,
+        label: s.name,
         value: String(s.id),
+        parent: s.materialCategoryCode,
       })),
     },
     {
       name: "countryOfOriginId",
       label: "Country of origin",
       type: "select",
+      required: true,
       placeholder: "Select country",
       options: countries.map((c) => ({ label: c.name, value: String(c.id) })),
+    },
+    {
+      name: "regionId",
+      label: "Region",
+      type: "select",
+      required: true,
+      placeholder: "Select region",
+      options: regions.map((r) => ({ label: r.name, value: String(r.id) })),
+    },
+    {
+      name: "unitOfMeasure",
+      label: "Unit of measure",
+      type: "select",
+      required: true,
+      placeholder: "Select unit",
+      description: "Used for every count and order of this item.",
+      options: UNITS_OF_MEASURE.map((u) => ({ label: u, value: u })),
     },
     {
       name: "applicationMethod",
@@ -110,8 +139,6 @@ export default async function ItemsPage({
       required: true,
       options: [ENTITY_STATUS.ACTIVE, ENTITY_STATUS.INACTIVE, ENTITY_STATUS.REVIEW].map((s) => ({ label: s, value: s })),
     },
-    { name: "region", label: "Region", type: "text" },
-    { name: "legacyFamousId", label: "Legacy ID", type: "text" },
     {
       name: "growerIds",
       label: "Growers (who use this item)",
@@ -131,12 +158,33 @@ export default async function ItemsPage({
     { name: "notes", label: "Notes", type: "textarea" },
   ]
 
+  // Create previews the ID it will get; edit shows the real one (read-only) so
+  // it is posted back as the PK.
+  const createFields: Field[] = [
+    {
+      name: "idPreview",
+      label: "Item ID",
+      type: "preview",
+      colSpan: 2,
+      pattern: `{commodityCode}-{materialCategoryCode}-${padSequence(nextSequence)}`,
+      placeholder: "Pick a commodity and a category to see the ID",
+      description: "Generated on save — the number is the next one available.",
+    },
+    ...fields,
+  ]
+  const editFields: Field[] = [
+    { name: "id", label: "Item ID", type: "text", lockOnEdit: true, colSpan: 2 },
+    ...fields,
+  ]
+
   const columns: Column<ItemRow>[] = [
     { key: "id", header: "Item ID", className: "font-mono text-xs", cell: (r) => r.id },
     { key: "itemName", header: "Name", cell: (r) => <span className="font-medium">{r.itemName}</span> },
     { key: "commodity", header: "Commodity", cell: (r) => r.commodity?.name ?? "—" },
     { key: "category", header: "Category", cell: (r) => r.materialCategory?.name ?? "—" },
     { key: "coo", header: "Origin", cell: (r) => r.countryOfOrigin?.name ?? "—" },
+    { key: "region", header: "Region", cell: (r) => r.region?.name ?? "—" },
+    { key: "uom", header: "Unit", cell: (r) => r.unitOfMeasure ?? "—" },
     { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
     {
       key: "actions",
@@ -148,7 +196,7 @@ export default async function ItemsPage({
           <EntityFormDialog
             title="Edit item"
             description={r.id}
-            fields={fields}
+            fields={editFields}
             action={updateItem}
             values={{
               id: r.id,
@@ -157,10 +205,10 @@ export default async function ItemsPage({
               materialCategoryCode: r.materialCategoryCode ?? "",
               subCategoryId: r.subCategoryId ?? "",
               countryOfOriginId: r.countryOfOriginId ?? "",
+              regionId: r.regionId ?? "",
+              unitOfMeasure: r.unitOfMeasure ?? "",
               applicationMethod: r.applicationMethod ?? "",
               status: r.status,
-              region: r.region ?? "",
-              legacyFamousId: r.legacyFamousId ?? "",
               growerIds: r.authorizations.map((a) => String(a.growerId)).join(","),
               vendorIds: r.itemVendors.map((iv) => String(iv.vendorId)).join(","),
               notes: r.notes ?? "",
@@ -176,6 +224,7 @@ export default async function ItemsPage({
             title="Delete item"
             description={`Delete ${r.id}? This cannot be undone. If it has history, deactivate it instead.`}
             confirmLabel="Delete"
+            typeToConfirm
             action={deleteItem.bind(null, r.id)}
             trigger={
               <Button variant="ghost" size="icon-sm" aria-label="Delete">
@@ -212,11 +261,17 @@ export default async function ItemsPage({
               label: "Category",
               options: categories.map((c) => ({ label: c.name, value: c.code })),
             },
+            {
+              key: "region",
+              label: "Region",
+              options: regions.map((r) => ({ label: r.name, value: String(r.id) })),
+            },
           ]}
         >
           <EntityFormDialog
             title="New item"
-            fields={fields}
+            description="The item ID is generated from the commodity and category."
+            fields={createFields}
             action={createItem}
             submitLabel="Create item"
             trigger={

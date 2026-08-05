@@ -8,6 +8,7 @@ import {
   usersWhere,
   commoditiesWhere,
   categoriesWhere,
+  countriesWhere,
   subCategoriesWhere,
   locationsWhere,
   authorizationsWhere,
@@ -19,7 +20,13 @@ const d = (date: Date) => date.toISOString().slice(0, 10)
 async function itemsSheet(sp: SP): Promise<ExcelSheet> {
   const rows = await prisma.item.findMany({
     where: itemsWhere(sp),
-    include: { commodity: true, materialCategory: true, subCategory: true, countryOfOrigin: true },
+    include: {
+      commodity: true,
+      materialCategory: true,
+      subCategory: true,
+      countryOfOrigin: true,
+      region: true,
+    },
     orderBy: { id: "asc" },
   })
   return {
@@ -31,6 +38,7 @@ async function itemsSheet(sp: SP): Promise<ExcelSheet> {
       { header: "Category", key: "category", width: 18 },
       { header: "Sub-category", key: "sub", width: 20 },
       { header: "Country of origin", key: "coo", width: 18 },
+      { header: "Unit of measure", key: "uom", width: 16 },
       { header: "Application", key: "app", width: 16 },
       { header: "Status", key: "status", width: 12 },
       { header: "Region", key: "region", width: 12 },
@@ -43,9 +51,10 @@ async function itemsSheet(sp: SP): Promise<ExcelSheet> {
       category: i.materialCategory?.name ?? i.materialCategoryCode ?? "",
       sub: i.subCategory?.name ?? "",
       coo: i.countryOfOrigin?.name ?? "",
+      uom: i.unitOfMeasure ?? "",
       app: i.applicationMethod ?? "",
       status: i.status,
-      region: i.region ?? "",
+      region: i.region?.name ?? "",
       legacy: i.legacyFamousId ?? "",
     })),
   }
@@ -79,6 +88,7 @@ async function vendorsSheet(sp: SP): Promise<ExcelSheet> {
   const rows = await prisma.vendor.findMany({
     where: vendorsWhere(sp),
     include: {
+      region: true,
       materialCategories: { where: { isActive: true }, include: { materialCategory: true } },
     },
     orderBy: { vendorName: "asc" },
@@ -101,7 +111,7 @@ async function vendorsSheet(sp: SP): Promise<ExcelSheet> {
       id: v.id,
       name: v.vendorName,
       type: v.vendorType ?? "",
-      region: v.region ?? "",
+      region: v.region?.name ?? "",
       country: v.country ?? "",
       categories: v.materialCategories.map((mc) => mc.materialCategory.name).join(", "),
       contact: v.primaryContact ?? "",
@@ -194,9 +204,27 @@ async function subCategoriesSheet(sp: SP): Promise<ExcelSheet> {
   }
 }
 
+async function countriesSheet(sp: SP): Promise<ExcelSheet> {
+  const rows = await prisma.countryOfOrigin.findMany({
+    where: countriesWhere(sp),
+    include: { _count: { select: { items: true } } },
+    orderBy: { name: "asc" },
+  })
+  return {
+    name: "Countries of Origin",
+    columns: [
+      { header: "ID", key: "id", width: 8 },
+      { header: "Country", key: "name", width: 24 },
+      { header: "Items", key: "items", width: 10 },
+    ],
+    rows: rows.map((c) => ({ id: c.id, name: c.name, items: c._count.items })),
+  }
+}
+
 async function locationsSheet(sp: SP): Promise<ExcelSheet> {
   const rows = await prisma.location.findMany({
     where: locationsWhere(sp),
+    include: { region: true },
     orderBy: { locationName: "asc" },
   })
   return {
@@ -212,7 +240,7 @@ async function locationsSheet(sp: SP): Promise<ExcelSheet> {
       id: l.id,
       name: l.locationName,
       type: l.locationType ?? "",
-      region: l.region ?? "",
+      region: l.region?.name ?? "",
       focus: l.commodityFocus ?? "",
     })),
   }
@@ -249,6 +277,7 @@ const SINGLE: Record<string, (sp: SP) => Promise<ExcelSheet>> = {
   commodities: commoditiesSheet,
   categories: categoriesSheet,
   "sub-categories": subCategoriesSheet,
+  countries: countriesSheet,
   locations: locationsSheet,
   authorizations: authorizationsSheet,
 }

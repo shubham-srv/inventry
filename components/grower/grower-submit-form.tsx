@@ -26,11 +26,7 @@ import {
 import { initialActionState } from "@/lib/actions/types"
 import { type SubmitRow, type OrderView, type ItemMessageView } from "@/lib/grower/data"
 import { useT } from "@/lib/i18n/client"
-import {
-  SUBMISSION_STATUS,
-  ORDER_STATUS,
-  UNITS_OF_MEASURE,
-} from "@/lib/constants"
+import { SUBMISSION_STATUS, ORDER_STATUS } from "@/lib/constants"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -269,6 +265,7 @@ export function GrowerSubmitForm({
                     <div className="w-24">
                       <Label htmlFor={`qty-${r.itemId}`} className="text-xs">
                         {t("grower.form.onHand")}
+                        {r.uom ? ` (${r.uom})` : ""}
                       </Label>
                       <Input
                         id={`qty-${r.itemId}`}
@@ -429,7 +426,7 @@ function AddOrderButton({ item }: { item: SubmitRow }) {
       </span>
     )
   }
-  // Not an edit — `values` only seeds the unit default to the item's UOM.
+  // Not an edit — `values` only seeds the unit display from the item's UOM.
   const fields: Field[] = [
     { name: "itemId", type: "hidden", placeholder: item.itemId },
     {
@@ -452,11 +449,12 @@ function AddOrderButton({ item }: { item: SubmitRow }) {
       step: "any",
     },
     {
+      // The item's own unit: displayed for context, never chosen here. The
+      // server re-reads it from the item, so this field is purely informational.
       name: "unitOfMeasure",
       label: t("grower.orders.unit"),
-      type: "select",
-      placeholder: t("common.select"),
-      options: UNITS_OF_MEASURE.map((u) => ({ label: u, value: u })),
+      type: "text",
+      readOnly: true,
     },
     {
       name: "expectedDeliveryDate",
@@ -472,7 +470,7 @@ function AddOrderButton({ item }: { item: SubmitRow }) {
       fields={fields}
       action={createOrder}
       submitLabel={t("grower.orders.add")}
-      values={{ vendorId: "", quantity: "", unitOfMeasure: item.uom ?? "", expectedDeliveryDate: "" }}
+      values={{ vendorId: "", quantity: "", unitOfMeasure: item.uom ?? "—", expectedDeliveryDate: "" }}
       trigger={
         <Button type="button" variant="outline" size="xs">
           <Plus className="size-3.5" /> {t("grower.orders.add")}

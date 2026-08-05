@@ -135,9 +135,16 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
                       <Label htmlFor={`q-${r.itemId}`} className="text-xs">{t("vendor.form.quantity")}</Label>
                       <Input id={`q-${r.itemId}`} type="number" min={0} inputMode="decimal" value={v.qty} onChange={(e) => set(r.itemId, { qty: e.target.value })} placeholder="0" />
                     </div>
+                    {/* The unit belongs to the item — shown, never edited. */}
                     <div className="w-24">
                       <Label htmlFor={`u-${r.itemId}`} className="text-xs">{t("vendor.form.unit")}</Label>
-                      <Input id={`u-${r.itemId}`} value={v.uom} onChange={(e) => set(r.itemId, { uom: e.target.value })} placeholder="Cases" />
+                      <Input
+                        id={`u-${r.itemId}`}
+                        value={v.uom || "—"}
+                        readOnly
+                        tabIndex={-1}
+                        className="bg-muted text-muted-foreground cursor-not-allowed"
+                      />
                     </div>
                   </div>
                 </div>

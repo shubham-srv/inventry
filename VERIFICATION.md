@@ -341,5 +341,127 @@ Trigger each and confirm language + content:
 - [ ] Selecting a single item still works and reads "Authorization added".
 - [ ] Submitting with no item selected shows the "At least one item is required" error.
 
+## Round 9 — item unit, generated IDs, lookups, safer deletes (July 2026)
+
+**Run the migration first** — this round adds a table and changes columns:
+
+```bash
+npm run db:migrate:deploy   # applies 20260731090000_item_uom_and_region_lookup
+npm run db:seed             # optional: refresh the demo data (wipes it)
+```
+
+The migration was replay-tested on the shadow DB (`inventory_demo_shadow`) with
+fixture rows: item/vendor/location `region` text backfills into the new `Region`
+FK (unknown values like "Atlantis" become new Region rows), and `Item.unitOfMeasure`
+backfills from each item's threshold unit (global threshold preferred). Your
+`inventory_demo` DB is untouched until you run the command above.
+
+### P9.1 — Item unit of measure (`/admin/items` → grower/vendor views)
+- [ ] **Add item** now has a required **Unit of measure** dropdown; the items table
+      shows a **Unit** column.
+- [ ] As a grower (`james@agribar.local`) on `/grower/submit`: the On-hand label reads
+      **"On hand (Cases)"** for that item, and **Add order** shows the unit **greyed out
+      and uneditable** — it is the item's unit, not a choice.
+- [ ] Place an order → `/grower/on-order` and the order row show that unit. Changing the
+      item's unit in admin and reloading shows the new unit on the next order.
+- [ ] As a vendor (`sam@packright.local`) on `/vendor/submit`: the Unit box is read-only
+      and pre-filled from the item.
+
+### P9.2 — Generated item IDs
+- [ ] **Add item**: there is no Item ID box — the dialog says it is generated. Create
+      "Asparagus Bag" with commodity **AP** + category **BG** → toast reads
+      **"Item AP-BG-000NN created"** and the row appears with that ID.
+- [ ] The number is a single running sequence across all items (next one continues from
+      the highest existing). A per-combination variant exists but is **not** wired up:
+      `nextItemIdForCombination` in [lib/items/item-id.ts](lib/items/item-id.ts) — swap the
+      call in `createItem` if the client asks for per-combination numbering.
+- [ ] **Edit item** shows the ID read-only (greyed) and saving works — this is the bug
+      where editing complained the ID field was required.
+
+### P9.3 — Required fields + filtered sub-category
+- [ ] Commodity, Category, Sub-category, Country of origin, Region and Unit are all
+      required on create; leaving one blank highlights it with a message.
+- [ ] **Sub-category is disabled until a Category is picked**, then lists only that
+      category's sub-categories. Changing the Category clears the sub-category.
+- [ ] **Legacy ID** is gone from both the create and edit forms (the column is kept for
+      the initial upload and still appears in search + the Excel export).
+
+### P9.4 — Type-to-confirm deletes (every admin list)
+- [ ] Delete on items / commodities / categories / sub-categories / countries / locations /
+      growers / vendors / users / conversions / thresholds / schedulers / item messages /
+      authorizations asks you to **type "delete"**; the red button stays disabled until it
+      matches, and the box resets when reopened. (Español: type **"eliminar"**.)
+- [ ] Non-delete confirmations (grower **Cancel order**) are unchanged — single click.
+
+### P9.5 — Countries of Origin page (`/admin/countries`)
+- [ ] New **Countries of Origin** entry in the Master Data sidebar group; list shows each
+      country with an **Items** count, search works, and Export downloads the sheet.
+- [ ] Add / edit a country → it appears in the item form's Country of origin dropdown.
+- [ ] Deleting a country **used by items** is refused with "used by N item(s)"; deleting an
+      unused one works.
+
+### P9.6 — Region lookup (no page, by design)
+- [ ] Region is a dropdown (not free text) on **items**, **vendors** and **locations**, and
+      each of those lists has a **Region** filter. Values come from the seeded
+      `Region` table (West / Central / East) — deliberately no admin page.
+
+## Round 10 — seed: bulk inserts + two seed bugs (August 2026)
+
+No migration and no app-code change — this round only touches
+[prisma/seed.ts](prisma/seed.ts). Re-seed to pick it up:
+
+```bash
+npm run db:seed             # wipes and re-seeds the demo data
+```
+
+### P10.1 — Seed is re-runnable (was: crashed on the second run)
+`clearAll()` never deleted `ItemMessage` / `ItemMessageGrower`, and both FK to
+`Item`/`Grower` with `ON DELETE NO ACTION` — so the *second* `npm run db:seed`
+against an already-seeded DB failed on a FK violation at `item.deleteMany()`.
+`npm run db:reset` hid this, because `--force-reset` drops the DB first.
+
+- [ ] Run `npm run db:seed` **twice in a row**. Both runs finish with
+      "✅ Seed complete." (before the fix, the second run threw a FK error).
+
+### P10.2 — Every item has a unit (was: 7 of 12 had none)
+The seed carried a `uom` per item but never wrote it to `Item.unitOfMeasure`, so
+[resolveItemUnits()](lib/items/uom.ts) fell back to the threshold unit — and only
+5 of the 12 demo items have a threshold. The other 7 showed no unit at all.
+
+- [ ] `/admin/items` — the **Unit** column is filled for **all 12** rows, not just
+      the 5 with thresholds. Check the previously-blank ones specifically:
+      `AP-BG-00002` (Bags), `BP-LB-00004` (Rolls), `CG-PL-00006` (Pallets),
+      `BR-LB-00008` (Rolls), `AV-BG-00010` (Bags), `BP-PL-00011` (Pallets),
+      `CG-ST-00012` (Rolls).
+- [ ] As `priya@pdg.local` on `/grower/submit`: `BP-PL-00011` and `CG-ST-00012`
+      show "On hand (Pallets)" / "On hand (Rolls)" instead of a bare "On hand",
+      and **Add order** pre-fills the same unit greyed out.
+
+### P10.3 — Seed speed (the reason for the change)
+Write-only loops now use `createMany` (one INSERT per table instead of one per
+row). Rows that need a generated id back are still individual `create()` calls —
+`createManyAndReturn` is not supported on the `sqlserver` provider — so
+submissions stay one-by-one and their children are accumulated and bulk-inserted.
+
+Statements sent to the DB dropped from **~556 to ~99**; the big ones were grower
+details + ledger (208 → 2), vendor details + allocations (144 → 3) and the
+mapping tables (41 → 3). Against a remote Azure SQL this is the difference
+between ~500 and ~90 round trips.
+
+- [ ] Time `npm run db:seed` against the remote DB — it should be several times
+      faster than before, and the console still prints the same stage lines.
+- [ ] Data is unchanged in shape: 12 items, 24 authorizations, 13 grower
+      submissions / 104 details / 104 ledger rows, 12 vendor submissions /
+      48 details / 96 allocations, 12 orders.
+- [ ] Spot-check that the demo still tells its story: Brigo's last submission is
+      4 days ago (reminder due), Agribar has orders closed today still visible on
+      `/grower/on-order`, and the three item messages appear on `/admin/item-messages`
+      (one of them targeted at Brigo only).
+
+Remaining sequential inserts are the 25 submission rows (13 grower + 12 vendor).
+They could be batched too, but matching the rows back would mean keying on
+`(growerId, submissionDate)` — deliberately not done, to avoid depending on
+datetime round-trip precision for a ~25 statement saving.
+
 ## Quality gates
-- [ ] `npm run typecheck` clean · `npm run lint` clean.
+- [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.

@@ -75,6 +75,11 @@ export const APPLICATION_METHODS = [
   "N/A",
 ] as const
 
+// Seed values for the Region lookup table (dropdown source for items, vendors
+// and locations). The table is the source of truth at runtime; this list only
+// bootstraps it in the seed / migration.
+export const REGIONS = ["West", "Central", "East"] as const
+
 // Seed values for the CountryOfOrigin lookup table (dropdown source for items).
 export const COUNTRIES_OF_ORIGIN = [
   "USA",

@@ -178,7 +178,7 @@ const vendorSchema = z.object({
   id: z.string().trim().optional().default(""),
   vendorName: z.string().trim().min(1, "Name is required"),
   vendorType: z.string().trim().optional().default(""),
-  region: z.string().trim().optional().default(""),
+  regionId: z.string().trim().optional().default(""),
   country: z.string().trim().optional().default(""),
   primaryContact: z.string().trim().optional().default(""),
   contactEmail: z.string().trim().email("Enter a valid email").optional().or(z.literal("")),
@@ -201,7 +201,7 @@ function vendorData(d: VendorInput) {
   return {
     vendorName: d.vendorName,
     vendorType: d.vendorType || null,
-    region: d.region || null,
+    regionId: d.regionId ? Number(d.regionId) : null,
     country: d.country || null,
     primaryContact: d.primaryContact || null,
     contactEmail: d.contactEmail || null,

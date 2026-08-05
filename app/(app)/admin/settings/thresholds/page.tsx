@@ -67,7 +67,7 @@ export default async function ThresholdsPage({
       cell: (r) => (
         <div className="flex justify-end gap-1">
           <EntityFormDialog title="Edit threshold" fields={fields} action={updateThreshold} values={{ id: r.id, itemId: r.itemId, growerId: r.growerId ? String(r.growerId) : "0", thresholdQuantity: Number(r.thresholdQuantity), unitOfMeasure: r.unitOfMeasure ?? "" }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
-          <ConfirmButton title="Delete threshold" description="Delete this threshold?" confirmLabel="Delete" action={deleteThreshold.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
+          <ConfirmButton title="Delete threshold" description="Delete this threshold?" confirmLabel="Delete" typeToConfirm action={deleteThreshold.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
         </div>
       ),
     },

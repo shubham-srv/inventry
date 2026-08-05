@@ -81,7 +81,7 @@ export default async function ConversionsPage({
             submitLabel="Save changes"
             trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>}
           />
-          <ConfirmButton title="Delete conversion" description={`Delete ${r.fromUnit} → ${r.toUnit}?`} confirmLabel="Delete" action={deleteConversion.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
+          <ConfirmButton title="Delete conversion" description={`Delete ${r.fromUnit} → ${r.toUnit}?`} confirmLabel="Delete" typeToConfirm action={deleteConversion.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
         </div>
       ),
     },

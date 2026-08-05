@@ -79,7 +79,7 @@ export default async function GrowersPage({
       cell: (r) => (
         <div className="flex justify-end gap-1">
           <EntityFormDialog title="Edit grower" fields={fields} action={updateGrower} values={{ id: r.id, growerName: r.growerName, primaryEmail: r.primaryEmail ?? "", status: r.status, preferredLocale: r.preferredLocale, itemIds: r.authorizations.map((a) => a.itemId).join(",") }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
-          <ConfirmButton title="Delete grower" description={`Delete ${r.growerName}? If it has users or history, set status Inactive instead.`} confirmLabel="Delete" action={deleteGrower.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
+          <ConfirmButton title="Delete grower" description={`Delete ${r.growerName}? If it has users or history, set status Inactive instead.`} confirmLabel="Delete" typeToConfirm action={deleteGrower.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
         </div>
       ),
     },

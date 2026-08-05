@@ -7,6 +7,7 @@ import { requireRole, type SessionUser } from "@/lib/auth/session"
 import { ROLES, ORDER_STATUS } from "@/lib/constants"
 import { ok, fail, type ActionState } from "@/lib/actions/types"
 import { parseForm } from "@/lib/actions/_shared"
+import { resolveItemUnit } from "@/lib/items/uom"
 import { getT } from "@/lib/i18n/server"
 import { notifyOrderPlaced } from "@/lib/email/notify"
 
@@ -31,11 +32,12 @@ const parseDeliveryDate = (s: string): Date | null => {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
+// No unitOfMeasure here on purpose: the order is always placed in the item's
+// own unit, which the form shows read-only. Whatever the client posts is ignored.
 const createSchema = z.object({
   itemId: z.string().trim().min(1),
   vendorId: z.coerce.number().int().positive("Select a vendor"),
   quantity: z.coerce.number().positive("Enter a quantity greater than zero"),
-  unitOfMeasure: z.string().trim().optional().default(""),
   expectedDeliveryDate: z.string().trim().optional().default(""),
 })
 
@@ -67,13 +69,15 @@ export async function createOrder(_prev: ActionState, fd: FormData): Promise<Act
       )
   if (!allowed.has(data.vendorId)) return fail(t("grower.orders.actions.invalidVendor"))
 
+  const unitOfMeasure = await resolveItemUnit(data.itemId, growerId)
+
   await prisma.order.create({
     data: {
       growerId,
       itemId: data.itemId,
       vendorId: data.vendorId,
       quantity: data.quantity,
-      unitOfMeasure: data.unitOfMeasure || null,
+      unitOfMeasure,
       expectedDeliveryDate: parseDeliveryDate(data.expectedDeliveryDate),
       status: ORDER_STATUS.OPEN,
       orderDate: new Date(),
@@ -95,7 +99,7 @@ export async function createOrder(_prev: ActionState, fd: FormData): Promise<Act
     itemName: item?.itemName ?? data.itemId,
     vendorName: vendor?.vendorName ?? "",
     quantity: data.quantity,
-    uom: data.unitOfMeasure || null,
+    uom: unitOfMeasure,
   })
 
   revalidateGrower()

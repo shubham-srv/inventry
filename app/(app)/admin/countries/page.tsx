@@ -2,12 +2,12 @@ import { Pencil, Plus, Trash2 } from "lucide-react"
 import { prisma } from "@/lib/db"
 import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
-import { commoditiesWhere } from "@/lib/admin/queries"
+import { countriesWhere } from "@/lib/admin/queries"
 import { parseListParams } from "@/lib/query"
 import {
-  createCommodity,
-  updateCommodity,
-  deleteCommodity,
+  createCountry,
+  updateCountry,
+  deleteCountry,
 } from "@/lib/actions/master-data"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
@@ -21,50 +21,41 @@ import { ConfirmButton } from "@/components/crud/confirm-button"
 
 const fields: Field[] = [
   {
-    name: "code",
-    label: "Code",
+    name: "name",
+    label: "Country",
     type: "text",
     required: true,
-    placeholder: "AP",
-    lockOnEdit: true,
-    description: "Short commodity code, e.g. AP",
+    placeholder: "Mexico",
+    colSpan: 2,
+    description: "Shown in the Country of origin dropdown on items.",
   },
-  { name: "name", label: "Name", type: "text", required: true, colSpan: 2 },
 ]
 
-type Row = { code: string; name: string; _count: { items: number } }
+type Row = { id: number; name: string; _count: { items: number } }
 
-export default async function CommoditiesPage({
+export default async function CountriesPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.MANAGE_MASTER_DATA)
-  const { page, pageSize, skip, take, raw } = parseListParams(
-    await searchParams
-  )
-  const where = commoditiesWhere(raw)
+  const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
+  const where = countriesWhere(raw)
   const [rows, total] = await Promise.all([
-    prisma.commodity.findMany({
+    prisma.countryOfOrigin.findMany({
       where,
       include: { _count: { select: { items: true } } },
-      orderBy: { code: "asc" },
+      orderBy: { name: "asc" },
       skip,
       take,
     }),
-    prisma.commodity.count({ where }),
+    prisma.countryOfOrigin.count({ where }),
   ])
 
   const columns: Column<Row>[] = [
     {
-      key: "code",
-      header: "Code",
-      className: "font-mono text-xs",
-      cell: (r) => r.code,
-    },
-    {
       key: "name",
-      header: "Name",
+      header: "Country",
       cell: (r) => <span className="font-medium">{r.name}</span>,
     },
     { key: "items", header: "Items", cell: (r) => r._count.items },
@@ -76,10 +67,10 @@ export default async function CommoditiesPage({
       cell: (r) => (
         <div className="flex justify-end gap-1">
           <EntityFormDialog
-            title="Edit commodity"
+            title="Edit country"
             fields={fields}
-            action={updateCommodity}
-            values={{ code: r.code, name: r.name }}
+            action={updateCountry}
+            values={{ id: r.id, name: r.name }}
             submitLabel="Save changes"
             trigger={
               <Button variant="ghost" size="icon-sm" aria-label="Edit">
@@ -88,10 +79,15 @@ export default async function CommoditiesPage({
             }
           />
           <ConfirmButton
-            title="Delete commodity"
-            description={`Delete ${r.code}?`}
-            confirmLabel="Delete" typeToConfirm
-            action={deleteCommodity.bind(null, r.code)}
+            title="Delete country"
+            description={
+              r._count.items > 0
+                ? `${r.name} is used by ${r._count.items} item(s) and cannot be deleted until they are changed.`
+                : `Delete ${r.name}?`
+            }
+            confirmLabel="Delete"
+            typeToConfirm
+            action={deleteCountry.bind(null, r.id)}
             trigger={
               <Button variant="ghost" size="icon-sm" aria-label="Delete">
                 <Trash2 />
@@ -106,22 +102,22 @@ export default async function CommoditiesPage({
   return (
     <>
       <PageHeader
-        title="Commodities"
-        description="Top-level commodity codes."
+        title="Countries of Origin"
+        description="Lookup list behind the Country of origin dropdown on items."
       />
       <div className="space-y-4">
         <DataTableToolbar
-          searchPlaceholder="Search commodities…"
-          exportEntity="commodities"
+          searchPlaceholder="Search countries…"
+          exportEntity="countries"
         >
           <EntityFormDialog
-            title="New commodity"
+            title="New country"
             fields={fields}
-            action={createCommodity}
+            action={createCountry}
             submitLabel="Create"
             trigger={
               <Button size="sm">
-                <Plus className="size-4" /> Add commodity
+                <Plus className="size-4" /> Add country
               </Button>
             }
           />
@@ -130,11 +126,12 @@ export default async function CommoditiesPage({
         <DataTable
           columns={columns}
           rows={rows}
-          getRowKey={(r) => r.code}
+          getRowKey={(r) => r.id}
           page={page}
           pageCount={Math.ceil(total / pageSize)}
           total={total}
           searchParams={raw}
+          emptyMessage="No countries match your search."
         />
       </div>
     </>

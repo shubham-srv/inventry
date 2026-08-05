@@ -8,6 +8,7 @@ import { requireRole, type SessionUser } from "@/lib/auth/session"
 import { ROLES, SUBMISSION_STATUS } from "@/lib/constants"
 import { ok, fail, type ActionState } from "@/lib/actions/types"
 import { parseForm } from "@/lib/actions/_shared"
+import { resolveItemUnits } from "@/lib/items/uom"
 import { getT } from "@/lib/i18n/server"
 import {
   notifySubmissionReceived,
@@ -34,6 +35,8 @@ function revalidateGrower() {
 //    no ledger rows, no notification, no low-flag sync, progress bar unmoved.
 //  - "submit": today's submission becomes Approved; ledger is rebuilt from all
 //    of today's details, low flags sync, notification fires, progress updates.
+// `uom` is accepted for backwards compatibility but ignored — the unit stored
+// on the detail row always comes from the item (see lib/items/uom.ts).
 const submitItemSchema = z.object({
   itemId: z.string(),
   quantityOnHand: z.coerce.number().nonnegative(),
@@ -70,6 +73,10 @@ export async function submitInventory(
   const todayStart = startOfDay(new Date())
   const newStatus = isDraft ? SUBMISSION_STATUS.DRAFT : SUBMISSION_STATUS.APPROVED
   let submittedCount = valid.length
+  const units = await resolveItemUnits(
+    valid.map((i) => i.itemId),
+    growerId
+  )
 
   await prisma.$transaction(async (tx) => {
     let sub = await tx.growerSubmission.findFirst({
@@ -104,7 +111,7 @@ export async function submitInventory(
       })
       const data = {
         quantityOnHand: it.quantityOnHand,
-        unitOfMeasure: it.uom ?? null,
+        unitOfMeasure: units.get(it.itemId) ?? null,
         isLowFlagged: !!it.low,
         updatedBy: user.id,
       }

@@ -105,7 +105,7 @@ model Vendor {
   id              Int     @id @default(autoincrement())
   vendorName      String
   vendorType      String? // Manufacturer, Pallet Pooling, 3PL
-  region          String?
+  regionId        Int?
   country         String?
   primaryContact  String?
   contactEmail    String?
@@ -122,19 +122,22 @@ model Vendor {
   updatedBy Int?
   updatedAt DateTime @updatedAt
 
+  region             Region?                  @relation(fields: [regionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users              User[]
   itemVendors        ItemVendor[]
   materialCategories VendorMaterialCategory[]
   submissions        VendorSubmission[]
   orders             Order[]
   notifications      NotificationLog[]
+
+  @@index([regionId])
 }
 
 model Location {
   id             Int     @id @default(autoincrement())
   locationName   String
   locationType   String? // Packing House, Warehouse, Cross-dock, Grower
-  region         String?
+  regionId       Int?
   commodityFocus String?
   keyPersonnel   String?
   notes          String?
@@ -144,8 +147,11 @@ model Location {
   updatedBy Int?
   updatedAt DateTime @updatedAt
 
+  region            Region?                  @relation(fields: [regionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   submissionDetails GrowerSubmissionDetail[]
   ledgerEntries     InventoryLedger[]
+
+  @@index([regionId])
 }
 
 // ============================================================
@@ -196,17 +202,21 @@ model SubCategory {
 }
 
 model Item {
-  id                   String  @id // CC-MM-NNNNN
-  legacyFamousId       String?
+  id                   String  @id // CC-MM-NNNNN, auto-generated on create (lib/actions/items.ts)
+  legacyFamousId       String? // Famous ID from the initial data upload only; not editable in the UI
   itemName             String
   commodityCode        String?
   materialCategoryCode String?
   subCategoryId        Int?
   countryOfOriginId    Int?
+  // The item's own unit of measure. Set once at creation and reused everywhere
+  // a quantity is entered for the item (grower counts + orders, vendor reports),
+  // so units can never diverge per submission. Nullable only for pre-existing rows.
+  unitOfMeasure        String?
   applicationMethod    String? // Machine, Hand, Machine/Hand, N/A
   status               String  @default("Active") // Active, Inactive, Review
   notes                String?
-  region               String?
+  regionId             Int?
 
   createdBy Int?
   createdAt DateTime @default(now())
@@ -217,6 +227,7 @@ model Item {
   materialCategory        MaterialCategory?         @relation(fields: [materialCategoryCode], references: [code], onDelete: NoAction, onUpdate: NoAction)
   subCategory             SubCategory?              @relation(fields: [subCategoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   countryOfOrigin         CountryOfOrigin?          @relation(fields: [countryOfOriginId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  region                  Region?                   @relation(fields: [regionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   authorizations          GrowerItemAuthorization[]
   submissionDetails       GrowerSubmissionDetail[]
   ledgerEntries           InventoryLedger[]
@@ -232,9 +243,10 @@ model Item {
   @@index([materialCategoryCode])
   @@index([subCategoryId])
   @@index([countryOfOriginId])
+  @@index([regionId])
 }
 
-// Country of origin lookup (dropdown source for items). Seeded; no admin CRUD.
+// Country of origin lookup (dropdown source for items), managed at /admin/countries.
 model CountryOfOrigin {
   id   Int    @id @default(autoincrement())
   name String @unique // USA, Mexico, Canada, Peru, Ecuador, N/A
@@ -245,6 +257,23 @@ model CountryOfOrigin {
   updatedAt DateTime @updatedAt
 
   items Item[]
+}
+
+// Region lookup (dropdown source for items, vendors and locations). Seeded from
+// the values that used to live in the free-text `region` columns. Deliberately
+// has no admin page — values are managed in the seed / by migration.
+model Region {
+  id   Int    @id @default(autoincrement())
+  name String @unique // West, Central, East
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  items     Item[]
+  vendors   Vendor[]
+  locations Location[]
 }
 
 // ============================================================

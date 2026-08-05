@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db"
 import { requireRole, type SessionUser } from "@/lib/auth/session"
 import { ROLES } from "@/lib/constants"
 import { ok, fail, type ActionState } from "@/lib/actions/types"
+import { resolveItemUnits } from "@/lib/items/uom"
 import { getT } from "@/lib/i18n/server"
 import { notifyVendorSubmissionReceived } from "@/lib/email/notify"
 
@@ -20,6 +21,7 @@ const allocSchema = z.object({
   growerId: z.coerce.number().int(),
   quantity: z.coerce.number().nonnegative(),
 })
+// `uom` is accepted but ignored: the unit comes from the item itself.
 const itemSchema = z.object({
   itemId: z.string(),
   quantity: z.coerce.number().nonnegative(),
@@ -81,6 +83,7 @@ export async function submitVendorReport(
   }
 
   const todayStart = startOfDay(new Date())
+  const units = await resolveItemUnits(valid.map((v) => v.itemId))
 
   await prisma.$transaction(async (tx) => {
     let sub = await tx.vendorSubmission.findFirst({
@@ -106,7 +109,11 @@ export async function submitVendorReport(
       if (detail) {
         await tx.vendorSubmissionDetail.update({
           where: { id: detail.id },
-          data: { quantity: it.quantity, unitOfMeasure: it.uom ?? null, updatedBy: user.id },
+          data: {
+            quantity: it.quantity,
+            unitOfMeasure: units.get(it.itemId) ?? null,
+            updatedBy: user.id,
+          },
         })
       } else {
         detail = await tx.vendorSubmissionDetail.create({
@@ -114,7 +121,7 @@ export async function submitVendorReport(
             submissionId: sub.id,
             itemId: it.itemId,
             quantity: it.quantity,
-            unitOfMeasure: it.uom ?? null,
+            unitOfMeasure: units.get(it.itemId) ?? null,
             createdBy: user.id,
             updatedBy: user.id,
           },

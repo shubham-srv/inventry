@@ -22,7 +22,8 @@ type Row = {
   id: number
   vendorName: string
   vendorType: string | null
-  region: string | null
+  regionId: number | null
+  region: { name: string } | null
   country: string | null
   primaryContact: string | null
   contactEmail: string | null
@@ -46,10 +47,11 @@ export default async function VendorsPage({
   await requireCapability(CAPABILITIES.MANAGE_GROWERS_VENDORS)
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
   const where = vendorsWhere(raw)
-  const [rows, total, items, categories] = await Promise.all([
+  const [rows, total, items, categories, regions] = await Promise.all([
     prisma.vendor.findMany({
       where,
       include: {
+        region: true,
         itemVendors: { where: { isActive: true }, select: { itemId: true } },
         materialCategories: { where: { isActive: true }, select: { materialCategoryCode: true } },
         _count: { select: { users: true } },
@@ -61,14 +63,16 @@ export default async function VendorsPage({
     prisma.vendor.count({ where }),
     prisma.item.findMany({ where: { status: ENTITY_STATUS.ACTIVE }, orderBy: { id: "asc" }, select: { id: true, itemName: true } }),
     prisma.materialCategory.findMany({ orderBy: { name: "asc" } }),
+    prisma.region.findMany({ orderBy: { name: "asc" } }),
   ])
 
+  const regionOptions = regions.map((r) => ({ label: r.name, value: String(r.id) }))
   const fields: Field[] = [
     { name: "vendorName", label: "Name", type: "text", required: true, colSpan: 2 },
     { name: "vendorType", label: "Type", type: "select", placeholder: "Select type", options: VENDOR_TYPES.map((t) => ({ label: t, value: t })) },
     { name: "status", label: "Status", type: "select", required: true, options: STATUSES.map((s) => ({ label: s, value: s })) },
     { name: "preferredLocale", label: "Email language", type: "select", required: true, options: LOCALE_OPTIONS },
-    { name: "region", label: "Region", type: "text" },
+    { name: "regionId", label: "Region", type: "select", placeholder: "Select region", options: regionOptions },
     { name: "country", label: "Country", type: "text" },
     { name: "primaryContact", label: "Primary contact", type: "text" },
     { name: "contactEmail", label: "Contact email", type: "text" },
@@ -98,7 +102,7 @@ export default async function VendorsPage({
   const columns: Column<Row>[] = [
     { key: "name", header: "Name", cell: (r) => <span className="font-medium">{r.vendorName}</span> },
     { key: "type", header: "Type", cell: (r) => r.vendorType ?? "—" },
-    { key: "region", header: "Region", cell: (r) => r.region ?? "—" },
+    { key: "region", header: "Region", cell: (r) => r.region?.name ?? "—" },
     { key: "email", header: "Contact", cell: (r) => r.contactEmail ?? "—" },
     { key: "categories", header: "Categories", cell: (r) => r.materialCategories.length },
     { key: "items", header: "Items", cell: (r) => r.itemVendors.length },
@@ -116,7 +120,7 @@ export default async function VendorsPage({
             action={updateVendor}
             values={{
               id: r.id, vendorName: r.vendorName, vendorType: r.vendorType ?? "", status: r.status, preferredLocale: r.preferredLocale,
-              region: r.region ?? "", country: r.country ?? "", primaryContact: r.primaryContact ?? "",
+              regionId: r.regionId ?? "", country: r.country ?? "", primaryContact: r.primaryContact ?? "",
               contactEmail: r.contactEmail ?? "", contactPhone: r.contactPhone ?? "", leadTime: r.leadTime ?? "",
               paymentTerms: r.paymentTerms ?? "", ptAccountNumber: r.ptAccountNumber ?? "", notes: r.notes ?? "",
               itemIds: r.itemVendors.map((iv) => iv.itemId).join(","),
@@ -125,7 +129,7 @@ export default async function VendorsPage({
             submitLabel="Save changes"
             trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>}
           />
-          <ConfirmButton title="Delete vendor" description={`Delete ${r.vendorName}? If it has users or history, set status Inactive instead.`} confirmLabel="Delete" action={deleteVendor.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
+          <ConfirmButton title="Delete vendor" description={`Delete ${r.vendorName}? If it has users or history, set status Inactive instead.`} confirmLabel="Delete" typeToConfirm action={deleteVendor.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
         </div>
       ),
     },
@@ -141,6 +145,7 @@ export default async function VendorsPage({
           filters={[
             { key: "status", label: "Status", options: STATUSES.map((s) => ({ label: s, value: s })) },
             { key: "type", label: "Type", options: VENDOR_TYPES.map((t) => ({ label: t, value: t })) },
+            { key: "region", label: "Region", options: regionOptions },
           ]}
         >
           <EntityFormDialog title="New vendor" fields={fields} action={createVendor} submitLabel="Create" trigger={<Button size="sm"><Plus className="size-4" /> Add vendor</Button>} />

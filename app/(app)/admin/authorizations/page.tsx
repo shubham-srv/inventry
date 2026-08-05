@@ -61,7 +61,7 @@ export default async function AuthorizationsPage({
           <ActionButton action={setAuthorizationActive.bind(null, r.id, !r.isActive)}>
             {r.isActive ? <><ShieldX className="size-4" /> Revoke</> : <><ShieldCheck className="size-4" /> Activate</>}
           </ActionButton>
-          <ConfirmButton title="Remove authorization" description={`Remove ${r.itemId} from ${r.grower.growerName}?`} confirmLabel="Remove" action={deleteAuthorization.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Remove"><Trash2 /></Button>} />
+          <ConfirmButton title="Remove authorization" description={`Remove ${r.itemId} from ${r.grower.growerName}?`} confirmLabel="Remove" typeToConfirm action={deleteAuthorization.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Remove"><Trash2 /></Button>} />
         </div>
       ),
     },

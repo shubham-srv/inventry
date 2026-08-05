@@ -65,7 +65,8 @@ export async function getVendorSubmitData(vendorId: number) {
       itemName: iv.item.itemName,
       commodityName: iv.item.commodity?.name ?? null,
       categoryName: iv.item.materialCategory?.name ?? null,
-      uom: detail?.unitOfMeasure ?? null,
+      // Fixed by the item — the vendor sees it, but cannot change it.
+      uom: iv.item.unitOfMeasure ?? detail?.unitOfMeasure ?? null,
       previousQty: prevByItem.has(iv.itemId) ? prevByItem.get(iv.itemId)! : null,
       todayQty: detail ? num(detail.quantity) : null,
       growers: (growersByItem.get(iv.itemId) ?? []).sort((a, b) =>

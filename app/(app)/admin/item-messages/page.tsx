@@ -164,7 +164,7 @@ export default async function AdminItemMessagesPage({
           <ConfirmButton
             title="Delete item message"
             description={`Delete this ${ITEM_MESSAGE_TYPE_LABELS[r.type as keyof typeof ITEM_MESSAGE_TYPE_LABELS] ?? r.type} message for ${r.item.itemName}?`}
-            confirmLabel="Delete"
+            confirmLabel="Delete" typeToConfirm
             action={deleteItemMessage.bind(null, r.id)}
             trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>}
           />

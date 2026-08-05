@@ -21,6 +21,7 @@ export function itemsWhere(sp: SP): Prisma.ItemWhereInput {
   if (sp.status) and.push({ status: sp.status })
   if (sp.commodity) and.push({ commodityCode: sp.commodity })
   if (sp.category) and.push({ materialCategoryCode: sp.category })
+  if (sp.region) and.push({ regionId: Number(sp.region) || 0 })
   return and.length ? { AND: and } : {}
 }
 
@@ -46,7 +47,7 @@ export function vendorsWhere(sp: SP): Prisma.VendorWhereInput {
     })
   if (sp.status) and.push({ status: sp.status })
   if (sp.type) and.push({ vendorType: sp.type })
-  if (sp.region) and.push({ region: sp.region })
+  if (sp.region) and.push({ regionId: Number(sp.region) || 0 })
   return and.length ? { AND: and } : {}
 }
 
@@ -75,6 +76,11 @@ export function categoriesWhere(sp: SP): Prisma.MaterialCategoryWhereInput {
   return { OR: [{ code: { contains: sp.q } }, { name: { contains: sp.q } }] }
 }
 
+export function countriesWhere(sp: SP): Prisma.CountryOfOriginWhereInput {
+  if (!sp.q) return {}
+  return { name: { contains: sp.q } }
+}
+
 export function subCategoriesWhere(sp: SP): Prisma.SubCategoryWhereInput {
   const and: Prisma.SubCategoryWhereInput[] = []
   if (sp.q) and.push({ name: { contains: sp.q } })
@@ -86,9 +92,13 @@ export function locationsWhere(sp: SP): Prisma.LocationWhereInput {
   const and: Prisma.LocationWhereInput[] = []
   if (sp.q)
     and.push({
-      OR: [{ locationName: { contains: sp.q } }, { region: { contains: sp.q } }],
+      OR: [
+        { locationName: { contains: sp.q } },
+        { region: { name: { contains: sp.q } } },
+      ],
     })
   if (sp.type) and.push({ locationType: sp.type })
+  if (sp.region) and.push({ regionId: Number(sp.region) || 0 })
   return and.length ? { AND: and } : {}
 }
 
