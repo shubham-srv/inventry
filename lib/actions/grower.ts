@@ -7,7 +7,7 @@ import { prisma } from "@/lib/db"
 import { requireRole, type SessionUser } from "@/lib/auth/session"
 import { ROLES, SUBMISSION_STATUS } from "@/lib/constants"
 import { ok, fail, type ActionState } from "@/lib/actions/types"
-import { parseForm } from "@/lib/actions/_shared"
+import { parseForm, revalidateNavBadges } from "@/lib/actions/_shared"
 import { resolveItemUnits } from "@/lib/items/uom"
 import { getT } from "@/lib/i18n/server"
 import {
@@ -15,7 +15,10 @@ import {
   notifyMissingItemRequest,
 } from "@/lib/email/notify"
 
-async function requireGrower(): Promise<{ user: SessionUser; growerId: number }> {
+async function requireGrower(): Promise<{
+  user: SessionUser
+  growerId: number
+}> {
   const user = await requireRole([ROLES.GROWER_USER])
   if (!user.growerId) throw new Error("This user is not mapped to a grower.")
   return { user, growerId: user.growerId }
@@ -27,6 +30,7 @@ function revalidateGrower() {
   revalidatePath("/grower/history")
   revalidatePath("/grower/on-order")
   revalidatePath("/grower/requests")
+  revalidateNavBadges()
 }
 
 // ---------------- Daily inventory submission ----------------
@@ -55,7 +59,9 @@ export async function submitInventory(
 
   let items: z.infer<typeof payloadSchema>
   try {
-    items = payloadSchema.parse(JSON.parse(String(formData.get("payload") ?? "[]")))
+    items = payloadSchema.parse(
+      JSON.parse(String(formData.get("payload") ?? "[]"))
+    )
   } catch {
     return fail(t("grower.actions.invalidData"))
   }
@@ -71,7 +77,9 @@ export async function submitInventory(
   if (valid.length === 0) return fail(t("grower.actions.noAuthorized"))
 
   const todayStart = startOfDay(new Date())
-  const newStatus = isDraft ? SUBMISSION_STATUS.DRAFT : SUBMISSION_STATUS.APPROVED
+  const newStatus = isDraft
+    ? SUBMISSION_STATUS.DRAFT
+    : SUBMISSION_STATUS.APPROVED
   let submittedCount = valid.length
   const units = await resolveItemUnits(
     valid.map((i) => i.itemId),
@@ -116,10 +124,18 @@ export async function submitInventory(
         updatedBy: user.id,
       }
       if (existing) {
-        await tx.growerSubmissionDetail.update({ where: { id: existing.id }, data })
+        await tx.growerSubmissionDetail.update({
+          where: { id: existing.id },
+          data,
+        })
       } else {
         await tx.growerSubmissionDetail.create({
-          data: { submissionId: sub.id, itemId: it.itemId, createdBy: user.id, ...data },
+          data: {
+            submissionId: sub.id,
+            itemId: it.itemId,
+            createdBy: user.id,
+            ...data,
+          },
         })
       }
     }
@@ -199,22 +215,39 @@ export async function submitInventory(
 }
 
 // ---------------- Standalone low-inventory flag toggle ----------------
-export async function toggleLowFlag(itemId: string, active: boolean): Promise<ActionState> {
+export async function toggleLowFlag(
+  itemId: string,
+  active: boolean
+): Promise<ActionState> {
   const { user, growerId } = await requireGrower()
   const t = await getT()
-  const existing = await prisma.lowInventoryFlag.findFirst({ where: { growerId, itemId, isActive: true } })
+  const existing = await prisma.lowInventoryFlag.findFirst({
+    where: { growerId, itemId, isActive: true },
+  })
   if (active && !existing) {
     // Raising a flag does NOT email anyone — it surfaces in the admin
     // low-inventory review queue. The grower is emailed only once an admin
     // reviews it (see reviewLowFlag / notifyLowInventoryReviewed).
     await prisma.lowInventoryFlag.create({
-      data: { growerId, itemId, flaggedBy: user.id, reason: "Manually flagged low", isActive: true, createdBy: user.id },
+      data: {
+        growerId,
+        itemId,
+        flaggedBy: user.id,
+        reason: "Manually flagged low",
+        isActive: true,
+        createdBy: user.id,
+      },
     })
   } else if (!active && existing) {
-    await prisma.lowInventoryFlag.update({ where: { id: existing.id }, data: { isActive: false, updatedBy: user.id } })
+    await prisma.lowInventoryFlag.update({
+      where: { id: existing.id },
+      data: { isActive: false, updatedBy: user.id },
+    })
   }
   revalidateGrower()
-  return ok(active ? t("grower.actions.flagged") : t("grower.actions.flagCleared"))
+  return ok(
+    active ? t("grower.actions.flagged") : t("grower.actions.flagCleared")
+  )
 }
 
 // ---------------- Missing item request ----------------

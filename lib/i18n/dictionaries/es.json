@@ -59,12 +59,12 @@
     "locations": "Ubicaciones",
     "growers": "Productores",
     "vendors": "Proveedores",
-    "authorizations": "Autorizaciones de artículos",
+    "mappings": "Asignaciones",
     "itemRequests": "Solicitudes de artículos",
     "lowInventory": "Inventario Bajo",
     "itemMessages": "Mensajes de artículos",
     "users": "Usuarios",
-    "conversions": "Conversiones",
+    "packaging": "Embalaje",
     "reports": "Informes",
     "schedulers": "Programadores",
     "thresholds": "Umbrales",
@@ -72,6 +72,7 @@
     "outbox": "Bandeja de salida",
     "sections": {
       "overview": "Resumen",
+      "actionItems": "Acciones Pendientes",
       "masterData": "Datos maestros",
       "partners": "Socios y usuarios",
       "tools": "Herramientas",
@@ -123,7 +124,9 @@
       "belowThreshold": "Bajo el umbral",
       "prev": "antes",
       "min": "mín",
-      "noItems": "Aún no hay artículos autorizados para tu productor. Pide a un administrador que los autorice."
+      "noItems": "Aún no hay artículos autorizados para tu productor. Pide a un administrador que los autorice.",
+      "loadPreviousHint": "La mayoría de los conteos no cambian a diario: parte de tus últimos valores enviados y edita lo que cambió.",
+      "weekChangeTitle": "Cambio frente al mismo artículo hace una semana"
     },
     "orders": {
       "heading": "Pedidos",
@@ -156,7 +159,20 @@
         "notAuthorized": "No tienes autorización para este artículo.",
         "invalidVendor": "Elige un proveedor válido para este artículo.",
         "notFound": "Pedido no encontrado.",
-        "alreadyClosed": "Ese pedido ya no está abierto."
+        "alreadyClosed": "Ese pedido ya no está abierto.",
+        "invalidReceived": "Introduce una cantidad recibida válida."
+      },
+      "receiveTitle": "Confirmar recepción",
+      "receivedQty": "Cantidad recibida ({uom})",
+      "receivedHint": "Prellenado con la cantidad prevista; cámbialo solo si algo no cuadra.",
+      "receivedHintRounded": "Pediste {ordered} {uom}; este proveedor envía contenedores completos, así que se esperan {expected}.",
+      "receiptNote": "Motivo (solo si difiere)",
+      "receiptNoteNone": "Sin discrepancia",
+      "receiptNoteHint": "Se ignora cuando la cantidad coincide con la prevista.",
+      "receiptNotes": {
+        "short": "Envío incompleto",
+        "damaged": "Dañado",
+        "over": "Envío excedente"
       }
     },
     "history": {
@@ -320,5 +336,9 @@
       "ClearInventory": "Liquidar inventario",
       "Info": "Aviso"
     }
+  },
+  "outbox": {
+    "showPreview": "Ver vista previa",
+    "hidePreview": "Ocultar vista previa"
   }
 }

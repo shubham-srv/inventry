@@ -59,12 +59,12 @@
     "locations": "Locations",
     "growers": "Growers",
     "vendors": "Vendors",
-    "authorizations": "Item Authorizations",
+    "mappings": "Mappings",
     "itemRequests": "Item Requests",
     "lowInventory": "Low Inventory",
     "itemMessages": "Item Messages",
     "users": "Users",
-    "conversions": "Conversions",
+    "packaging": "Packaging",
     "reports": "Reports",
     "schedulers": "Schedulers",
     "thresholds": "Thresholds",
@@ -72,6 +72,7 @@
     "outbox": "Outbox",
     "sections": {
       "overview": "Overview",
+      "actionItems": "Action Items",
       "masterData": "Master Data",
       "partners": "Partners & Users",
       "tools": "Tools",
@@ -123,7 +124,9 @@
       "belowThreshold": "Below threshold",
       "prev": "prev",
       "min": "min",
-      "noItems": "No items are authorized for your grower yet. Ask an admin to authorize items."
+      "noItems": "No items are authorized for your grower yet. Ask an admin to authorize items.",
+      "loadPreviousHint": "Most counts don't change day to day — start from your last submitted values and edit what moved.",
+      "weekChangeTitle": "Change vs the same item a week ago"
     },
     "orders": {
       "heading": "Orders",
@@ -156,7 +159,20 @@
         "notAuthorized": "You're not authorized for this item.",
         "invalidVendor": "Choose a valid vendor for this item.",
         "notFound": "Order not found.",
-        "alreadyClosed": "That order is no longer open."
+        "alreadyClosed": "That order is no longer open.",
+        "invalidReceived": "Enter a valid received quantity."
+      },
+      "receiveTitle": "Confirm receipt",
+      "receivedQty": "Quantity received ({uom})",
+      "receivedHint": "Prefilled with the expected amount — change it only if something is off.",
+      "receivedHintRounded": "You ordered {ordered} {uom}; this vendor ships whole containers, so {expected} is expected.",
+      "receiptNote": "Reason (only if it differs)",
+      "receiptNoteNone": "No discrepancy",
+      "receiptNoteHint": "Ignored when the quantity matches what was expected.",
+      "receiptNotes": {
+        "short": "Short shipped",
+        "damaged": "Damaged",
+        "over": "Over shipped"
       }
     },
     "history": {
@@ -320,5 +336,9 @@
       "ClearInventory": "Clear inventory",
       "Info": "Notice"
     }
+  },
+  "outbox": {
+    "showPreview": "Show preview",
+    "hidePreview": "Hide preview"
   }
 }

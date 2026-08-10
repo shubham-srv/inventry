@@ -9,7 +9,6 @@ import {
   setAuthorizationActive,
   deleteAuthorization,
 } from "@/lib/actions/authorizations"
-import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
@@ -26,7 +25,7 @@ type Row = {
   item: { itemName: string }
 }
 
-export default async function AuthorizationsPage({
+export default async function GrowerAuthorizationsPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>
@@ -59,7 +58,7 @@ export default async function AuthorizationsPage({
       cell: (r) => (
         <div className="flex justify-end gap-1">
           <ActionButton action={setAuthorizationActive.bind(null, r.id, !r.isActive)}>
-            {r.isActive ? <><ShieldX className="size-4" /> Revoke</> : <><ShieldCheck className="size-4" /> Activate</>}
+            {r.isActive ? <><ShieldX className="size-4" /> Deactivate</> : <><ShieldCheck className="size-4" /> Activate</>}
           </ActionButton>
           <ConfirmButton title="Remove authorization" description={`Remove ${r.itemId} from ${r.grower.growerName}?`} confirmLabel="Remove" typeToConfirm action={deleteAuthorization.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Remove"><Trash2 /></Button>} />
         </div>
@@ -68,21 +67,18 @@ export default async function AuthorizationsPage({
   ]
 
   return (
-    <>
-      <PageHeader title="Item authorizations" description="Control which items each grower can submit inventory for." />
-      <div className="space-y-4">
-        <DataTableToolbar
-          searchPlaceholder="Search item id / name…"
-          exportEntity="authorizations"
-          filters={[
-            { key: "grower", label: "Grower", options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })) },
-            { key: "status", label: "Status", options: [{ label: "Active", value: "active" }, { label: "Inactive", value: "inactive" }] },
-          ]}
-        >
-          <EntityFormDialog title="Authorize item" fields={fields} action={createAuthorization} submitLabel="Authorize" trigger={<Button size="sm"><Plus className="size-4" /> Authorize item</Button>} />
-        </DataTableToolbar>
-        <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} page={page} pageCount={Math.ceil(total / pageSize)} total={total} searchParams={raw} />
-      </div>
-    </>
+    <div className="space-y-4">
+      <DataTableToolbar
+        searchPlaceholder="Search item id / name…"
+        exportEntity="authorizations"
+        filters={[
+          { key: "grower", label: "Grower", options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })) },
+          { key: "status", label: "Status", options: [{ label: "Active", value: "active" }, { label: "Inactive", value: "inactive" }] },
+        ]}
+      >
+        <EntityFormDialog title="Authorize item" fields={fields} action={createAuthorization} submitLabel="Authorize" trigger={<Button size="sm"><Plus className="size-4" /> Authorize item</Button>} />
+      </DataTableToolbar>
+      <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} page={page} pageCount={Math.ceil(total / pageSize)} total={total} searchParams={raw} />
+    </div>
   )
 }

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { prisma } from "@/lib/db"
-import { guard, parseForm, prismaErrorMessage, type ActionState } from "@/lib/actions/_shared"
+import { guard, parseForm, prismaErrorMessage, revalidateNavBadges, type ActionState } from "@/lib/actions/_shared"
 import { ok, fail } from "@/lib/actions/types"
 import { recordAudit } from "@/lib/audit"
 import { CAPABILITIES } from "@/lib/rbac"
@@ -43,6 +43,7 @@ export async function reviewRequest(_p: ActionState, fd: FormData): Promise<Acti
       reviewNotes: updated.reviewNotes,
     })
     revalidatePath("/admin/requests")
+    revalidateNavBadges()
     return ok("Request updated")
   } catch (e) {
     return fail(prismaErrorMessage(e))

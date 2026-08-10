@@ -4,23 +4,37 @@ import { requireRole } from "@/lib/auth/session"
 import { ROLES } from "@/lib/constants"
 import { prisma } from "@/lib/db"
 import { createMissingItemRequest } from "@/lib/actions/grower"
+import { parseListParams } from "@/lib/query"
 import { getT } from "@/lib/i18n/server"
 import { PageHeader } from "@/components/page-header"
+import { Pager } from "@/components/pager"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { EntityFormDialog, type Field } from "@/components/crud/entity-form-dialog"
 import { StatusBadge } from "@/components/status-badge"
 
-export default async function GrowerRequestsPage() {
+export default async function GrowerRequestsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
   const user = await requireRole([ROLES.GROWER_USER])
   if (!user.growerId) return <p className="text-sm">Your account is not mapped to a grower.</p>
 
   const t = await getT()
-  const requests = await prisma.missingItemRequest.findMany({
-    where: { growerId: user.growerId },
-    include: { requester: true },
-    orderBy: { createdAt: "desc" },
-  })
+  const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 10 })
+  // Previously an unbounded findMany — this list only grows.
+  const where = { growerId: user.growerId }
+  const [requests, total] = await Promise.all([
+    prisma.missingItemRequest.findMany({
+      where,
+      include: { requester: true },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take,
+    }),
+    prisma.missingItemRequest.count({ where }),
+  ])
 
   const fields: Field[] = [
     { name: "itemName", label: t("grower.requests.itemName"), type: "text", required: true, colSpan: 2, placeholder: t("grower.requests.itemNamePh") },
@@ -73,6 +87,12 @@ export default async function GrowerRequestsPage() {
             </CardContent>
           </Card>
         ))}
+        <Pager
+          page={page}
+          pageCount={Math.ceil(total / pageSize)}
+          total={total}
+          searchParams={raw}
+        />
       </div>
     </>
   )

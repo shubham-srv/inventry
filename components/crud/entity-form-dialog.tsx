@@ -50,6 +50,7 @@ export type Field = {
   placeholder?: string
   description?: string
   step?: string
+  min?: string // `number` inputs only — e.g. "0" to refuse negative day counts
   lockOnEdit?: boolean // read-only when editing (e.g. id/code) — still posted
   readOnly?: boolean // always read-only (e.g. a unit inherited from the item)
   colSpan?: 1 | 2
@@ -237,6 +238,7 @@ export function EntityFormDialog({
                     name={f.name}
                     type={f.type}
                     step={f.step}
+                    min={f.min}
                     required={f.required}
                     placeholder={f.placeholder}
                     defaultValue={String(values?.[f.name] ?? "")}

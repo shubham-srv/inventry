@@ -593,20 +593,88 @@ activity if you enable the sliding-session middleware (both app-side, per INTEGR
 ## 13. CI/CD pipeline (build → migrate → deploy)
 
 The `Dockerfile`, `.dockerignore`, and `azure-pipelines.yml` now exist in the repo, and
-`next.config.ts` sets `output: "standalone"`. The pipeline has three stages:
+`next.config.ts` sets `output: "standalone"`.
 
-1. **Build** — `az acr build` builds the image in ACR (no Docker daemon on the agent) and tags it
-   `inventory-web:$(Build.BuildId)` + `:latest`.
-2. **Migrate** — `npm ci` → `prisma migrate deploy` (applies pending migrations, incl. the
-   `MagicToken` table once magic-link is activated) → `npm run db:bootstrap` (idempotent: roles +
-   first SuperAdmin from `BOOTSTRAP_ADMIN_*`).
-3. **Deploy** — `az containerapp update` points the app at the new image → rolls a fresh revision.
+**Branching model the pipeline implements:**
+
+```
+push to dev              -> Validate only (no deploy)
+PR dev -> staging (merge) -> Validate -> Build image -> Deploy STAGING
+PR staging -> master      -> Validate -> [approval] -> Promote SAME image to PROD
+```
+
+**Four stages:**
+
+1. **Validate** — runs on every PR and branch build: `prisma generate` → `typecheck` → `lint` →
+   `next build`. This is the gate the promote-by-PR model depends on.
+2. **Build** (staging branch only) — `az acr build` tags the image `:sha-<commit>` and moves a
+   floating `:staging` tag.
+3. **Deploy → staging** — `prisma migrate deploy` → `db:bootstrap` → roll the revision → poll
+   `/login` until it returns 200.
+4. **Promote → production** (master branch only) — resolves `:staging` to its **sha256 digest** and
+   deploys the digest.
+
+### Build once, promote by digest
+
+The master merge commit is a *different commit* from the staging one, so rebuilding on master would
+ship an image nobody tested — different dependency resolution, possibly a newer base-image patch.
+The production stage therefore never builds. It resolves the `:staging` tag to its immutable digest
+and deploys `repo@sha256:…`, which is content-addressed: production provably runs the exact bytes
+staging validated. Each promotion is also tagged `:prod-<BuildId>` for traceability.
+
+### ⚠️ Migrations are not rollback-safe — expand/contract
+
+Rolling the container image back does **not** roll the schema back. If a release drops or renames a
+column, the previous image will break against the new schema.
+
+This is not hypothetical: migration `20260806090000` drops `UnitConversion` and drops
+`Vendor.leadTime`/`paymentTerms`. Rolling back to an image built before it would fail.
+
+So for anything destructive, split it across two releases:
+
+1. **Expand** — add the new column/table, deploy code that writes both old and new, backfill.
+2. **Contract** — in a *later* release, once no running image needs the old shape, drop it.
+
+The production approval sits **before** the migrate step for this reason: once migrations apply you
+are committed.
 
 **One-time setup in Azure DevOps:**
 - Create an **ARM service connection**; put its name in `azureSubscription` (top of the YAML).
-- Create a **variable group** `inventory-staging-secrets` **linked to Key Vault**, exposing
-  `DATABASE_URL`, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_FIRST_NAME`, `BOOTSTRAP_ADMIN_LAST_NAME`.
+- Create **variable groups** `inventory-staging-secrets` and (later)
+  `inventory-production-secrets`, **linked to Key Vault**, exposing `DATABASE_URL`,
+  `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_FIRST_NAME`, `BOOTSTRAP_ADMIN_LAST_NAME`.
+- Create **Environments** `inventory-staging` and `inventory-production`, and add a **required
+  approver** on the production one. Approvals live on the Environment in the ADO UI — they cannot
+  be expressed in the YAML.
+- Add **branch policies** on `staging` and `master` requiring the Validate stage. The `pr:` trigger
+  runs the build but does **not** block a merge on its own; the policy does.
 - Ensure the ACA app's **managed identity has AcrPull** (§8b) so it can pull the new image.
+
+**Production is disabled until you flip a flag.** `productionEnabled: false` at the top of the YAML
+keeps the master branch to validation only, so merging to master cannot fail on infrastructure that
+does not exist yet. Set it to `true` once the production RG, ACA app, Environment and variable group
+are in place, and confirm `prodResourceGroup` / `prodAcaApp`.
+
+### ⚠️ Contributor is not enough for the role assignments
+
+Contributor can create resources but **cannot grant access to them** — it lacks
+`Microsoft.Authorization/roleAssignments/write`. Two steps in this guide need that:
+
+- granting the ACA managed identity **AcrPull** on the registry (§8b), and
+- granting it **Key Vault Secrets User** (§8).
+
+Options, best first:
+1. Ask whoever owns the subscription for **User Access Administrator** (or RBAC Administrator) on
+   `rg-inventory-staging`, or ask them to make those two assignments for you.
+2. Use a Key Vault on the **access-policy** permission model rather than RBAC — setting access
+   policies is a control-plane operation on the vault itself, which Contributor *does* have.
+3. Last resort for ACR: enable the registry **admin user** and store its credentials as a Container
+   App secret. Works with Contributor alone, but it is a shared static credential rather than a
+   managed identity — avoid it for production.
+
+Creating the ARM **service connection** may also need elevated rights, since it creates a service
+principal and assigns it a role. If the automatic route is blocked, have an admin create the app
+registration and use a manually-configured service connection.
 
 **Two gotchas to expect:**
 - **Azure SQL firewall vs hosted agents.** The Migrate stage reaches Azure SQL from a

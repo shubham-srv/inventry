@@ -8,6 +8,7 @@ import { ROLES, ORDER_STATUS } from "@/lib/constants"
 import { ok, fail, type ActionState } from "@/lib/actions/types"
 import { parseForm } from "@/lib/actions/_shared"
 import { resolveItemUnit } from "@/lib/items/uom"
+import { resolvePack, type PackResolution } from "@/lib/packaging/resolve"
 import { getT } from "@/lib/i18n/server"
 import { notifyOrderPlaced } from "@/lib/email/notify"
 
@@ -30,6 +31,33 @@ const parseDeliveryDate = (s: string): Date | null => {
   if (!v) return null
   const d = new Date(`${v}T12:00:00`)
   return Number.isNaN(d.getTime()) ? null : d
+}
+
+/**
+ * Look up the vendor's packaging setup for an item and resolve a quantity
+ * through it. Falls back to a single base-unit line when the mapping has no
+ * chain, which is the pre-packaging behaviour.
+ */
+async function resolveOrderPack(
+  itemId: string,
+  vendorId: number,
+  quantity: number,
+  unitOfMeasure: string | null
+): Promise<PackResolution> {
+  const mapping = await prisma.itemVendor.findUnique({
+    where: { vendorId_itemId: { vendorId, itemId } },
+    include: {
+      packagingChain: { include: { levels: { orderBy: { level: "asc" } } } },
+      packRatios: { orderBy: { level: "asc" } },
+    },
+  })
+  return resolvePack({
+    requested: quantity,
+    baseUnit: unitOfMeasure ?? mapping?.packagingChain?.baseUnit ?? "units",
+    levels: mapping?.packagingChain?.levels ?? [],
+    ratios: mapping?.packRatios ?? [],
+    shipsInLevel: mapping?.shipsInLevel ?? 0,
+  })
 }
 
 // No unitOfMeasure here on purpose: the order is always placed in the item's
@@ -71,6 +99,11 @@ export async function createOrder(_prev: ActionState, fd: FormData): Promise<Act
 
   const unitOfMeasure = await resolveItemUnit(data.itemId, growerId)
 
+  // Resolve the vendor's packaging for this item. The per-level breakdown is
+  // snapshotted onto the order so later edits to the vendor's ratios can never
+  // rewrite what this order said at the time.
+  const pack = await resolveOrderPack(data.itemId, data.vendorId, data.quantity, unitOfMeasure)
+
   await prisma.order.create({
     data: {
       growerId,
@@ -78,11 +111,19 @@ export async function createOrder(_prev: ActionState, fd: FormData): Promise<Act
       vendorId: data.vendorId,
       quantity: data.quantity,
       unitOfMeasure,
+      expectedQuantity: pack.deliveredQuantity,
       expectedDeliveryDate: parseDeliveryDate(data.expectedDeliveryDate),
       status: ORDER_STATUS.OPEN,
       orderDate: new Date(),
       createdBy: user.id,
       updatedBy: user.id,
+      packLines: {
+        create: pack.lines.map((l) => ({
+          level: l.level,
+          unitName: l.unitName,
+          quantity: l.quantity,
+        })),
+      },
     },
   })
 
@@ -146,8 +187,50 @@ async function closeOrder(
   return ok(t(messageKey))
 }
 
-export async function receiveOrder(orderId: number): Promise<ActionState> {
-  return closeOrder(orderId, ORDER_STATUS.RECEIVED, "grower.orders.actions.received")
+const receiveSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  receivedQuantity: z.string().trim().optional().default(""),
+  receiptNote: z.string().trim().optional().default(""),
+})
+
+/**
+ * Mark an order received, recording how much actually turned up.
+ *
+ * The quantity is prefilled with `expectedQuantity` in the UI, so the normal
+ * path is a single confirm; editing it is the signal worth having. It exists to
+ * validate the packaging config and score vendors — it deliberately writes NO
+ * inventory ledger entry. On-hand stock comes from the grower's daily count, and
+ * adding a receipt to the ledger would double-count it.
+ */
+export async function receiveOrder(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  const { user, growerId } = await requireGrower()
+  const t = await getT()
+  const { data, error } = parseForm(receiveSchema, fd)
+  if (error) return error
+
+  const order = await prisma.order.findUnique({ where: { id: data.id } })
+  if (!order || order.growerId !== growerId) return fail(t("grower.orders.actions.notFound"))
+  if (order.status !== ORDER_STATUS.OPEN) return fail(t("grower.orders.actions.alreadyClosed"))
+
+  const expected = order.expectedQuantity ?? order.quantity
+  const received = data.receivedQuantity === "" ? Number(expected) : Number(data.receivedQuantity)
+  if (!Number.isFinite(received) || received < 0)
+    return fail(t("grower.orders.actions.invalidReceived"))
+
+  const mismatch = received !== Number(expected)
+  await prisma.order.update({
+    where: { id: data.id },
+    data: {
+      status: ORDER_STATUS.RECEIVED,
+      closedAt: new Date(),
+      receivedQuantity: received,
+      // A note only means anything against a discrepancy.
+      receiptNote: mismatch ? data.receiptNote || null : null,
+      updatedBy: user.id,
+    },
+  })
+  revalidateGrower()
+  return ok(t("grower.orders.actions.received"))
 }
 
 export async function cancelOrder(orderId: number): Promise<ActionState> {

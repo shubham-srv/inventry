@@ -1,4 +1,3 @@
-import Link from "next/link"
 import {
   Table,
   TableBody,
@@ -7,8 +6,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Button } from "@/components/ui/button"
-import { buildQueryString } from "@/lib/query"
+import { Pager } from "@/components/pager"
 import { getT } from "@/lib/i18n/server"
 import { cn } from "@/lib/utils"
 
@@ -79,38 +77,7 @@ export async function DataTable<T>({
         </Table>
       </div>
 
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-muted-foreground text-xs">
-          {t("common.records", { count: total })} ·{" "}
-          {t("common.pageOf", { page, pages: Math.max(1, pageCount) })}
-        </p>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            asChild
-            disabled={page <= 1}
-            aria-disabled={page <= 1}
-            className={page <= 1 ? "pointer-events-none opacity-50" : ""}
-          >
-            <Link href={buildQueryString(searchParams, { page: page - 1 })}>
-              {t("common.previous")}
-            </Link>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            asChild
-            disabled={page >= pageCount}
-            aria-disabled={page >= pageCount}
-            className={page >= pageCount ? "pointer-events-none opacity-50" : ""}
-          >
-            <Link href={buildQueryString(searchParams, { page: page + 1 })}>
-              {t("common.next")}
-            </Link>
-          </Button>
-        </div>
-      </div>
+      <Pager page={page} pageCount={pageCount} total={total} searchParams={searchParams} />
     </div>
   )
 }

@@ -3,8 +3,10 @@ import { Flag } from "lucide-react"
 import { requireRole } from "@/lib/auth/session"
 import { ROLES } from "@/lib/constants"
 import { getGrowerHistory } from "@/lib/grower/data"
+import { parseListParams } from "@/lib/query"
 import { getT } from "@/lib/i18n/server"
 import { PageHeader } from "@/components/page-header"
+import { Pager } from "@/components/pager"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { StatusBadge } from "@/components/status-badge"
@@ -17,12 +19,17 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-export default async function GrowerHistoryPage() {
+export default async function GrowerHistoryPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
   const user = await requireRole([ROLES.GROWER_USER])
   if (!user.growerId) return <p className="text-sm">Your account is not mapped to a grower.</p>
 
   const t = await getT()
-  const submissions = await getGrowerHistory(user.growerId)
+  const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 10 })
+  const { submissions, total } = await getGrowerHistory(user.growerId, skip, take)
 
   return (
     <>
@@ -76,6 +83,12 @@ export default async function GrowerHistoryPage() {
             </CardContent>
           </Card>
         ))}
+        <Pager
+          page={page}
+          pageCount={Math.ceil(total / pageSize)}
+          total={total}
+          searchParams={raw}
+        />
       </div>
     </>
   )

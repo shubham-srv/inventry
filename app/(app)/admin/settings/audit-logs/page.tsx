@@ -12,7 +12,7 @@ import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
 
 const ENTITY_TYPES = [
   "Item", "Commodity", "MaterialCategory", "SubCategory", "Location",
-  "Grower", "Vendor", "User", "GrowerItemAuthorization", "UnitConversion",
+  "Grower", "Vendor", "User", "GrowerItemAuthorization", "PackagingChain",
   "ItemThreshold", "SchedulerSetting", "MasterData",
 ]
 

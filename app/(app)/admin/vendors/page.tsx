@@ -28,8 +28,8 @@ type Row = {
   primaryContact: string | null
   contactEmail: string | null
   contactPhone: string | null
-  leadTime: string | null
-  paymentTerms: string | null
+  leadTimeDays: number | null
+  paymentTermsDays: number | null
   ptAccountNumber: string | null
   notes: string | null
   status: string
@@ -77,8 +77,8 @@ export default async function VendorsPage({
     { name: "primaryContact", label: "Primary contact", type: "text" },
     { name: "contactEmail", label: "Contact email", type: "text" },
     { name: "contactPhone", label: "Contact phone", type: "text" },
-    { name: "leadTime", label: "Lead time", type: "text" },
-    { name: "paymentTerms", label: "Payment terms", type: "text" },
+    { name: "leadTimeDays", label: "Lead time (days)", type: "number", min: "0", step: "1", placeholder: "5" },
+    { name: "paymentTermsDays", label: "Payment terms (days)", type: "number", min: "0", step: "1", placeholder: "30", description: "Net N days" },
     { name: "ptAccountNumber", label: "PT account #", type: "text" },
     {
       name: "materialCategoryCodes",
@@ -121,8 +121,8 @@ export default async function VendorsPage({
             values={{
               id: r.id, vendorName: r.vendorName, vendorType: r.vendorType ?? "", status: r.status, preferredLocale: r.preferredLocale,
               regionId: r.regionId ?? "", country: r.country ?? "", primaryContact: r.primaryContact ?? "",
-              contactEmail: r.contactEmail ?? "", contactPhone: r.contactPhone ?? "", leadTime: r.leadTime ?? "",
-              paymentTerms: r.paymentTerms ?? "", ptAccountNumber: r.ptAccountNumber ?? "", notes: r.notes ?? "",
+              contactEmail: r.contactEmail ?? "", contactPhone: r.contactPhone ?? "", leadTimeDays: r.leadTimeDays ?? "",
+              paymentTermsDays: r.paymentTermsDays ?? "", ptAccountNumber: r.ptAccountNumber ?? "", notes: r.notes ?? "",
               itemIds: r.itemVendors.map((iv) => iv.itemId).join(","),
               materialCategoryCodes: r.materialCategories.map((mc) => mc.materialCategoryCode).join(","),
             }}

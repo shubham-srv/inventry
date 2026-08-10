@@ -1,37 +1,117 @@
-# Azure DevOps pipeline — build → migrate → deploy to Azure Container Apps (staging).
+# ============================================================================
+# Azure DevOps — validate → build once → deploy staging → promote to production
 #
-# One-time prerequisites (see docs/azure-staging-setup.md §"CI/CD pipeline"):
-#   1. An ARM service connection — put its name in `azureSubscription` below.
-#   2. A variable group `inventory-staging-secrets` linked to Key Vault, exposing:
-#        DATABASE_URL, BOOTSTRAP_ADMIN_EMAIL,
-#        BOOTSTRAP_ADMIN_FIRST_NAME, BOOTSTRAP_ADMIN_LAST_NAME
-#   3. ACR + the ACA app already created (Portal), and the ACA app's managed
-#      identity granted AcrPull on the registry (docs §8).
+# Branching this matches:
+#   feature work  -> push to `dev`            (validation only, no deploy)
+#   PR dev        -> `staging`  on merge      -> build image + deploy STAGING
+#   PR staging    -> `master`   on merge      -> promote THAT SAME image to PROD
+#
+# BUILD ONCE, PROMOTE BY DIGEST.
+# The master merge commit is a different commit from the staging one, so
+# rebuilding on master would ship an image nobody tested — different dependency
+# resolution, different base-image patch level. Instead the staging build moves a
+# floating `:staging` tag, and the production stage resolves that tag to its
+# immutable sha256 DIGEST and deploys the digest. Same bytes, provably.
+#
+# ONE-TIME SETUP (see docs/azure-staging-setup.md §13):
+#   1. ARM service connection      -> `azureSubscription` below
+#   2. Variable group `inventory-staging-secrets` (Key Vault-linked), exposing
+#      DATABASE_URL, BOOTSTRAP_ADMIN_EMAIL/_FIRST_NAME/_LAST_NAME
+#   3. ADO Environments `inventory-staging` and `inventory-production`.
+#      Approvals are configured on the Environment in the ADO UI, NOT in this
+#      file — add a required approver on `inventory-production`.
+#   4. Branch policies on `staging` and `master` requiring the Validate stage.
+#      The `pr:` trigger alone does not block a merge; the policy does.
+# ============================================================================
 
 trigger:
   branches:
     include:
+      - staging
+      - master
+
+pr:
+  branches:
+    include:
+      - staging
       - master
 
 variables:
-  - group: inventory-staging-secrets   # Key Vault-linked: DATABASE_URL, BOOTSTRAP_ADMIN_*
   - name: azureSubscription
-    value: azure-staging-sc            # <-- your ARM service connection name
-  - name: acrName
-    value: acrinventorystaging
-  - name: resourceGroup
-    value: rg-staging
-  - name: acaApp
-    value: ca-inventory-web-staging
+    value: azure-staging-sc # <-- your ARM service connection name
   - name: imageRepo
     value: inventory-web
-  - name: tag
-    value: $(Build.BuildId)
+  # Single registry shared by both environments — that is what makes promotion a
+  # retag rather than a cross-registry copy. Move it to a shared RG later if you
+  # prefer; it is a one-line change here.
+  - name: acrName
+    value: acrinventorystaging
+  - name: acrLoginServer
+    value: $(acrName).azurecr.io
+  # Immutable, content-addressed tag for this commit.
+  - name: shaTag
+    value: sha-$(Build.SourceVersion)
+
+  # ---- staging -------------------------------------------------------------
+  - name: stagingResourceGroup
+    value: rg-inventory-staging
+  - name: stagingAcaApp
+    value: ca-inventory-web-staging
+
+  # ---- production (RG not created yet) -------------------------------------
+  # Flip to true once the production RG, ACA app, Environment and variable group
+  # `inventory-production-secrets` exist. Until then the master branch runs
+  # validation only, so merging to master cannot fail on missing infrastructure.
+  - name: productionEnabled
+    value: false
+  - name: prodResourceGroup
+    value: rg-inventory-production # TODO confirm when created
+  - name: prodAcaApp
+    value: ca-inventory-web-production # TODO confirm when created
 
 stages:
-  # 1) Build the image in the cloud (ACR Tasks) — no Docker daemon on the agent.
+  # ==========================================================================
+  # 1) VALIDATE — runs on every PR and every branch build.
+  #    This is the gate the whole promote-by-PR model depends on; without it a
+  #    PR merges first and breaks the pipeline afterwards.
+  # ==========================================================================
+  - stage: Validate
+    displayName: Validate (typecheck · lint · build)
+    jobs:
+      - job: validate
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: 20.x
+          - script: npm ci
+            displayName: npm ci
+          - script: npx prisma generate
+            displayName: prisma generate # types the app compiles against
+          - script: npm run typecheck
+            displayName: typecheck
+          - script: npm run lint
+            displayName: lint
+          - script: npm run build
+            displayName: next build
+            env:
+              # `next build` may statically analyse a route that imports Prisma.
+              # The client only needs a parseable URL at build time — it never
+              # connects — so a dummy keeps the build hermetic and DB-free.
+              DATABASE_URL: sqlserver://localhost:1433;database=build;user=none;password=none;encrypt=true;trustServerCertificate=true
+
+  # ==========================================================================
+  # 2) BUILD — staging branch only. Builds in ACR (no Docker daemon on the
+  #    agent) and moves the floating `:staging` tag that production promotes.
+  # ==========================================================================
   - stage: Build
-    displayName: Build & push image
+    displayName: Build image (staging branch)
+    dependsOn: Validate
+    condition: >-
+      and(succeeded(),
+          eq(variables['Build.SourceBranch'], 'refs/heads/staging'),
+          ne(variables['Build.Reason'], 'PullRequest'))
     jobs:
       - job: build
         pool:
@@ -44,57 +124,172 @@ stages:
               scriptType: bash
               scriptLocation: inlineScript
               inlineScript: |
+                set -euo pipefail
                 az acr build \
                   --registry $(acrName) \
-                  --image $(imageRepo):$(tag) \
-                  --image $(imageRepo):latest \
+                  --image $(imageRepo):$(shaTag) \
+                  --image $(imageRepo):staging \
                   .
 
-  # 2) Apply migrations, then the idempotent bootstrap (roles + first admin).
-  #    Runs BEFORE the new image serves traffic. Needs DB reachability — see the
-  #    firewall note in docs §"CI/CD pipeline" (hosted-agent IPs vs Azure SQL).
-  - stage: Migrate
-    displayName: Migrate DB & bootstrap admin
+  # ==========================================================================
+  # 3) DEPLOY STAGING — migrate, roll the revision, smoke-check it.
+  #    Migrations run BEFORE the new image serves traffic, so the schema is
+  #    always ahead of or equal to the code reading it.
+  # ==========================================================================
+  - stage: DeployStaging
+    displayName: Deploy → staging
     dependsOn: Build
+    condition: succeeded()
+    variables:
+      - group: inventory-staging-secrets
     jobs:
-      - job: migrate
+      - deployment: deploy_staging
+        environment: inventory-staging
         pool:
           vmImage: ubuntu-latest
-        steps:
-          - task: NodeTool@0
-            inputs:
-              versionSpec: 20.x
-          - script: npm ci
-            displayName: npm ci
-          - script: npx prisma migrate deploy
-            displayName: prisma migrate deploy
-            env:
-              DATABASE_URL: $(DATABASE_URL)
-          - script: npm run db:bootstrap
-            displayName: bootstrap admin (idempotent)
-            env:
-              DATABASE_URL: $(DATABASE_URL)
-              BOOTSTRAP_ADMIN_EMAIL: $(BOOTSTRAP_ADMIN_EMAIL)
-              BOOTSTRAP_ADMIN_FIRST_NAME: $(BOOTSTRAP_ADMIN_FIRST_NAME)
-              BOOTSTRAP_ADMIN_LAST_NAME: $(BOOTSTRAP_ADMIN_LAST_NAME)
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                # Deployment jobs do NOT check out the repo by default, and
+                # prisma migrate needs prisma/ — so ask for it explicitly.
+                - checkout: self
+                - task: NodeTool@0
+                  inputs:
+                    versionSpec: 20.x
+                - script: npm ci
+                  displayName: npm ci
+                - script: npx prisma migrate deploy
+                  displayName: prisma migrate deploy
+                  env:
+                    DATABASE_URL: $(DATABASE_URL)
+                - script: npm run db:bootstrap
+                  displayName: bootstrap roles + first admin (idempotent)
+                  env:
+                    DATABASE_URL: $(DATABASE_URL)
+                    BOOTSTRAP_ADMIN_EMAIL: $(BOOTSTRAP_ADMIN_EMAIL)
+                    BOOTSTRAP_ADMIN_FIRST_NAME: $(BOOTSTRAP_ADMIN_FIRST_NAME)
+                    BOOTSTRAP_ADMIN_LAST_NAME: $(BOOTSTRAP_ADMIN_LAST_NAME)
+                - task: AzureCLI@2
+                  displayName: roll revision + smoke check
+                  inputs:
+                    azureSubscription: $(azureSubscription)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      set -euo pipefail
+                      az containerapp update \
+                        --name $(stagingAcaApp) \
+                        --resource-group $(stagingResourceGroup) \
+                        --image $(acrLoginServer)/$(imageRepo):$(shaTag)
 
-  # 3) Point the Container App at the new image → rolls a fresh revision.
-  - stage: Deploy
-    displayName: Roll ACA revision
-    dependsOn: Migrate
+                      FQDN=$(az containerapp show \
+                        --name $(stagingAcaApp) \
+                        --resource-group $(stagingResourceGroup) \
+                        --query properties.configuration.ingress.fqdn -o tsv)
+
+                      # `containerapp update` returns as soon as the revision is
+                      # created, not when it is healthy — so poll before calling
+                      # the deploy green.
+                      for i in $(seq 1 30); do
+                        CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$FQDN/login" || true)
+                        echo "attempt $i: HTTP $CODE"
+                        [ "$CODE" = "200" ] && exit 0
+                        sleep 10
+                      done
+                      echo "##vso[task.logissue type=error]Revision did not serve 200 within 5 minutes"
+                      exit 1
+
+  # ==========================================================================
+  # 4) PROMOTE TO PRODUCTION — master branch only, gated by the Environment's
+  #    approval. The approval sits BEFORE the migrate step on purpose: once
+  #    migrations apply you are committed, because rolling the image back does
+  #    NOT roll the schema back. See docs §13 on expand/contract.
+  # ==========================================================================
+  - stage: PromoteProduction
+    displayName: Promote → production
+    dependsOn: Validate
+    condition: >-
+      and(succeeded(),
+          eq(variables['Build.SourceBranch'], 'refs/heads/master'),
+          ne(variables['Build.Reason'], 'PullRequest'),
+          eq(variables['productionEnabled'], 'true'))
+    variables:
+      - group: inventory-production-secrets
     jobs:
-      - job: deploy
+      - deployment: deploy_production
+        environment: inventory-production # add the approval check here in the ADO UI
         pool:
           vmImage: ubuntu-latest
-        steps:
-          - task: AzureCLI@2
-            displayName: az containerapp update
-            inputs:
-              azureSubscription: $(azureSubscription)
-              scriptType: bash
-              scriptLocation: inlineScript
-              inlineScript: |
-                az containerapp update \
-                  --name $(acaApp) \
-                  --resource-group $(resourceGroup) \
-                  --image $(acrName).azurecr.io/$(imageRepo):$(tag)
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - task: AzureCLI@2
+                  displayName: resolve staging image digest
+                  inputs:
+                    azureSubscription: $(azureSubscription)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      set -euo pipefail
+                      # Deploy by DIGEST, not by tag. A tag can be moved; a digest
+                      # is the content hash, so production provably runs the exact
+                      # image staging validated.
+                      DIGEST=$(az acr repository show \
+                        --name $(acrName) \
+                        --image $(imageRepo):staging \
+                        --query digest -o tsv)
+                      echo "Promoting $(imageRepo)@$DIGEST"
+                      echo "##vso[task.setvariable variable=imageDigest]$DIGEST"
+
+                      # Traceability: tag the promoted digest so you can see in
+                      # ACR which image each production release used.
+                      az acr import \
+                        --name $(acrName) \
+                        --source $(acrLoginServer)/$(imageRepo)@$DIGEST \
+                        --image $(imageRepo):prod-$(Build.BuildId) \
+                        --force
+                - task: NodeTool@0
+                  inputs:
+                    versionSpec: 20.x
+                - script: npm ci
+                  displayName: npm ci
+                - script: npx prisma migrate deploy
+                  displayName: prisma migrate deploy
+                  env:
+                    DATABASE_URL: $(DATABASE_URL)
+                - script: npm run db:bootstrap
+                  displayName: bootstrap roles + first admin (idempotent)
+                  env:
+                    DATABASE_URL: $(DATABASE_URL)
+                    BOOTSTRAP_ADMIN_EMAIL: $(BOOTSTRAP_ADMIN_EMAIL)
+                    BOOTSTRAP_ADMIN_FIRST_NAME: $(BOOTSTRAP_ADMIN_FIRST_NAME)
+                    BOOTSTRAP_ADMIN_LAST_NAME: $(BOOTSTRAP_ADMIN_LAST_NAME)
+                - task: AzureCLI@2
+                  displayName: roll revision + smoke check
+                  inputs:
+                    azureSubscription: $(azureSubscription)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      set -euo pipefail
+                      az containerapp update \
+                        --name $(prodAcaApp) \
+                        --resource-group $(prodResourceGroup) \
+                        --image $(acrLoginServer)/$(imageRepo)@$(imageDigest)
+
+                      FQDN=$(az containerapp show \
+                        --name $(prodAcaApp) \
+                        --resource-group $(prodResourceGroup) \
+                        --query properties.configuration.ingress.fqdn -o tsv)
+
+                      for i in $(seq 1 30); do
+                        CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$FQDN/login" || true)
+                        echo "attempt $i: HTTP $CODE"
+                        [ "$CODE" = "200" ] && exit 0
+                        sleep 10
+                      done
+                      echo "##vso[task.logissue type=error]Revision did not serve 200 within 5 minutes"
+                      exit 1

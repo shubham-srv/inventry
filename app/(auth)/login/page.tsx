@@ -1,4 +1,4 @@
-import { Boxes } from "lucide-react"
+import Image from "next/image"
 import { prisma } from "@/lib/db"
 import { loginAs } from "@/lib/auth/dummy"
 import { ROLES } from "@/lib/constants"
@@ -7,6 +7,7 @@ import { getT } from "@/lib/i18n/server"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { LanguageSwitcher } from "@/components/language-switcher"
+import { BrandLogo } from "@/components/brand-logo"
 
 export default async function LoginPage() {
   const t = await getT()
@@ -27,15 +28,28 @@ export default async function LoginPage() {
   ]
 
   return (
-    <div className="bg-muted/30 relative flex min-h-svh flex-col items-center px-4 py-10">
-      <div className="absolute top-4 right-4">
+    <div className="relative flex min-h-svh flex-col items-center px-4 py-10">
+      {/* Brand background. `fill` + object-cover so it works at any viewport, and
+          a scrim above it so the user cards stay readable over a busy image.
+          The source is 7001×4001 / 1.6 MB — Next resizes it per viewport, and
+          public/login-bg.webp is the pre-optimised copy actually referenced. */}
+      <Image
+        src="/login-bg.webp"
+        alt=""
+        aria-hidden
+        fill
+        priority
+        sizes="100vw"
+        className="object-cover"
+      />
+      <div className="bg-background/85 absolute inset-0 backdrop-blur-[2px]" aria-hidden />
+
+      <div className="absolute top-4 right-4 z-10">
         <LanguageSwitcher />
       </div>
-      <div className="w-full max-w-3xl">
+      <div className="relative z-10 w-full max-w-3xl">
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="bg-primary text-primary-foreground mb-3 flex size-12 items-center justify-center rounded-xl">
-            <Boxes className="size-7" />
-          </div>
+          <BrandLogo width={200} priority className="mb-4" />
           <h1 className="text-2xl font-semibold tracking-tight">{t("login.title")}</h1>
           <p className="text-muted-foreground mt-1 text-sm">{t("login.subtitle")}</p>
         </div>

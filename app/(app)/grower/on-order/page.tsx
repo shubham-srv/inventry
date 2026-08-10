@@ -4,8 +4,10 @@ import { requireRole } from "@/lib/auth/session"
 import { ROLES, ORDER_STATUS } from "@/lib/constants"
 import { prisma } from "@/lib/db"
 import { getT } from "@/lib/i18n/server"
+import { parseListParams } from "@/lib/query"
 import { updateOrderDelivery } from "@/lib/actions/orders"
 import { PageHeader } from "@/components/page-header"
+import { Pager } from "@/components/pager"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -19,23 +21,36 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-export default async function GrowerOnOrderPage() {
+export default async function GrowerOnOrderPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
   const user = await requireRole([ROLES.GROWER_USER])
   if (!user.growerId)
     return <p className="text-sm">Your account is not mapped to a grower.</p>
 
   const t = await getT()
   const todayStart = startOfDay(new Date())
+  const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 15 })
 
   // Active orders: still Open, or closed today (visible through end of day).
-  const orders = await prisma.order.findMany({
-    where: {
-      growerId: user.growerId,
-      OR: [{ status: ORDER_STATUS.OPEN }, { closedAt: { gte: todayStart } }],
-    },
-    include: { item: true, vendor: true },
-    orderBy: [{ status: "asc" }, { orderDate: "desc" }],
-  })
+  // The status filter keeps this naturally small, but it was unbounded — a
+  // grower with many open orders had no way to reach the older ones.
+  const where = {
+    growerId: user.growerId,
+    OR: [{ status: ORDER_STATUS.OPEN }, { closedAt: { gte: todayStart } }],
+  }
+  const [orders, total] = await Promise.all([
+    prisma.order.findMany({
+      where,
+      include: { item: true, vendor: true },
+      orderBy: [{ status: "asc" }, { orderDate: "desc" }],
+      skip,
+      take,
+    }),
+    prisma.order.count({ where }),
+  ])
 
   const deliveryFields: Field[] = [
     {
@@ -157,6 +172,14 @@ export default async function GrowerOnOrderPage() {
           </Table>
         </CardContent>
       </Card>
+      <div className="mt-4">
+        <Pager
+          page={page}
+          pageCount={Math.ceil(total / pageSize)}
+          total={total}
+          searchParams={raw}
+        />
+      </div>
     </>
   )
 }

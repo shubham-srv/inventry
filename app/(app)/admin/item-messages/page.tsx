@@ -1,5 +1,5 @@
 import { format } from "date-fns"
-import { Pencil, Plus, Trash2 } from "lucide-react"
+import { Pencil, Plus, Trash2, Languages } from "lucide-react"
 import { type Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { requireCapability } from "@/lib/auth/session"
@@ -32,6 +32,7 @@ type Row = {
   endsAt: Date | null
   item: { itemName: string }
   targets: { growerId: number }[]
+  translations: { locale: string; body: string; isMachine: boolean }[]
 }
 
 const SEVERITY_STYLES: Record<string, string> = {
@@ -61,7 +62,11 @@ export default async function AdminItemMessagesPage({
   const [rows, total, items, growers] = await Promise.all([
     prisma.itemMessage.findMany({
       where,
-      include: { item: true, targets: { select: { growerId: true } } },
+      include: {
+        item: true,
+        targets: { select: { growerId: true } },
+        translations: { select: { locale: true, body: true, isMachine: true } },
+      },
       orderBy: { createdAt: "desc" },
       skip,
       take,
@@ -80,6 +85,14 @@ export default async function AdminItemMessagesPage({
     { name: "audience", label: "Audience", type: "select", required: true, options: [{ label: "All growers", value: "All" }, { label: "Selected growers", value: "Selected" }] },
     { name: "growerIds", label: "Growers (when audience = Selected)", type: "multiselect", colSpan: 2, placeholder: "Select growers", options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })) },
     { name: "body", label: "Note (optional — shown to growers as typed)", type: "textarea", colSpan: 2 },
+    {
+      name: "bodyEs",
+      label: "Spanish note",
+      type: "textarea",
+      colSpan: 2,
+      description:
+        "Leave blank to machine-translate the note on save. Anything typed here is used as-is and marked reviewed. Spanish-preference growers see this instead of the English note.",
+    },
     { name: "startsAt", label: "Starts (optional)", type: "date" },
     { name: "endsAt", label: "Ends (optional)", type: "date" },
     { name: "isActive", label: "State", type: "select", required: true, options: [{ label: "Active", value: "true" }, { label: "Disabled", value: "false" }] },
@@ -105,6 +118,30 @@ export default async function AdminItemMessagesPage({
           {cap(r.severity)}
         </Badge>
       ),
+    },
+    {
+      key: "translation",
+      header: "Español",
+      className: "text-xs",
+      cell: (r) => {
+        if (!r.body) return <span className="text-muted-foreground">—</span>
+        const es = r.translations.find((t) => t.locale === "es")
+        if (!es)
+          return (
+            <Badge variant="outline" className="border-transparent bg-red-500/15 text-red-700 dark:text-red-400">
+              Missing
+            </Badge>
+          )
+        // Raw machine output nobody has checked. These notes drive behaviour
+        // ("clear inventory"), so an unverified translation is worth flagging.
+        return es.isMachine ? (
+          <Badge variant="outline" className="border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400">
+            <Languages className="mr-1 size-3" /> Auto
+          </Badge>
+        ) : (
+          <Badge variant="secondary">Reviewed</Badge>
+        )
+      },
     },
     {
       key: "audience",
@@ -153,6 +190,7 @@ export default async function AdminItemMessagesPage({
               severity: r.severity,
               audience: r.audience,
               body: r.body ?? "",
+              bodyEs: r.translations.find((t) => t.locale === "es")?.body ?? "",
               growerIds: r.targets.map((t) => String(t.growerId)).join(","),
               startsAt: toDateInput(r.startsAt),
               endsAt: toDateInput(r.endsAt),
@@ -188,7 +226,7 @@ export default async function AdminItemMessagesPage({
             title="New item message"
             fields={fields}
             action={createItemMessage}
-            values={{ type: "Info", severity: "info", audience: "All", isActive: "true", itemId: "", growerIds: "", body: "", startsAt: "", endsAt: "" }}
+            values={{ type: "Info", severity: "info", audience: "All", isActive: "true", itemId: "", growerIds: "", body: "", bodyEs: "", startsAt: "", endsAt: "" }}
             submitLabel="Create"
             trigger={<Button size="sm"><Plus className="size-4" /> Add message</Button>}
           />

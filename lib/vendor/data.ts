@@ -80,17 +80,24 @@ export async function getVendorSubmitData(vendorId: number) {
   return { rows, progress: { recorded, total: rows.length } }
 }
 
-export async function getVendorHistory(vendorId: number, take = 30) {
-  return prisma.vendorSubmission.findMany({
-    where: { vendorId },
-    include: {
-      submitter: true,
-      details: { include: { item: true, allocations: { include: { grower: true } } } },
-      _count: { select: { details: true } },
-    },
-    orderBy: { submissionDate: "desc" },
-    take,
-  })
+/** Paged report history. See getGrowerHistory — same silent-truncation fix. */
+export async function getVendorHistory(vendorId: number, skip = 0, take = 10) {
+  const where = { vendorId }
+  const [submissions, total] = await Promise.all([
+    prisma.vendorSubmission.findMany({
+      where,
+      include: {
+        submitter: true,
+        details: { include: { item: true, allocations: { include: { grower: true } } } },
+        _count: { select: { details: true } },
+      },
+      orderBy: { submissionDate: "desc" },
+      skip,
+      take,
+    }),
+    prisma.vendorSubmission.count({ where }),
+  ])
+  return { submissions, total }
 }
 
 export async function getVendorDashboard(vendorId: number) {

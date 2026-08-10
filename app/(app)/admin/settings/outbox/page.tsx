@@ -6,7 +6,10 @@ import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { parseListParams } from "@/lib/query"
 import { NOTIFICATION_TYPES } from "@/lib/constants"
+import { getT } from "@/lib/i18n/server"
 import { PageHeader } from "@/components/page-header"
+import { Pager } from "@/components/pager"
+import { EmailPreview } from "@/components/email-preview"
 import { Card, CardContent } from "@/components/ui/card"
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
 import { StatusBadge } from "@/components/status-badge"
@@ -18,7 +21,8 @@ export default async function OutboxPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.ACCESS_SETTINGS)
-  const { raw } = parseListParams(await searchParams)
+  const t = await getT()
+  const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 20 })
 
   const and: Prisma.NotificationLogWhereInput[] = []
   if (raw.q) and.push({ OR: [{ subject: { contains: raw.q } }, { toEmail: { contains: raw.q } }] })
@@ -26,12 +30,18 @@ export default async function OutboxPage({
   if (raw.status) and.push({ status: raw.status })
   const where: Prisma.NotificationLogWhereInput = and.length ? { AND: and } : {}
 
-  const messages = await prisma.notificationLog.findMany({
-    where,
-    include: { grower: true, vendor: true },
-    orderBy: { createdAt: "desc" },
-    take: 100,
-  })
+  // Previously capped at 100 with no pager, so anything older was simply
+  // unreachable. Now paged, and the total is reported.
+  const [messages, total] = await Promise.all([
+    prisma.notificationLog.findMany({
+      where,
+      include: { grower: true, vendor: true },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take,
+    }),
+    prisma.notificationLog.count({ where }),
+  ])
 
   return (
     <>
@@ -71,13 +81,12 @@ export default async function OutboxPage({
                       {m.vendor && ` · ${m.vendor.vendorName}`}
                     </p>
                     {m.bodyHtml ? (
-                      // Rendered React Email HTML. sandbox="" (no allow-scripts)
-                      // keeps the preview inert; the HTML is our own template output.
-                      <iframe
-                        title={m.subject}
-                        srcDoc={m.bodyHtml}
-                        sandbox=""
-                        className="mt-2 h-72 w-full rounded-md border bg-white"
+                      <EmailPreview
+                        subject={m.subject}
+                        html={m.bodyHtml}
+                        text={m.body}
+                        openLabel={t("outbox.showPreview")}
+                        closeLabel={t("outbox.hidePreview")}
                       />
                     ) : (
                       <p className="mt-1 text-sm">{m.body}</p>
@@ -91,6 +100,12 @@ export default async function OutboxPage({
             </Card>
           ))}
         </div>
+        <Pager
+          page={page}
+          pageCount={Math.ceil(total / pageSize)}
+          total={total}
+          searchParams={raw}
+        />
       </div>
     </>
   )

@@ -6,7 +6,6 @@ import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { parseListParams } from "@/lib/query"
 import { reviewLowFlag } from "@/lib/actions/low-inventory"
-import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { DataTable, type Column } from "@/components/data-table/data-table"
@@ -120,29 +119,27 @@ export default async function AdminLowInventoryPage({
   ]
 
   return (
-    <>
-      <PageHeader
-        title="Low inventory"
-        description="Grower-raised low-inventory flags. Reviewing one clears it and notifies the grower; it then disappears from their view."
+    <div className="space-y-4">
+      <p className="text-muted-foreground text-sm">
+        Flags growers raised by hand. Reviewing one clears it and notifies the grower; it then
+        disappears from their view.
+      </p>
+      <DataTableToolbar
+        searchPlaceholder="Search item…"
+        filters={[
+          {
+            key: "state",
+            label: "State",
+            options: [
+              { label: "Awaiting review", value: "active" },
+              { label: "Reviewed", value: "reviewed" },
+              { label: "All", value: "all" },
+            ],
+          },
+          { key: "grower", label: "Grower", options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })) },
+        ]}
       />
-      <div className="space-y-4">
-        <DataTableToolbar
-          searchPlaceholder="Search item…"
-          filters={[
-            {
-              key: "state",
-              label: "State",
-              options: [
-                { label: "Awaiting review", value: "active" },
-                { label: "Reviewed", value: "reviewed" },
-                { label: "All", value: "all" },
-              ],
-            },
-            { key: "grower", label: "Grower", options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })) },
-          ]}
-        />
-        <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} page={page} pageCount={Math.ceil(total / pageSize)} total={total} searchParams={raw} />
-      </div>
-    </>
+      <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} page={page} pageCount={Math.ceil(total / pageSize)} total={total} searchParams={raw} />
+    </div>
   )
 }

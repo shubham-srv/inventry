@@ -463,5 +463,342 @@ They could be batched too, but matching the rows back would mean keying on
 `(growerId, submissionDate)` — deliberately not done, to avoid depending on
 datetime round-trip precision for a ~25 statement saving.
 
+## Round 11 — packaging, receipt validation, nav & loading (August 2026)
+
+**Run the migration first** — this round adds four tables, drops one, and
+changes two Vendor columns:
+
+```bash
+npm run db:migrate:deploy   # applies 20260806090000_packaging_and_order_receipt
+npm run db:seed             # refresh the demo data (wipes it)
+```
+
+The migration was replay-tested on the shadow DB (`inventory_demo_shadow`): all
+9 migrations applied from empty, and `prisma migrate diff` against the datamodel
+came back **empty**, i.e. the hand-written SQL reproduces `schema.prisma`
+exactly. The seed was then run **twice** against that DB to confirm `clearAll()`
+handles the new tables. Your `inventory_demo` is untouched until you run the
+commands above.
+
+⚠️ **Backfill caveat.** `Vendor.leadTime`/`paymentTerms` (free text) become
+`leadTimeDays`/`paymentTermsDays` (int) by taking the **first run of digits**.
+Verified: `"5 days"`→5, `"Net 30"`→30, `"Due on receipt"`/`"COD"`→NULL. But
+`"2/10 Net 30"`→**2**, not 30. The demo seed has no such values; **check real
+vendor data before running this on staging.**
+
+### P11.1 — Vendor terms are numeric (`/admin/vendors`)
+- [ ] Add/Edit vendor shows **Lead time (days)** and **Payment terms (days)** as
+      number inputs that refuse negatives; the description reads "Net N days".
+- [ ] Export includes both as numeric columns.
+
+### P11.2 — Packaging chains (`/admin/packaging`, replaces Conversions)
+- [ ] Sidebar → Tools → **Packaging**. The old Conversions page is gone.
+- [ ] Seeded chains: `BG Bags → Boxes → Cases`, `BX Cases → Pallets`,
+      `LB/ST Rolls → Cartons`. **PL has none on purpose** — pallets ship as-is.
+- [ ] Add a chain: category + base unit + comma-separated levels ("Boxes, Cases").
+      No quantities here — that is the whole point.
+- [ ] Editing a chain that is **in use** refuses to change the number of levels
+      (it would orphan vendor ratios). Deleting one in use is refused too.
+
+### P11.3 — Vendor↔item mappings (`/admin/mappings`)
+- [ ] Two tabs: **Grower authorizations** (moved from `/admin/authorizations`)
+      and **Vendor items** (new). Each keeps its own search/filter/page in the URL
+      — switch tabs, filter, and hit back; they don't interfere.
+- [ ] **"Revoke" now reads "Deactivate"** on the grower tab; toast says
+      "Authorization deactivated".
+- [ ] Vendor tab → package icon opens the packaging dialog. The chain dropdown
+      only offers chains whose base unit matches the item's unit; picking a
+      mismatched one is impossible. Try `BP-PL-00011` (Pallets) — no chain offered.
+- [ ] Enter the wrong number of quantities → refused with the level names listed.
+- [ ] "Packaging: Not set" filter finds the PalletPool mappings.
+
+### P11.4 — Order box maths (`/grower/submit`, james@agribar.local)
+Seeded so all three `shipsInLevel` behaviours are visible:
+
+| Item | Vendor | Ratios | Ships in |
+|---|---|---|---|
+| `AP-BG-00002` | PackRight | 10 bags/box, 5 boxes/case | whole **Boxes** |
+| `AV-BG-00010` | PackRight | 20 bags/box, 4 boxes/case | whole **Cases** |
+| `AP-BX-00001` | PackRight | 60 cases/pallet | base unit (**partials ok**) |
+
+- [ ] Add an order for `AP-BG-00002`, qty **343** → the row shows
+      `350 Bags · 35 Boxes · 7 Cases`. **You ordered 343 and receive 350.**
+- [ ] Same quantity on `AP-BX-00001` (partials allowed) → delivered stays exactly
+      what you typed; container counts are descriptive only.
+- [ ] An item with no chain (`CG-PL-00006`, PalletPool) orders in plain units,
+      exactly as before.
+
+The resolver ([lib/packaging/resolve.ts](lib/packaging/resolve.ts)) is pure and was
+checked against every worked example, including the cascade case: with 10/box and
+**3** boxes/case, 343 bags shipping in whole cases → 12 cases = 36 boxes = **360**
+bags. Rounding cascades from the already-rounded level below, never from the raw
+quantity — computing each level independently would claim 35 boxes *and* 12 cases,
+which cannot both be true.
+
+### P11.5 — Receipt validation
+- [ ] **Receive** on an open order now opens a dialog prefilled with the expected
+      quantity — one tap in the normal case.
+- [ ] Where rounding applied, the hint reads "You ordered 343 Bags; this vendor
+      ships whole containers, so 350 is expected."
+- [ ] Change the number → the reason dropdown (Short / Damaged / Over) is what
+      gets stored. Leave it matching → no reason is stored.
+- [ ] **Inventory is unaffected.** Receiving writes no ledger row: check
+      `/grower/history` and the on-hand figures are unchanged by a receipt. Stock
+      comes from the daily count only; adding receipts would double-count.
+
+### P11.6 — Currently low (`/admin/low-inventory`)
+- [ ] Two tabs: **Raised flags** (the old page, grower-raised, needs clearing) and
+      **Currently low** (computed live, nothing to clear).
+- [ ] Seeded data shows exactly two currently-low rows, and they demonstrate
+      threshold precedence: **Agribar `AP-BX-00001` 29/80** (grower override) and
+      **PDG `AP-BX-00001` 27/50** (global). The "Threshold" column says which.
+- [ ] The **Flagged** column shows whether a grower also raised a flag — the two
+      tabs are independent by design.
+
+### P11.7 — Sidebar order + badges
+- [ ] New order: Dashboard → **Action Items** → Master Data → Partners & Users →
+      Tools → Settings.
+- [ ] Low inventory and Item requests carry **amber** badges (work is owed).
+      Item messages carries a **muted** badge — it is ambient status, not a queue,
+      and colouring it would dilute the two that matter.
+- [ ] Act on a flag or request → its badge drops on the next render
+      (`revalidatePath`, no polling).
+
+### P11.8 — Loading & error states
+- [ ] Throttle the network (DevTools → Slow 3G) and click a sidebar item: the
+      clicked item's icon becomes a **spinner** immediately (`useLinkStatus`), and
+      a table skeleton fills the page.
+- [ ] Note this replaces the whole segment, header included — every page awaits
+      its capability check and queries at the top level, so there is no shell to
+      hold still. Per-page `<Suspense>` around only the table is the follow-up if
+      the flash bothers you.
+
+### P11.9 — Load previous values (`/grower/submit`)
+- [ ] The button is out of the sticky bar and now sits above the item list in its
+      own panel with an explanatory line, as an `outline` button. Previously a
+      `ghost` button competing with Save/Submit, which is why it was invisible.
+- [ ] Still explicit, not auto-filled — deliberate, so nobody submits yesterday's
+      numbers without looking.
+
+### P11.10 — Consistency fix worth spot-checking
+`previousQty` on the submit form now sums the **latest value per (item, location)**
+instead of taking whichever ledger row was written last, matching the admin
+"currently low" query. With the current seed each item sits in one location so the
+numbers are unchanged — but if you add multi-location history, the two views now
+agree. The same query is also bounded to 90 days; it previously pulled a grower's
+entire ledger on every page load.
+
+### P11.11 — Localized item-message notes (`/admin/item-messages`)
+
+`ItemMessage.type` was already a translatable key, but `body` was free text shown
+to everyone as authored — so a Spanish-preference grower got a localized *label*
+followed by an English *note*. Notes now live per locale in
+`ItemMessageTranslation` (migration `20260810090000_item_message_translations`).
+
+**Translation happens on save, never on read.** Notes are written a handful of
+times and displayed constantly; per-view translation would re-translate identical
+text endlessly, add latency to the grower's page, and make an external API a hard
+dependency of a screen used on a phone in a packing house. Seeded notes total
+~180 characters, so any provider's free tier is irrelevant at this volume.
+
+- [ ] The message dialog has a **Spanish note** field. Leave it blank → the note
+      is machine-translated on save. Type into it → stored as-is and marked
+      reviewed.
+- [ ] The list has an **Español** column: `Reviewed` (someone checked it),
+      `Auto` (raw machine output, amber — worth checking, since these notes drive
+      behaviour like "clear inventory"), or `Missing`.
+- [ ] Seeded state covers all three: `CG-ST-00012` and `CG-BX-00005` are
+      **Reviewed**, `AV-BG-00010` is **Auto**.
+- [ ] As **diago@brigo.local** (Spanish grower) on `/grower/submit`, the note under
+      `CG-BX-00005` reads *"Demanda estacional alta — aumente las existencias…"*.
+      As james@agribar.local it stays English.
+- [ ] Delete a message → its translations cascade away.
+
+**Provider is off by default.** `TRANSLATION_PROVIDER=local` (see `.env.example`)
+is a no-op, so the demo runs with no credentials and growers simply fall back to
+the authored note — same pattern as `EMAIL_PROVIDER`. To enable:
+
+```bash
+TRANSLATION_PROVIDER=azure
+AZURE_TRANSLATOR_KEY=...
+AZURE_TRANSLATOR_REGION=westeurope   # omit for a global resource
+```
+
+Chosen over Google Cloud Translation on stack-fit grounds — same subscription,
+Key Vault and managed-identity story as the rest of the Azure deployment, and a
+more generous free tier. **Confirm current free-tier limits before relying on
+them**; both vendors change these. Note the quota is measured in *characters*,
+not words.
+
+Two deliberate behaviours worth knowing:
+- A translator outage never blocks a save. `syncTranslations` runs **after** the
+  message transaction commits, so the worst case is the note stays English.
+- Re-saving a message whose Spanish note was hand-corrected does **not**
+  re-translate and clobber it — only `isMachine` rows are refreshed.
+
+## Round 12 — a quarter of demo history + week-over-week (August 2026)
+
+No migration. Re-seed to pick it up:
+
+```bash
+npm run db:seed             # wipes and re-seeds; takes ~30s
+```
+
+### P12.1 — Seed scale
+Grown from 3 growers / 3 vendors / 12 items / ~2 weeks to:
+
+| | Count |
+|---|---|
+| Growers / vendors / items | 5 / 5 / 20 |
+| Grower submissions | 221 |
+| Submission details · ledger rows | 1,755 · 1,755 |
+| Orders · pack lines | 68 · 132 |
+| Vendor submissions · details · allocations | 65 · 286 · 585 |
+
+- [ ] Ledger spans ~91 days (check `/admin/reports` — the 14-day chart is now a
+      window onto real history rather than the whole dataset).
+- [ ] Quantities move as smooth trend + weekly cycle + light noise. **No dramatic
+      events are seeded** (per your call): no stockouts, no spikes, and receipts
+      match what the pack maths predicted, so vendor discrepancy views start
+      clean. Edit a receipt by hand to exercise the mismatch path.
+
+### P12.2 — Cadence varies per grower
+Each grower counts on different weekdays, which is what makes the reminder
+scheduler demoable — Sunridge only counts Mondays, so it is always several days
+stale.
+
+- [ ] `/admin/growers` and the grower dashboards show: Agribar 65 submissions
+      (weekdays), Verdeval 78 (Mon–Sat), Brigo 39 (Mon/Wed/Fri), PDG 26
+      (Tue/Thu), Sunridge 13 (Mondays).
+
+### P12.3 — Week-over-week badge (`/grower/submit`)
+- [ ] Each item row shows a **+N / −N / 0** badge against its unit, green up, red
+      down, muted for no change. Hover for "Change vs the same item a week ago".
+- [ ] Nothing shows only when there is genuinely no count from a week back. A
+      zero is displayed rather than hidden — "unchanged" is information, and
+      hiding it would make it look identical to "no history".
+- [ ] The dashboard's "biggest changes" list and these badges now share one
+      implementation, so they cannot disagree.
+
+**Two correctness fixes the quarter of data exposed** — both invisible at two
+weeks of history:
+
+1. **Noon vs midnight.** The week-ago cutoff was `startOfDay(today) − 7d`, but
+   ledger rows are stamped at **noon**, so the count taken exactly seven days ago
+   was excluded and the comparison silently reached back to day eight. Now
+   `endOfDay(today − 7d)`.
+2. **Weekly counters compared against themselves.** For a grower who counts once
+   a week, the latest row *is* the week-ago row, so every item reported 0.
+   `weekAgoPerItem` now skips each item's newest observation date before applying
+   the cutoff. Verified: Sunridge went from all-zeros to real movement
+   (`CG-BX-00005 −2`, `AV-BX-00009 +7`), while PDG still shows a genuine `0`.
+
+### P12.4 — Seed performance at this size
+- [ ] `npm run db:seed` completes in roughly 30s against a local DB.
+
+Both grower and vendor submissions are now bulk-inserted and read back by
+`(ownerId, submissionDate)` — at 221 + 65 rows the one-round-trip-each approach
+that was fine for 13 no longer is. All large inserts go through
+`createManyChunked` at 200 rows, keeping every statement under SQL Server's
+2,100-parameter cap (1,755 ledger rows × 8 columns would be ~14,000).
+
+### P12.5 — Reports are admin-only
+- [ ] `VIEW_REPORTS` removed from `EDITOR_CAPS` ([lib/rbac.ts](lib/rbac.ts)).
+      Sign in as **editor@demo.local** — no Reports entry in the sidebar, and
+      `/admin/reports` is refused.
+
+## Round 13 — branding, email polish, pagination (August 2026)
+
+No migration, no re-seed needed.
+
+### P13.1 — Brand palette
+Primary is the brand green, converted from hex to `oklch` losslessly so the
+values are exact: **#004C43** light, **#006B53** dark. Red **#E00700** is now
+`--destructive` and is used for nothing else. The remaining style-guide accents
+drive the charts (#4FA78B, #00B0BE, #F1C052, #F58C35, #BD7E82).
+
+- [ ] Buttons, sidebar active state, focus rings and links all read as brand green
+      in both themes; `/admin/reports` charts pick up the accent sequence.
+- [ ] Delete buttons and low-inventory badges are still red and still look
+      distinct from anything branded.
+
+**Two deviations from the spec, both forced by contrast** — measured, not guessed:
+
+| | | |
+|---|---|---|
+| `#006B53` as **text** on the dark background | 2.94:1 | ❌ fails AA |
+| previous dark `--primary-foreground` on `#006B53` | 2.88:1 | ❌ fails AA |
+
+`--primary` doubles as link colour (Tailwind's `text-primary`, baked into the
+button and badge *link* variants — not fixable at call sites). So dark mode uses
+a **lightened tint of the same hue**, and `--primary-foreground` flipped to
+near-white. Final measurements, all passing AA:
+
+```
+LIGHT   fg on primary fill 9.67   primary as text 9.70   destructive text 4.89
+DARK    fg on primary fill 6.78   primary as text 6.92   destructive text 6.55
+```
+
+If you'd rather have the exact `#006B53` in dark mode regardless, it's one line
+in [globals.css](app/globals.css) — but links will be hard to read.
+
+### P13.2 — Logo & login background
+- [ ] Sidebar and login show the wordmark ([components/brand-logo.tsx](components/brand-logo.tsx) —
+      one file to swap the asset).
+- [ ] Login has the brand background with a scrim over it so the user cards stay
+      readable.
+
+Two conversions were needed, both generated into `public/`:
+
+| Source | Issue | Output |
+|---|---|---|
+| `logo.webp` | WebP isn't rendered by Outlook and others **in email** | `logo-email.png` (360×195) |
+| `login-bg.jpg` | 7001×4001, **1.6 MB** shipped to every visitor | `login-bg.webp` (2400w, **81 KB**) |
+
+The originals are still in `public/` — safe to delete `login-bg.jpg` once you're
+happy, it isn't referenced.
+
+### P13.3 — Email branding
+- [ ] Outbox previews show the logo above the heading, and the accent bar is
+      brand green (`info`), soft green (`success`) or orange (`warning`).
+- [ ] **Red is deliberately not an email accent.** An alarming header on a routine
+      "submission received" trains people to ignore the colour.
+
+Two constraints handled in [notification-email.tsx](lib/email/templates/notification-email.tsx):
+- The logo uses an **absolute** URL built from `APP_URL`. A relative path resolves
+  to nothing in an inbox — and nothing in the Outbox preview either, which renders
+  stored HTML via `srcDoc`.
+- Remote images are blocked by default in several clients, so the `alt` text is
+  the brand name: a blocked image degrades to the wordmark, not an empty box.
+
+⚠️ Set `APP_URL` to the real host before sending externally, or recipients get
+`localhost` image links.
+
+### P13.4 — Pagination on all six list pages
+| Page | Was | Now |
+|---|---|---|
+| `/admin/requests` | paged | unchanged |
+| `/admin/settings/outbox` | `take: 100`, no pager | paged, 20/page |
+| `/grower/history` | `take: 30`, no pager | paged, 10/page |
+| `/vendor/history` | `take: 30`, no pager | paged, 10/page |
+| `/grower/requests` | **unbounded** | paged, 10/page |
+| `/grower/on-order` | **unbounded** | paged, 15/page |
+
+- [ ] As **james@agribar.local**, `/grower/history` pages through all **65**
+      submissions. It previously showed 30 and silently hid the rest — the quarter
+      of seed data made that a live bug, not a theoretical one.
+- [ ] Record count and page indicator appear on every one of the six.
+
+The pager was extracted from `DataTable` into [components/pager.tsx](components/pager.tsx)
+so the card-based pages share one implementation rather than copying it.
+
+### P13.5 — Outbox preview toggle
+- [ ] Previews are **collapsed by default**, showing a two-line plaintext snippet.
+      "Show preview" mounts the iframe for that row only.
+- [ ] Open several, page forward and back — no leftover iframes.
+
+This was the heaviest page in the app: it rendered a full HTML document in an
+iframe for **every** row, up to 100 of them. Now at most as many as you open.
+
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.

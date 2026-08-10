@@ -104,7 +104,8 @@ async function vendorsSheet(sp: SP): Promise<ExcelSheet> {
       { header: "Material categories", key: "categories", width: 28 },
       { header: "Contact", key: "contact", width: 20 },
       { header: "Email", key: "email", width: 26 },
-      { header: "Lead time", key: "lead", width: 12 },
+      { header: "Lead time (days)", key: "lead", width: 16 },
+      { header: "Payment terms (days)", key: "terms", width: 20 },
       { header: "Status", key: "status", width: 12 },
     ],
     rows: rows.map((v) => ({
@@ -116,7 +117,8 @@ async function vendorsSheet(sp: SP): Promise<ExcelSheet> {
       categories: v.materialCategories.map((mc) => mc.materialCategory.name).join(", "),
       contact: v.primaryContact ?? "",
       email: v.contactEmail ?? "",
-      lead: v.leadTime ?? "",
+      lead: v.leadTimeDays ?? "",
+      terms: v.paymentTermsDays ?? "",
       status: v.status,
     })),
   }

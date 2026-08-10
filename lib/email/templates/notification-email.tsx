@@ -10,8 +10,20 @@ import {
   Text,
   Hr,
   Button,
+  Img,
 } from "@react-email/components"
 import type { TFunction } from "@/lib/i18n/translate"
+
+/**
+ * Absolute URL for the logo. Email clients have no page context, so a relative
+ * path resolves to nothing — in a real inbox AND in the Outbox preview iframe,
+ * which renders the stored HTML via srcDoc.
+ *
+ * PNG, not the app's WebP: Outlook and several other clients won't render WebP.
+ */
+const LOGO_URL = `${
+  process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
+}/logo-email.png`
 
 // ============================================================
 // One shared, data-driven email used for every notification.
@@ -35,10 +47,14 @@ export type NotificationEmailProps = {
   variant?: EmailVariant
 }
 
+// Brand palette. `info` is the brand green so the default email reads as
+// company mail; success/warning come from the style-guide accents. Red is
+// deliberately absent — it stays reserved for danger in the app, and an alarming
+// header colour on a routine "submission received" would train people to ignore it.
 const ACCENT: Record<EmailVariant, string> = {
-  info: "#0369a1", // sky-700
-  success: "#047857", // emerald-700
-  warning: "#b45309", // amber-700
+  info: "#004C43", // brand green
+  success: "#4FA78B",
+  warning: "#F58C35",
 }
 
 export function NotificationEmail({
@@ -61,7 +77,16 @@ export function NotificationEmail({
         <Container style={styles.outer}>
           <Section style={{ ...styles.accentBar, backgroundColor: accent }} />
           <Section style={styles.card}>
-            <Text style={styles.brand}>{t("email.brand")}</Text>
+            {/* Remote images are blocked by default in Outlook and others, so the
+                logo carries alt text that reads as the wordmark. A blocked image
+                then degrades to the brand name rather than an empty box. */}
+            <Img
+              src={LOGO_URL}
+              alt={t("email.brand")}
+              width="180"
+              height="98"
+              style={styles.logo}
+            />
             <Heading style={styles.heading}>{heading}</Heading>
             <Text style={styles.intro}>{intro}</Text>
 
@@ -120,13 +145,11 @@ const styles: Record<string, React.CSSProperties> = {
     border: "1px solid #e2e8f0",
     borderTop: "none",
   },
-  brand: {
-    margin: "0 0 4px",
-    fontSize: "12px",
-    fontWeight: 600,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-    color: "#64748b",
+  logo: {
+    display: "block",
+    width: "180px",
+    height: "auto",
+    margin: "0 0 20px",
   },
   heading: {
     margin: "0 0 12px",

@@ -1,4 +1,5 @@
 import "server-only"
+import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { requireCapability, type SessionUser } from "@/lib/auth/session"
 import { type Capability } from "@/lib/rbac"
@@ -9,6 +10,18 @@ import { fail, type ActionState } from "@/lib/actions/types"
 /** Guard for server actions that mutate admin data. */
 export async function guard(capability: Capability): Promise<SessionUser> {
   return requireCapability(capability)
+}
+
+/**
+ * Refresh the app shell so the sidebar badge counts re-render.
+ *
+ * The counts are computed in app/(app)/layout.tsx, which sits ABOVE every page —
+ * revalidating a page path alone leaves a stale count in the sidebar. Call this
+ * from any action that changes a pending-work count. Broad, but these are
+ * low-frequency admin actions, and a wrong badge is worse than a re-render.
+ */
+export function revalidateNavBadges() {
+  revalidatePath("/", "layout")
 }
 
 export function formToObject(fd: FormData): Record<string, string> {

@@ -115,3 +115,17 @@ export function authorizationsWhere(sp: SP): Prisma.GrowerItemAuthorizationWhere
   if (sp.status) and.push({ isActive: sp.status === "active" })
   return and.length ? { AND: and } : {}
 }
+
+export function itemVendorsWhere(sp: SP): Prisma.ItemVendorWhereInput {
+  const and: Prisma.ItemVendorWhereInput[] = []
+  if (sp.vendor) and.push({ vendorId: Number(sp.vendor) || 0 })
+  if (sp.q)
+    and.push({
+      OR: [{ itemId: { contains: sp.q } }, { item: { itemName: { contains: sp.q } } }],
+    })
+  if (sp.status) and.push({ isActive: sp.status === "active" })
+  // Whether this mapping has a packaging chain assigned yet.
+  if (sp.packaging === "configured") and.push({ packagingChainId: { not: null } })
+  else if (sp.packaging === "missing") and.push({ packagingChainId: null })
+  return and.length ? { AND: and } : {}
+}

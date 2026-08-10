@@ -13,10 +13,12 @@ export const CAPABILITIES = {
 export type Capability = (typeof CAPABILITIES)[keyof typeof CAPABILITIES]
 
 const ADMIN_CAPS: Capability[] = Object.values(CAPABILITIES)
+// Reports are admin-only: the page embeds Power BI via a server-generated embed
+// token, so widening it widens who can trigger that. Editors keep master data
+// and packaging.
 const EDITOR_CAPS: Capability[] = [
   CAPABILITIES.MANAGE_MASTER_DATA,
   CAPABILITIES.MANAGE_CONVERSIONS,
-  CAPABILITIES.VIEW_REPORTS,
 ]
 
 const ROLE_CAPS: Record<RoleName, Capability[]> = {

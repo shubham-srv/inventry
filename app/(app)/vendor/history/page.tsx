@@ -2,8 +2,10 @@ import { format } from "date-fns"
 import { requireRole } from "@/lib/auth/session"
 import { ROLES } from "@/lib/constants"
 import { getVendorHistory } from "@/lib/vendor/data"
+import { parseListParams } from "@/lib/query"
 import { getT } from "@/lib/i18n/server"
 import { PageHeader } from "@/components/page-header"
+import { Pager } from "@/components/pager"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -15,12 +17,17 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-export default async function VendorHistoryPage() {
+export default async function VendorHistoryPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
   const user = await requireRole([ROLES.VENDOR_USER])
   if (!user.vendorId) return <p className="text-sm">Your account is not mapped to a vendor.</p>
 
   const t = await getT()
-  const submissions = await getVendorHistory(user.vendorId)
+  const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 10 })
+  const { submissions, total } = await getVendorHistory(user.vendorId, skip, take)
 
   return (
     <>
@@ -74,6 +81,12 @@ export default async function VendorHistoryPage() {
             </CardContent>
           </Card>
         ))}
+        <Pager
+          page={page}
+          pageCount={Math.ceil(total / pageSize)}
+          total={total}
+          searchParams={raw}
+        />
       </div>
     </>
   )

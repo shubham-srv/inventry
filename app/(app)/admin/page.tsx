@@ -145,8 +145,8 @@ export default async function AdminDashboard() {
               <Link href="/admin/items" className="text-primary block hover:underline">
                 Manage items →
               </Link>
-              <Link href="/admin/conversions" className="text-primary block hover:underline">
-                Unit conversions →
+              <Link href="/admin/packaging" className="text-primary block hover:underline">
+                Packaging →
               </Link>
               <Link href="/admin/reports" className="text-primary block hover:underline">
                 Reports →

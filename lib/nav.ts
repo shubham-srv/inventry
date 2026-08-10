@@ -4,7 +4,23 @@
 import { type RoleName } from "@/lib/constants"
 import { CAPABILITIES, can, isGrower, isVendor } from "@/lib/rbac"
 
-export type NavItem = { title: string; href: string; icon: string }
+/** Counter a nav item shows a badge for. Values are supplied by the layout. */
+export type BadgeKey = "lowInventory" | "requests" | "itemMessages"
+export type NavCounts = Partial<Record<BadgeKey, number>>
+
+export type NavItem = {
+  title: string
+  href: string
+  icon: string
+  badge?: BadgeKey
+  /**
+   * "action" = someone owes work here, styled to draw the eye.
+   * "info"   = ambient status only. Kept visually quiet on purpose: if an
+   *            always-on badge looks urgent, people stop trusting the ones
+   *            that are.
+   */
+  badgeTone?: "action" | "info"
+}
 export type NavSection = { label: string; items: NavItem[] }
 
 export function getNavForUser(roleName: RoleName): NavSection[] {
@@ -36,13 +52,25 @@ export function getNavForUser(roleName: RoleName): NavSection[] {
     ]
   }
 
-  // Internal users (admin / editor)
+  // Internal users (admin / editor). Ordering is deliberate: things that need
+  // acting on first, then the data behind them, then configuration.
   const sections: NavSection[] = [
     {
       label: "nav.sections.overview",
       items: [{ title: "nav.dashboard", href: "/admin", icon: "home" }],
     },
   ]
+
+  if (can(roleName, CAPABILITIES.MANAGE_GROWERS_VENDORS)) {
+    sections.push({
+      label: "nav.sections.actionItems",
+      items: [
+        { title: "nav.lowInventory", href: "/admin/low-inventory/flags", icon: "triangleAlert", badge: "lowInventory", badgeTone: "action" },
+        { title: "nav.itemRequests", href: "/admin/requests", icon: "inbox", badge: "requests", badgeTone: "action" },
+        { title: "nav.itemMessages", href: "/admin/item-messages", icon: "megaphone", badge: "itemMessages", badgeTone: "info" },
+      ],
+    })
+  }
 
   if (can(roleName, CAPABILITIES.MANAGE_MASTER_DATA)) {
     sections.push({
@@ -63,10 +91,7 @@ export function getNavForUser(roleName: RoleName): NavSection[] {
     partners.push(
       { title: "nav.growers", href: "/admin/growers", icon: "sprout" },
       { title: "nav.vendors", href: "/admin/vendors", icon: "store" },
-      { title: "nav.authorizations", href: "/admin/authorizations", icon: "shieldCheck" },
-      { title: "nav.itemRequests", href: "/admin/requests", icon: "inbox" },
-      { title: "nav.lowInventory", href: "/admin/low-inventory", icon: "triangleAlert" },
-      { title: "nav.itemMessages", href: "/admin/item-messages", icon: "megaphone" }
+      { title: "nav.mappings", href: "/admin/mappings/growers", icon: "shieldCheck" }
     )
   }
   if (can(roleName, CAPABILITIES.MANAGE_USERS)) {
@@ -79,7 +104,7 @@ export function getNavForUser(roleName: RoleName): NavSection[] {
   sections.push({
     label: "nav.sections.tools",
     items: [
-      { title: "nav.conversions", href: "/admin/conversions", icon: "ruler" },
+      { title: "nav.packaging", href: "/admin/packaging", icon: "ruler" },
       { title: "nav.reports", href: "/admin/reports", icon: "barChart" },
     ],
   })

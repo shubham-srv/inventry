@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { prisma } from "@/lib/db"
-import { guard, parseForm, prismaErrorMessage, type ActionState } from "@/lib/actions/_shared"
+import { guard, parseForm, prismaErrorMessage, revalidateNavBadges, type ActionState } from "@/lib/actions/_shared"
 import { ok, fail } from "@/lib/actions/types"
 import { recordAudit } from "@/lib/audit"
 import { CAPABILITIES } from "@/lib/rbac"
@@ -58,9 +58,12 @@ export async function reviewLowFlag(_p: ActionState, fd: FormData): Promise<Acti
       reviewNotes: data.reviewNotes || null,
     })
 
-    revalidatePath("/admin/low-inventory")
+    // "layout" so both tabs (flags + current) refresh — a plain page
+    // revalidate would miss the child routes.
+    revalidatePath("/admin/low-inventory", "layout")
     revalidatePath("/grower")
     revalidatePath("/grower/submit")
+    revalidateNavBadges()
     return ok("Low-inventory flag reviewed")
   } catch (e) {
     return fail(prismaErrorMessage(e))

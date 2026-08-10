@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/auth/session"
 import { getNavForUser } from "@/lib/nav"
+import { getNavCounts } from "@/lib/admin/nav-counts"
 import { getT } from "@/lib/i18n/server"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
@@ -20,6 +21,7 @@ export default async function AppLayout({
   const user = await requireUser()
   const t = await getT()
   const sections = getNavForUser(user.roleName)
+  const navCounts = await getNavCounts(user.roleName)
   const roleLabel = t(`common.roles.${user.roleName}`)
   const contextLabel = user.growerName
     ? `${t("common.grower")} · ${user.growerName}`
@@ -36,7 +38,7 @@ export default async function AppLayout({
     // them once the page was scrolled. The Radix portal mounts as a direct child
     // of <body>, so it escapes this wrapper and positions against the viewport.
     <SidebarProvider className="overflow-x-clip">
-      <AppSidebar sections={sections} />
+      <AppSidebar sections={sections} counts={navCounts} />
       {/* min-w-0: without it this flex item grows past the viewport when a table is wide → page-level horizontal scroll on mobile */}
       <SidebarInset className="min-w-0">
         <header className="bg-background sticky top-0 z-30 flex h-14 items-center gap-2 border-b px-4">

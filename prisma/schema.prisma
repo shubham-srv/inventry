@@ -18,8 +18,8 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlserver"
-  url      = env("DATABASE_URL")
+  provider          = "sqlserver"
+  url               = env("DATABASE_URL")
   shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
@@ -102,20 +102,20 @@ model Grower {
 }
 
 model Vendor {
-  id              Int     @id @default(autoincrement())
-  vendorName      String
-  vendorType      String? // Manufacturer, Pallet Pooling, 3PL
-  regionId        Int?
-  country         String?
-  primaryContact  String?
-  contactEmail    String?
-  contactPhone    String?
-  leadTime        String?
-  paymentTerms    String?
-  ptAccountNumber String?
-  notes           String?
-  status          String  @default("Active") // Active, Inactive
-  preferredLocale String  @default("en") // language for emails sent to contactEmail: en, es
+  id               Int     @id @default(autoincrement())
+  vendorName       String
+  vendorType       String? // Manufacturer, Pallet Pooling, 3PL
+  regionId         Int?
+  country          String?
+  primaryContact   String?
+  contactEmail     String?
+  contactPhone     String?
+  leadTimeDays     Int? // whole days from order to delivery
+  paymentTermsDays Int? // "Net N days" — N only; non-numeric terms are not modelled
+  ptAccountNumber  String?
+  notes            String?
+  status           String  @default("Active") // Active, Inactive
+  preferredLocale  String  @default("en") // language for emails sent to contactEmail: en, es
 
   createdBy Int?
   createdAt DateTime @default(now())
@@ -167,8 +167,7 @@ model Commodity {
   updatedBy Int?
   updatedAt DateTime @updatedAt
 
-  items           Item[]
-  unitConversions UnitConversion[]
+  items Item[]
 }
 
 model MaterialCategory {
@@ -180,9 +179,10 @@ model MaterialCategory {
   updatedBy Int?
   updatedAt DateTime @updatedAt
 
-  subCategories SubCategory[]
-  items         Item[]
-  vendors       VendorMaterialCategory[]
+  subCategories   SubCategory[]
+  items           Item[]
+  vendors         VendorMaterialCategory[]
+  packagingChains PackagingChain[]
 }
 
 model SubCategory {
@@ -236,7 +236,6 @@ model Item {
   vendorSubmissionDetails VendorSubmissionDetail[]
   lowInventoryFlags       LowInventoryFlag[]
   thresholds              ItemThreshold[]
-  unitConversions         UnitConversion[]
   messages                ItemMessage[]
 
   @@index([commodityCode])
@@ -298,22 +297,34 @@ model GrowerItemAuthorization {
   @@index([itemId])
 }
 
+// Also carries this vendor's packaging setup for the item: which PackagingChain
+// they use, the per-level ratios (VendorPackRatio), and the level they physically
+// ship in. See the PACKAGING section below.
 model ItemVendor {
   id       Int     @id @default(autoincrement())
   vendorId Int
   itemId   String
   isActive Boolean @default(true)
 
+  packagingChainId Int?
+  // Level that must be a whole number when ordering:
+  //   0 = the item's own unit  => partial containers allowed, delivered = ordered
+  //   1 = first packaging level (e.g. Boxes), 2 = next (e.g. Cases), ...
+  shipsInLevel     Int  @default(0)
+
   createdBy Int?
   createdAt DateTime @default(now())
   updatedBy Int?
   updatedAt DateTime @updatedAt
 
-  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  item   Item   @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vendor         Vendor            @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item           Item              @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  packagingChain PackagingChain?   @relation(fields: [packagingChainId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  packRatios     VendorPackRatio[]
 
   @@unique([vendorId, itemId])
   @@index([itemId])
+  @@index([packagingChainId])
 }
 
 // Which material categories a vendor supplies. Many-to-many mapping, soft-
@@ -404,14 +415,22 @@ model Order {
   closedAt             DateTime? // set when Received or Cancelled
   notes                String?
 
+  // Receipt validation. These exist to check the packaging config against
+  // reality and to score vendors — they deliberately do NOT touch inventory.
+  // On-hand stock comes from the grower's daily count, never from a receipt.
+  expectedQuantity Decimal? // what the pack maths said would arrive (>= quantity)
+  receivedQuantity Decimal? // what the grower confirmed on receipt
+  receiptNote      String? // Short, Damaged, Over — only captured on a mismatch
+
   createdBy Int?
   createdAt DateTime @default(now())
   updatedBy Int?
   updatedAt DateTime @updatedAt
 
-  grower Grower @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  item   Item   @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grower    Grower          @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  item      Item            @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vendor    Vendor          @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  packLines OrderPackLine[]
 
   @@index([growerId, status])
   @@index([itemId])
@@ -611,22 +630,86 @@ model SchedulerSetting {
   @@index([growerId])
 }
 
-model UnitConversion {
-  id            Int     @id @default(autoincrement())
-  fromUnit      String
-  toUnit        String
-  factor        Decimal // 1 fromUnit = factor toUnit
-  itemId        String?
-  commodityCode String?
-  notes         String?
+// ============================================================
+// PACKAGING
+// How a SKU is packed for shipping. Two halves, deliberately separate:
+//
+//   1. The CHAIN (PackagingChain + PackagingChainLevel) is structure only —
+//      "Bags -> Boxes -> Cases" — and carries NO numbers. It hangs off a
+//      material category, because items in a category share a base unit, so the
+//      chain is defined once instead of per item.
+//   2. The RATIOS (VendorPackRatio) are per vendor, on the ItemVendor mapping.
+//      Two vendors can use the same chain with different numbers: one packs 10
+//      bags to a box, another 20.
+//
+// The packaging itself is never inventory — outer boxes/cases are discarded on
+// receipt. It exists to work out how many containers an order becomes, and how
+// much material actually arrives once quantities round up to whole containers.
+// ============================================================
+
+model PackagingChain {
+  id                   Int     @id @default(autoincrement())
+  materialCategoryCode String
+  name                 String // "Bags → Boxes → Cases"
+  // The unit the chain starts from. A chain is only offered for an item whose
+  // `unitOfMeasure` equals this, which keeps mismatched chains unpickable.
+  baseUnit             String
+  isActive             Boolean @default(true)
 
   createdBy Int?
   createdAt DateTime @default(now())
   updatedBy Int?
   updatedAt DateTime @updatedAt
 
-  item      Item?      @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  commodity Commodity? @relation(fields: [commodityCode], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  materialCategory MaterialCategory      @relation(fields: [materialCategoryCode], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  levels           PackagingChainLevel[]
+  itemVendors      ItemVendor[]
+
+  @@index([materialCategoryCode])
+}
+
+model PackagingChainLevel {
+  id       Int    @id @default(autoincrement())
+  chainId  Int
+  level    Int // 1 = first level above the base unit, 2 = next, ...
+  unitName String // "Boxes", "Cases"
+
+  chain PackagingChain @relation(fields: [chainId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([chainId, level])
+}
+
+// How many of level-1 fit into one of `level`, for one vendor's mapping.
+// e.g. level 1 perParent 10 => 10 Bags per Box.
+model VendorPackRatio {
+  id           Int @id @default(autoincrement())
+  itemVendorId Int
+  level        Int
+  perParent    Int
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  itemVendor ItemVendor @relation(fields: [itemVendorId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([itemVendorId, level])
+}
+
+// Immutable per-level snapshot of what an order resolved to, written once at
+// creation. Kept as rows (not JSON) so Power BI can aggregate it directly, and
+// so later edits to a vendor's ratios never rewrite order history.
+model OrderPackLine {
+  id       Int     @id @default(autoincrement())
+  orderId  Int
+  level    Int // 0 = the item's own unit, 1+ = packaging levels
+  unitName String
+  quantity Decimal
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([orderId, level])
 }
 
 // ============================================================
@@ -708,10 +791,36 @@ model ItemMessage {
   updatedBy Int?
   updatedAt DateTime @updatedAt
 
-  item    Item                @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  targets ItemMessageGrower[]
+  item         Item                     @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  targets      ItemMessageGrower[]
+  translations ItemMessageTranslation[]
 
   @@index([itemId])
+}
+
+// Localized `body` for growers whose preferredLocale differs from the language
+// the note was authored in. Written once when the message is saved (never per
+// page view), so the translation API is called a handful of times a year rather
+// than on every grower page load.
+model ItemMessageTranslation {
+  id            Int     @id @default(autoincrement())
+  itemMessageId Int
+  locale        String // es, ...
+  body          String
+  // True while the text is still raw machine output. Flipped to false as soon
+  // as an admin edits it, so the list can flag what nobody has checked — these
+  // notes drive real behaviour ("clear inventory"), so a bad translation costs
+  // more than a missing one.
+  isMachine     Boolean @default(true)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  message ItemMessage @relation(fields: [itemMessageId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([itemMessageId, locale])
 }
 
 model ItemMessageGrower {

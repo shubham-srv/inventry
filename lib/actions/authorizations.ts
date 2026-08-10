@@ -15,7 +15,7 @@ import { CAPABILITIES } from "@/lib/rbac"
 import { AUDIT_ACTIONS } from "@/lib/constants"
 
 const CAP = CAPABILITIES.MANAGE_GROWERS_VENDORS
-const PATH = "/admin/authorizations"
+const PATH = "/admin/mappings/growers"
 
 const schema = z.object({
   growerId: z.string().trim().min(1, "Grower is required"),
@@ -54,7 +54,7 @@ export async function setAuthorizationActive(id: number, active: boolean): Promi
     await prisma.growerItemAuthorization.update({ where: { id }, data: { isActive: active, updatedBy: user.id } })
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.UPDATE, entityType: "GrowerItemAuthorization", entityId: id, changes: { isActive: active } })
     revalidatePath(PATH)
-    return ok(active ? "Authorization activated" : "Authorization revoked")
+    return ok(active ? "Authorization activated" : "Authorization deactivated")
   } catch (e) {
     return fail(prismaErrorMessage(e))
   }

@@ -15,6 +15,10 @@ import {
   Truck,
   X,
   Megaphone,
+  History,
+  TrendingUp,
+  TrendingDown,
+  Minus,
 } from "lucide-react"
 import { submitInventory } from "@/lib/actions/grower"
 import {
@@ -38,7 +42,6 @@ import {
   EntityFormDialog,
   type Field,
 } from "@/components/crud/entity-form-dialog"
-import { ActionButton } from "@/components/action-button"
 import { ConfirmButton } from "@/components/crud/confirm-button"
 import { cn } from "@/lib/utils"
 
@@ -167,14 +170,6 @@ export function GrowerSubmitForm({
           </div>
           <div className="flex shrink-0 gap-2">
             <Button
-              type="button"
-              variant="ghost"
-              onClick={loadPrevious}
-              disabled={pending || !hasPrev}
-            >
-              {t("grower.form.loadPrevious")}
-            </Button>
-            <Button
               type="submit"
               form="grower-submit-form"
               name="mode"
@@ -196,6 +191,27 @@ export function GrowerSubmitForm({
           </div>
         </div>
       </div>
+
+      {/* Load-previous reads as the first step of the count, not as one more
+          button competing with Save/Submit in the sticky bar — as a ghost button
+          up there it was effectively invisible. Kept explicit rather than
+          auto-filling, so nobody submits yesterday's numbers without looking. */}
+      {hasPrev && (
+        <div className="bg-muted/40 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
+          <p className="text-muted-foreground text-sm">
+            {t("grower.form.loadPreviousHint")}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={loadPrevious}
+            disabled={pending}
+          >
+            <History className="size-4" /> {t("grower.form.loadPrevious")}
+          </Button>
+        </div>
+      )}
 
       <div className="grid gap-3">
         {rows.map((r) => {
@@ -230,6 +246,7 @@ export function GrowerSubmitForm({
                           {t("grower.form.belowThreshold")}
                         </Badge>
                       )}
+                      <WeekChangeBadge delta={r.weekDelta} uom={r.uom} />
                       {v.low && (
                         <Badge
                           variant="outline"
@@ -383,16 +400,13 @@ function OrderRow({ order }: { order: OrderView }) {
           })}
         </span>
       )}
+      {order.packSummary && (
+        <span className="text-xs text-muted-foreground">· {order.packSummary}</span>
+      )}
       {isOpen && (
         <div className="ml-auto flex items-center gap-1">
           <EditDeliveryButton order={order} />
-          <ActionButton
-            action={receiveOrder.bind(null, order.id)}
-            variant="outline"
-            size="xs"
-          >
-            <PackageCheck className="size-3.5" /> {t("grower.orders.receive")}
-          </ActionButton>
+          <ReceiveOrderButton order={order} />
           <ConfirmButton
             title={t("grower.orders.cancelTitle")}
             description={t("grower.orders.cancelDesc", {
@@ -483,6 +497,96 @@ function AddOrderButton({ item }: { item: SubmitRow }) {
 // <input type="date"> wants a YYYY-MM-DD value; slice it off the stored ISO.
 function toDateInput(iso: string | null): string {
   return iso ? iso.slice(0, 10) : ""
+}
+
+/**
+ * Confirm receipt, recording how much actually arrived.
+ *
+ * The quantity is prefilled with the expected amount (what the vendor's pack
+ * maths said would ship, which may exceed what was ordered), so the everyday
+ * path is one tap. Editing it is the discrepancy signal — that is the number
+ * worth having, and it validates the packaging config against reality.
+ */
+function ReceiveOrderButton({ order }: { order: OrderView }) {
+  const t = useT()
+  const expected = order.expectedQuantity ?? order.quantity
+  const fields: Field[] = [
+    {
+      name: "receivedQuantity",
+      label: t("grower.orders.receivedQty", { uom: order.uom ?? "" }),
+      type: "number",
+      min: "0",
+      step: "any",
+      colSpan: 2,
+      description:
+        expected !== order.quantity
+          ? t("grower.orders.receivedHintRounded", {
+              ordered: order.quantity,
+              expected,
+              uom: order.uom ?? "",
+            })
+          : t("grower.orders.receivedHint"),
+    },
+    {
+      name: "receiptNote",
+      label: t("grower.orders.receiptNote"),
+      type: "select",
+      placeholder: t("grower.orders.receiptNoteNone"),
+      options: [
+        { label: t("grower.orders.receiptNotes.short"), value: "Short" },
+        { label: t("grower.orders.receiptNotes.damaged"), value: "Damaged" },
+        { label: t("grower.orders.receiptNotes.over"), value: "Over" },
+      ],
+      colSpan: 2,
+      description: t("grower.orders.receiptNoteHint"),
+    },
+  ]
+  return (
+    <EntityFormDialog
+      title={t("grower.orders.receiveTitle")}
+      description={`${order.vendorName} · ${order.packSummary ?? `${expected} ${order.uom ?? ""}`}`}
+      fields={fields}
+      action={receiveOrder}
+      submitLabel={t("grower.orders.receive")}
+      values={{ id: order.id, receivedQuantity: expected, receiptNote: "" }}
+      trigger={
+        <Button type="button" variant="outline" size="xs">
+          <PackageCheck className="size-3.5" /> {t("grower.orders.receive")}
+        </Button>
+      }
+    />
+  )
+}
+
+/**
+ * Change in on-hand versus a week ago.
+ *
+ * Rendered even when the change is zero — "no change" is itself information for
+ * a grower scanning the list, and hiding it would make an unchanged item look
+ * the same as one with no history at all. Nothing shows only when there genuinely
+ * is no count from a week back.
+ */
+function WeekChangeBadge({ delta, uom }: { delta: number | null; uom: string | null }) {
+  const t = useT()
+  if (delta == null) return null
+  const tone =
+    delta > 0
+      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+      : delta < 0
+        ? "bg-red-500/15 text-red-700 dark:text-red-400"
+        : "text-muted-foreground"
+  const Icon = delta > 0 ? TrendingUp : delta < 0 ? TrendingDown : Minus
+  return (
+    <Badge
+      variant="outline"
+      className={`border-transparent ${tone}`}
+      title={t("grower.form.weekChangeTitle")}
+    >
+      <Icon className="mr-1 size-3" />
+      {delta > 0 ? "+" : ""}
+      {delta} {uom ?? ""}
+    </Badge>
+  )
 }
 
 function EditDeliveryButton({ order }: { order: OrderView }) {

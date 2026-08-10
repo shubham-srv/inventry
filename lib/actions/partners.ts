@@ -183,8 +183,9 @@ const vendorSchema = z.object({
   primaryContact: z.string().trim().optional().default(""),
   contactEmail: z.string().trim().email("Enter a valid email").optional().or(z.literal("")),
   contactPhone: z.string().trim().optional().default(""),
-  leadTime: z.string().trim().optional().default(""),
-  paymentTerms: z.string().trim().optional().default(""),
+  // Whole days. Blank is allowed; a value must be a non-negative integer.
+  leadTimeDays: z.string().trim().optional().default(""),
+  paymentTermsDays: z.string().trim().optional().default(""),
   ptAccountNumber: z.string().trim().optional().default(""),
   notes: z.string().trim().optional().default(""),
   status: z.string().trim().min(1),
@@ -197,6 +198,16 @@ const vendorSchema = z.object({
 })
 
 type VendorInput = z.infer<typeof vendorSchema>
+
+// "" -> null, otherwise a non-negative whole number of days. Anything that is
+// not a clean integer (a stray "Net 30" pasted in, say) also becomes null
+// rather than silently storing NaN.
+function days(v: string): number | null {
+  if (!v) return null
+  const n = Number(v)
+  return Number.isInteger(n) && n >= 0 ? n : null
+}
+
 function vendorData(d: VendorInput) {
   return {
     vendorName: d.vendorName,
@@ -206,8 +217,8 @@ function vendorData(d: VendorInput) {
     primaryContact: d.primaryContact || null,
     contactEmail: d.contactEmail || null,
     contactPhone: d.contactPhone || null,
-    leadTime: d.leadTime || null,
-    paymentTerms: d.paymentTerms || null,
+    leadTimeDays: days(d.leadTimeDays),
+    paymentTermsDays: days(d.paymentTermsDays),
     ptAccountNumber: d.ptAccountNumber || null,
     notes: d.notes || null,
     status: d.status,
