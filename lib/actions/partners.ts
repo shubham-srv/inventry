@@ -25,6 +25,13 @@ const parseItemIds = (s?: string): string[] =>
     .map((x) => x.trim())
     .filter(Boolean)
 
+// Same, for the multi-selects whose values are numeric ids (locations,
+// countries). Non-numeric junk is dropped rather than becoming NaN.
+const parseIntIds = (s?: string): number[] =>
+  parseItemIds(s)
+    .map(Number)
+    .filter((n) => Number.isInteger(n))
+
 /**
  * Reconcile a grower's item authorizations to match the selected item ids.
  * Selected rows are (re)activated via upsert; previously active rows no longer
@@ -50,6 +57,65 @@ async function syncGrowerItems(
     if (a.isActive && !want.has(a.itemId)) {
       await tx.growerItemAuthorization.update({
         where: { id: a.id },
+        data: { isActive: false, updatedBy: userId },
+      })
+    }
+  }
+}
+
+/**
+ * Reconcile a grower's locations — the sites they count inventory at, and the
+ * options in the submit page's location picker.
+ *
+ * Deactivating is deliberately soft, like the item authorizations above: a
+ * location a grower has stopped using still has submissions and ledger rows
+ * pointing at it, and those have to keep resolving.
+ */
+async function syncGrowerLocations(
+  tx: Prisma.TransactionClient,
+  growerId: number,
+  locationIds: number[],
+  userId: number
+) {
+  const want = new Set(locationIds)
+  const existing = await tx.growerLocation.findMany({ where: { growerId } })
+  for (const locationId of want) {
+    await tx.growerLocation.upsert({
+      where: { growerId_locationId: { growerId, locationId } },
+      update: { isActive: true, updatedBy: userId },
+      create: { growerId, locationId, isActive: true, createdBy: userId, updatedBy: userId },
+    })
+  }
+  for (const gl of existing) {
+    if (gl.isActive && !want.has(gl.locationId)) {
+      await tx.growerLocation.update({
+        where: { id: gl.id },
+        data: { isActive: false, updatedBy: userId },
+      })
+    }
+  }
+}
+
+/** Reconcile the countries a vendor can supply to. */
+async function syncVendorCountries(
+  tx: Prisma.TransactionClient,
+  vendorId: number,
+  countryIds: number[],
+  userId: number
+) {
+  const want = new Set(countryIds)
+  const existing = await tx.vendorCountry.findMany({ where: { vendorId } })
+  for (const countryId of want) {
+    await tx.vendorCountry.upsert({
+      where: { vendorId_countryId: { vendorId, countryId } },
+      update: { isActive: true, updatedBy: userId },
+      create: { vendorId, countryId, isActive: true, createdBy: userId, updatedBy: userId },
+    })
+  }
+  for (const vc of existing) {
+    if (vc.isActive && !want.has(vc.countryId)) {
+      await tx.vendorCountry.update({
+        where: { id: vc.id },
         data: { isActive: false, updatedBy: userId },
       })
     }
@@ -118,6 +184,8 @@ const growerSchema = z.object({
   preferredLocale: z.string().trim().optional().default("en"),
   // Comma-joined item ids from the mapping multi-select.
   itemIds: z.string().trim().optional().default(""),
+  // Comma-joined location ids — the sites this grower counts inventory at.
+  locationIds: z.string().trim().optional().default(""),
 })
 
 export async function createGrower(_p: ActionState, fd: FormData): Promise<ActionState> {
@@ -130,6 +198,7 @@ export async function createGrower(_p: ActionState, fd: FormData): Promise<Actio
         data: { growerName: data.growerName, primaryEmail: data.primaryEmail || null, status: data.status, preferredLocale: data.preferredLocale, createdBy: user.id, updatedBy: user.id },
       })
       await syncGrowerItems(tx, grower.id, parseItemIds(data.itemIds), user.id)
+      await syncGrowerLocations(tx, grower.id, parseIntIds(data.locationIds), user.id)
       return grower
     })
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.CREATE, entityType: "Grower", entityId: created.id, changes: data })
@@ -152,6 +221,7 @@ export async function updateGrower(_p: ActionState, fd: FormData): Promise<Actio
         data: { growerName: data.growerName, primaryEmail: data.primaryEmail || null, status: data.status, preferredLocale: data.preferredLocale, updatedBy: user.id },
       })
       await syncGrowerItems(tx, growerId, parseItemIds(data.itemIds), user.id)
+      await syncGrowerLocations(tx, growerId, parseIntIds(data.locationIds), user.id)
     })
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.UPDATE, entityType: "Grower", entityId: data.id, changes: data })
     revalidatePath("/admin/growers")
@@ -179,7 +249,9 @@ const vendorSchema = z.object({
   vendorName: z.string().trim().min(1, "Name is required"),
   vendorType: z.string().trim().optional().default(""),
   regionId: z.string().trim().optional().default(""),
-  country: z.string().trim().optional().default(""),
+  // The vendor's own country and operating site — both single-valued lookups.
+  countryId: z.string().trim().optional().default(""),
+  locationId: z.string().trim().optional().default(""),
   primaryContact: z.string().trim().optional().default(""),
   contactEmail: z.string().trim().email("Enter a valid email").optional().or(z.literal("")),
   contactPhone: z.string().trim().optional().default(""),
@@ -195,6 +267,9 @@ const vendorSchema = z.object({
   itemIds: z.string().trim().optional().default(""),
   // Comma-joined material-category codes the vendor supplies.
   materialCategoryCodes: z.string().trim().optional().default(""),
+  // Comma-joined country ids the vendor can ship TO. Distinct from countryId,
+  // which is where the vendor itself is based.
+  supplyCountryIds: z.string().trim().optional().default(""),
 })
 
 type VendorInput = z.infer<typeof vendorSchema>
@@ -213,7 +288,8 @@ function vendorData(d: VendorInput) {
     vendorName: d.vendorName,
     vendorType: d.vendorType || null,
     regionId: d.regionId ? Number(d.regionId) : null,
-    country: d.country || null,
+    countryId: d.countryId ? Number(d.countryId) : null,
+    locationId: d.locationId ? Number(d.locationId) : null,
     primaryContact: d.primaryContact || null,
     contactEmail: d.contactEmail || null,
     contactPhone: d.contactPhone || null,
@@ -235,6 +311,7 @@ export async function createVendor(_p: ActionState, fd: FormData): Promise<Actio
       const vendor = await tx.vendor.create({ data: { ...vendorData(data), createdBy: user.id, updatedBy: user.id } })
       await syncVendorItems(tx, vendor.id, parseItemIds(data.itemIds), user.id)
       await syncVendorMaterialCategories(tx, vendor.id, parseItemIds(data.materialCategoryCodes), user.id)
+      await syncVendorCountries(tx, vendor.id, parseIntIds(data.supplyCountryIds), user.id)
       return vendor
     })
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.CREATE, entityType: "Vendor", entityId: created.id, changes: vendorData(data) })
@@ -255,6 +332,7 @@ export async function updateVendor(_p: ActionState, fd: FormData): Promise<Actio
       await tx.vendor.update({ where: { id: vendorId }, data: { ...vendorData(data), updatedBy: user.id } })
       await syncVendorItems(tx, vendorId, parseItemIds(data.itemIds), user.id)
       await syncVendorMaterialCategories(tx, vendorId, parseItemIds(data.materialCategoryCodes), user.id)
+      await syncVendorCountries(tx, vendorId, parseIntIds(data.supplyCountryIds), user.id)
     })
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.UPDATE, entityType: "Vendor", entityId: data.id, changes: vendorData(data) })
     revalidatePath("/admin/vendors")

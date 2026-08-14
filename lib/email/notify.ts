@@ -99,9 +99,13 @@ async function renderNotification(
 
 // ---------------- High-level helpers ----------------
 
+// Fires once per location submitted, not once per grower per day — a
+// multi-site grower gets one of these per site. The location is named in the
+// subject and the detail rows so the mails are tellable apart in an inbox.
 export async function notifySubmissionReceived(opts: {
   growerId: number
   growerName: string
+  locationName: string
   toEmail: string | null
   locale: string | null
   submittedByName: string
@@ -119,6 +123,7 @@ export async function notifySubmissionReceived(opts: {
     }),
     details: [
       { label: t("email.detail.grower"), value: opts.growerName },
+      { label: t("email.detail.location"), value: opts.locationName },
       { label: t("email.detail.items"), value: String(opts.itemCount) },
     ],
     cta: { label: t("email.submissionReceived.cta"), href: appUrl("/grower/history") },
@@ -128,7 +133,10 @@ export async function notifySubmissionReceived(opts: {
     type: NOTIFICATION_TYPES.SUBMISSION_RECEIVED,
     toEmail: opts.toEmail,
     growerId: opts.growerId,
-    subject: t("email.submissionReceived.subject", { grower: opts.growerName }),
+    subject: t("email.submissionReceived.subject", {
+      grower: opts.growerName,
+      location: opts.locationName,
+    }),
     body: text,
     html,
     relatedEntity: "GrowerSubmission",

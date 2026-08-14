@@ -20,6 +20,8 @@ type Row = {
   locationType: string | null
   regionId: number | null
   region: { name: string } | null
+  countryId: number | null
+  country: { name: string } | null
   commodityFocus: string | null
   keyPersonnel: string | null
   notes: string | null
@@ -33,17 +35,21 @@ export default async function LocationsPage({
   await requireCapability(CAPABILITIES.MANAGE_MASTER_DATA)
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
   const where = locationsWhere(raw)
-  const [rows, total, regions] = await Promise.all([
-    prisma.location.findMany({ where, include: { region: true }, orderBy: { locationName: "asc" }, skip, take }),
+  const [rows, total, regions, countries] = await Promise.all([
+    prisma.location.findMany({ where, include: { region: true, country: true }, orderBy: { locationName: "asc" }, skip, take }),
     prisma.location.count({ where }),
     prisma.region.findMany({ orderBy: { name: "asc" } }),
+    // Placeholder rows (N/A) are excluded — a site is somewhere real.
+    prisma.country.findMany({ where: { isSelectable: true }, orderBy: { name: "asc" } }),
   ])
 
   const regionOptions = regions.map((r) => ({ label: r.name, value: String(r.id) }))
+  const countryOptions = countries.map((c) => ({ label: c.name, value: String(c.id) }))
   const fields: Field[] = [
     { name: "locationName", label: "Name", type: "text", required: true, colSpan: 2 },
     { name: "locationType", label: "Type", type: "select", placeholder: "Select type", options: LOCATION_TYPES.map((t) => ({ label: t, value: t })) },
     { name: "regionId", label: "Region", type: "select", placeholder: "Select region", options: regionOptions },
+    { name: "countryId", label: "Country", type: "select", placeholder: "Select country", options: countryOptions },
     { name: "commodityFocus", label: "Commodity focus", type: "text" },
     { name: "keyPersonnel", label: "Key personnel", type: "text" },
     { name: "notes", label: "Notes", type: "textarea" },
@@ -53,6 +59,7 @@ export default async function LocationsPage({
     { key: "name", header: "Name", cell: (r) => <span className="font-medium">{r.locationName}</span> },
     { key: "type", header: "Type", cell: (r) => r.locationType ?? "—" },
     { key: "region", header: "Region", cell: (r) => r.region?.name ?? "—" },
+    { key: "country", header: "Country", cell: (r) => r.country?.name ?? "—" },
     { key: "focus", header: "Commodity focus", cell: (r) => r.commodityFocus ?? "—" },
     {
       key: "actions",
@@ -61,7 +68,7 @@ export default async function LocationsPage({
       className: "text-right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
-          <EntityFormDialog title="Edit location" fields={fields} action={updateLocation} values={{ id: r.id, locationName: r.locationName, locationType: r.locationType ?? "", regionId: r.regionId ?? "", commodityFocus: r.commodityFocus ?? "", keyPersonnel: r.keyPersonnel ?? "", notes: r.notes ?? "" }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
+          <EntityFormDialog title="Edit location" fields={fields} action={updateLocation} values={{ id: r.id, locationName: r.locationName, locationType: r.locationType ?? "", regionId: r.regionId ?? "", countryId: r.countryId ?? "", commodityFocus: r.commodityFocus ?? "", keyPersonnel: r.keyPersonnel ?? "", notes: r.notes ?? "" }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
           <ConfirmButton title="Delete location" description={`Delete ${r.locationName}?`} confirmLabel="Delete" typeToConfirm action={deleteLocation.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
         </div>
       ),
@@ -78,6 +85,7 @@ export default async function LocationsPage({
           filters={[
             { key: "type", label: "Type", options: LOCATION_TYPES.map((t) => ({ label: t, value: t })) },
             { key: "region", label: "Region", options: regionOptions },
+            { key: "country", label: "Country", options: countryOptions },
           ]}
         >
           <EntityFormDialog title="New location" fields={fields} action={createLocation} submitLabel="Create" trigger={<Button size="sm"><Plus className="size-4" /> Add location</Button>} />

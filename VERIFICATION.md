@@ -800,5 +800,107 @@ so the card-based pages share one implementation rather than copying it.
 This was the heaviest page in the app: it rendered a full HTML document in an
 iframe for **every** row, up to 100 of them. Now at most as many as you open.
 
+## Round 8 — locations & countries (August 2026)
+
+> **Requires migrations.** This round changes the *grain* of grower submissions,
+> so `db:push` is not enough — the data has to be moved.
+>
+> ```bash
+> npm run db:migrate:deploy   # applies the three new migrations in order
+> npm run db:seed             # reseed with multi-location demo data
+> ```
+>
+> On a database built with `db:push` (no `_prisma_migrations` rows) `deploy`
+> will try to replay from `0_init` and fail on existing tables. Use
+> `npm run db:reset` there instead — it force-pushes the schema and reseeds,
+> which is the right move for a demo DB with no data worth keeping.
+>
+> The three migrations were replayed on a scratch database against
+> representative pre-migration data (submissions spanning two locations, rows
+> with `locationId` NULL, an empty draft, vendor country strings both in and out
+> of the lookup) and all transformations verified. What follows is UI checking.
+
+### What changed at the schema level
+| Change | Notes |
+|---|---|
+| `CountryOfOrigin` → `Country` | `sp_rename`, so item FKs and rows survive. New `isSelectable` flag hides `N/A` from the new pickers |
+| `Location.countryId` | new nullable FK |
+| `Vendor.country` → `Vendor.countryId` | free text became an FK, backfilled by name match; unmatched names were **inserted** into `Country`, not dropped |
+| `Vendor.locationId` | plain FK — vendors get one operating site, not a join table |
+| `VendorCountry` | new join: countries a vendor can supply **to** |
+| `GrowerLocation` | new join: sites a grower counts at |
+| `GrowerSubmission.locationId` | **required** — the grain is now grower × location × day |
+| `GrowerSubmissionDetail` / `InventoryLedger` `.locationId` | nullable → **required** |
+| `@@unique([submissionId, itemId])` | was only enforced by a `findFirst` in the action |
+
+### R8.1 — Countries (admin@demo.local, `/admin/countries`)
+- [ ] Page is titled **Countries** and lists **Items / Locations / Vendor supply
+      lists** counts per row.
+- [ ] `N/A` shows an **origin only** marker (its `isSelectable` is off).
+- [ ] Add/Edit has a **Selectable as a real country** dropdown; the item origin
+      dropdown on `/admin/items` still offers `N/A`, but the location, vendor
+      and supply-to pickers do **not**.
+- [ ] Deleting a country in use names *which* of the four uses is blocking it.
+- [ ] Existing items kept their country of origin through the rename.
+
+### R8.2 — Locations & vendors
+- [ ] `/admin/locations`: rows show a **Country** column; add/edit has a country
+      dropdown; the Country filter in the toolbar works.
+- [ ] `/admin/vendors`: rows show **Country**, **Location** and a **Supplies to**
+      count. Add/Edit has a single-select Country and Location, plus a
+      **Supplies to (countries)** multi-select.
+- [ ] Removing a supply-to country and saving drops it from the count
+      (deactivated, kept for history — same as item mappings).
+- [ ] **Export vendors** (.xlsx) has Country, Location and Supplies to columns.
+
+### R8.3 — Grower ↔ location mapping (`/admin/growers`)
+- [ ] Each grower row shows a **Locations** column. Seeded: Agribar 2, Brigo 1,
+      PDG 3, Verdeval 1, Sunridge 2.
+- [ ] A grower with none shows a red **None — cannot submit**.
+- [ ] Add/Edit has a **Locations (this grower counts inventory at)** multi-select
+      that pre-fills and saves.
+
+### R8.4 — Per-location submissions (the main one)
+As **priya@pdg.local** (3 locations), `/grower/submit`:
+- [ ] A **location picker** sits above the progress bar. The URL carries
+      `?location=<id>`; reload and back both land on the same site.
+- [ ] Switching site **clears typed values** and reloads that site's prefill —
+      `prev` values are that location's last count, not another's.
+- [ ] Progress reads *this location's* submitted count, not the grower's day.
+- [ ] Enter counts at site A → **Submit**. Switch to site B → it is still
+      unsubmitted, with its own empty/previous numbers. **This is the behaviour
+      the whole schema change exists for.**
+- [ ] Save a **draft** at site A, then **Submit** at site B. Site A stays a
+      draft and its numbers do **not** reach the ledger. (Before this round the
+      ledger rebuild would have promoted them.)
+- [ ] As **diago@brigo.local** (1 location) the picker is **hidden** and the
+      location name shows in the progress row instead.
+- [ ] A grower with no locations mapped sees the "ask an admin" message rather
+      than a broken form.
+
+### R8.5 — Downstream reads
+- [ ] `/grower/history`: one card per site per day, each naming its location.
+- [ ] `/grower` dashboard: progress is summed **across** locations and reads
+      "across N locations" for multi-site growers; the denominator is
+      authorized items × mapped locations.
+- [ ] `/admin` **Recent submissions**: rows read `Grower · Location`.
+- [ ] `/admin/low-inventory/current` still agrees with the grower's own view —
+      both sum on-hand across a grower's locations.
+- [ ] `/admin/reports` trend chart still renders.
+- [ ] **Settings → Schedulers → Run reminder check now**: a grower is overdue if
+      **any** of their locations is. Submitting at one site no longer silences
+      reminders for the others — check with a multi-site grower.
+- [ ] Submission emails: one per location, subject and body name the site.
+      A three-site grower submitting all three gets three mails.
+
+### R8.6 — Vendor "load previous"
+As **sam@packright.local**, `/vendor/submit`:
+- [ ] A **Load previous values** bar appears above the item list (only when
+      there is history), matching the grower form.
+- [ ] Clicking it fills every quantity with the last reported value and leaves
+      per-grower allocations alone.
+- [ ] The previous-value lookup is now bounded to 90 days — it used to read the
+      vendor's entire submission history on every page load.
+
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.

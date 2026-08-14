@@ -69,13 +69,17 @@ async function clearAll() {
   await prisma.packagingChainLevel.deleteMany()
   await prisma.packagingChain.deleteMany()
   await prisma.growerItemAuthorization.deleteMany()
+  // Both hold FKs into tables cleared further down (Country, Location, Grower,
+  // Vendor), so they have to go first.
+  await prisma.vendorCountry.deleteMany()
+  await prisma.growerLocation.deleteMany()
   // Both FK to Item/Grower with NoAction, so they must go before item/grower
   // below — otherwise a re-run of the seed dies on a FK constraint violation.
   await prisma.itemMessageGrower.deleteMany()
   await prisma.itemMessageTranslation.deleteMany()
   await prisma.itemMessage.deleteMany()
   await prisma.item.deleteMany()
-  await prisma.countryOfOrigin.deleteMany()
+  await prisma.country.deleteMany()
   await prisma.subCategory.deleteMany()
   await prisma.materialCategory.deleteMany()
   await prisma.commodity.deleteMany()
@@ -148,14 +152,39 @@ async function main() {
     (await prisma.region.findMany({ select: { id: true, name: true } })).map((r) => [r.name, r.id])
   )
 
+  // ---- Countries (shared lookup: item origin, location, vendor) -------
+  // Seeded before vendors and locations because both now hold a country FK.
+  // "N/A" is a fine answer for an item's origin but not for a real site or a
+  // supply-to list, so it is marked unselectable and those pickers filter it.
+  await prisma.country.createMany({
+    data: COUNTRIES_OF_ORIGIN.map((name) => ({
+      name,
+      isSelectable: name !== "N/A",
+    })),
+  })
+  const cooByName: Record<string, number> = Object.fromEntries(
+    (await prisma.country.findMany({ select: { id: true, name: true } })).map((c) => [c.name, c.id])
+  )
+
+  // ---- Locations ------------------------------------------------------
+  console.log("Seeding locations…")
+  const loc = await Promise.all(
+    [
+      { locationName: "Salinas Packing House", locationType: "Packing House", regionId: regionByName["West"], countryId: cooByName["USA"], commodityFocus: "Asparagus" },
+      { locationName: "Central Warehouse", locationType: "Warehouse", regionId: regionByName["Central"], countryId: cooByName["USA"], commodityFocus: "Mixed" },
+      { locationName: "East Cross-dock", locationType: "Cross-dock", regionId: regionByName["East"], countryId: cooByName["USA"], commodityFocus: "Berries" },
+      { locationName: "Hermosillo Yard", locationType: "Warehouse", regionId: regionByName["West"], countryId: cooByName["Mexico"], commodityFocus: "Table Grapes" },
+    ].map((l) => prisma.location.create({ data: l }))
+  )
+
   // ---- Vendors --------------------------------------------------------
   await prisma.vendor.createMany({
     data: [
-      { vendorName: "PackRight Manufacturing", vendorType: "Manufacturer", regionId: regionByName["West"], country: "USA", primaryContact: "Sam Carter", contactEmail: "sam@packright.example", contactPhone: "+1-555-0101", leadTimeDays: 5, paymentTermsDays: 30, status: "Active" },
-      { vendorName: "PalletPool Co", vendorType: "Pallet Pooling", regionId: regionByName["Central"], country: "USA", primaryContact: "Lena Ortiz", contactEmail: "lena@palletpool.example", leadTimeDays: 3, paymentTermsDays: 15, status: "Active", preferredLocale: "es" },
-      { vendorName: "LabelWorks 3PL", vendorType: "3PL", regionId: regionByName["East"], country: "USA", primaryContact: "Omar Reed", contactEmail: "omar@labelworks.example", leadTimeDays: 7, paymentTermsDays: 45, status: "Active" },
-      { vendorName: "BoxCraft Industries", vendorType: "Manufacturer", regionId: regionByName["Central"], country: "USA", primaryContact: "Nina Patel", contactEmail: "nina@boxcraft.example", leadTimeDays: 10, paymentTermsDays: 60, status: "Active" },
-      { vendorName: "StickerPro Labels", vendorType: "3PL", regionId: regionByName["West"], country: "Mexico", primaryContact: "Hugo Marín", contactEmail: "hugo@stickerpro.example", leadTimeDays: 4, paymentTermsDays: 30, status: "Active", preferredLocale: "es" },
+      { vendorName: "PackRight Manufacturing", vendorType: "Manufacturer", regionId: regionByName["West"], countryId: cooByName["USA"], locationId: loc[0].id, primaryContact: "Sam Carter", contactEmail: "sam@packright.example", contactPhone: "+1-555-0101", leadTimeDays: 5, paymentTermsDays: 30, status: "Active" },
+      { vendorName: "PalletPool Co", vendorType: "Pallet Pooling", regionId: regionByName["Central"], countryId: cooByName["USA"], locationId: loc[1].id, primaryContact: "Lena Ortiz", contactEmail: "lena@palletpool.example", leadTimeDays: 3, paymentTermsDays: 15, status: "Active", preferredLocale: "es" },
+      { vendorName: "LabelWorks 3PL", vendorType: "3PL", regionId: regionByName["East"], countryId: cooByName["USA"], locationId: loc[2].id, primaryContact: "Omar Reed", contactEmail: "omar@labelworks.example", leadTimeDays: 7, paymentTermsDays: 45, status: "Active" },
+      { vendorName: "BoxCraft Industries", vendorType: "Manufacturer", regionId: regionByName["Central"], countryId: cooByName["USA"], locationId: loc[1].id, primaryContact: "Nina Patel", contactEmail: "nina@boxcraft.example", leadTimeDays: 10, paymentTermsDays: 60, status: "Active" },
+      { vendorName: "StickerPro Labels", vendorType: "3PL", regionId: regionByName["West"], countryId: cooByName["Mexico"], locationId: loc[3].id, primaryContact: "Hugo Marín", contactEmail: "hugo@stickerpro.example", leadTimeDays: 4, paymentTermsDays: 30, status: "Active", preferredLocale: "es" },
     ],
   })
   const vendorRows = await prisma.vendor.findMany({ orderBy: { id: "asc" } })
@@ -225,16 +254,6 @@ async function main() {
     [stickerPro.id]: userIdByEmail["hugo@stickerpro.local"],
   }
 
-  // ---- Locations ------------------------------------------------------
-  console.log("Seeding locations…")
-  const loc = await Promise.all(
-    [
-      { locationName: "Salinas Packing House", locationType: "Packing House", regionId: regionByName["West"], commodityFocus: "Asparagus" },
-      { locationName: "Central Warehouse", locationType: "Warehouse", regionId: regionByName["Central"], commodityFocus: "Mixed" },
-      { locationName: "East Cross-dock", locationType: "Cross-dock", regionId: regionByName["East"], commodityFocus: "Berries" },
-    ].map((l) => prisma.location.create({ data: { ...l, createdBy: adminId } }))
-  )
-
   // ---- Commodities / Categories / Sub-categories ----------------------
   console.log("Seeding commodities, categories, items…")
   const commodities = [
@@ -254,12 +273,6 @@ async function main() {
     { code: "ST", name: "Stickers" },
   ]
   await prisma.materialCategory.createMany({ data: materialCategories.map((m) => ({ ...m, createdBy: adminId })) })
-
-  // ---- Countries of origin (lookup) -----------------------------------
-  await prisma.countryOfOrigin.createMany({ data: COUNTRIES_OF_ORIGIN.map((name) => ({ name, createdBy: adminId })) })
-  const cooByName: Record<string, number> = Object.fromEntries(
-    (await prisma.countryOfOrigin.findMany({ select: { id: true, name: true } })).map((c) => [c.name, c.id])
-  )
 
   const subCatDefs = [
     { materialCategoryCode: "BX", name: "Cardboard Boxes" },
@@ -337,6 +350,29 @@ async function main() {
     ),
   })
 
+  // ---- Grower ↔ Location mappings --------------------------------------
+  // Deliberately uneven: one single-site grower, two-site and three-site ones.
+  // A grower with one location is the degenerate case the location picker has
+  // to stay sane for, and the multi-site ones are what per-location inventory
+  // actually exists to serve.
+  const growerLocationMap: Record<number, number[]> = {
+    [agribar.id]: [loc[0].id, loc[1].id],
+    [brigo.id]: [loc[1].id],
+    [pdg.id]: [loc[0].id, loc[1].id, loc[2].id],
+    [verdeval.id]: [loc[2].id],
+    [sunridge.id]: [loc[0].id, loc[3].id],
+  }
+  await prisma.growerLocation.createMany({
+    data: growers.flatMap((g) =>
+      growerLocationMap[g.id].map((locationId) => ({
+        growerId: g.id,
+        locationId,
+        isActive: true,
+        createdBy: adminId,
+      }))
+    ),
+  })
+
   // ---- Item ↔ Vendor mappings -----------------------------------------
   const vendorItemMap: Record<number, string[]> = {
     [packRight.id]: ["AP-BX-00001", "AP-BG-00002", "BP-BX-00003", "CG-BX-00005", "BR-BX-00007", "AV-BX-00009", "AV-BG-00010"],
@@ -362,6 +398,27 @@ async function main() {
   await prisma.vendorMaterialCategory.createMany({
     data: Object.entries(vendorCategoryMap).flatMap(([vendorId, codes]) =>
       codes.map((materialCategoryCode) => ({ vendorId: Number(vendorId), materialCategoryCode, isActive: true, createdBy: adminId }))
+    ),
+  })
+
+  // ---- Vendor ↔ supply-to country mappings ----------------------------
+  // Where each vendor can ship TO, as opposed to the single `countryId` saying
+  // where they are based.
+  const vendorSupplyMap: Record<number, string[]> = {
+    [packRight.id]: ["USA", "Canada"],
+    [palletPool.id]: ["USA"],
+    [labelWorks.id]: ["USA", "Canada", "Mexico"],
+    [boxCraft.id]: ["USA", "Mexico"],
+    [stickerPro.id]: ["Mexico", "USA", "Peru"],
+  }
+  await prisma.vendorCountry.createMany({
+    data: Object.entries(vendorSupplyMap).flatMap(([vendorId, names]) =>
+      names.map((name) => ({
+        vendorId: Number(vendorId),
+        countryId: cooByName[name],
+        isActive: true,
+        createdBy: adminId,
+      }))
     ),
   })
 
@@ -514,47 +571,63 @@ async function main() {
     return Math.max(0, Math.round(base * drift * weekly * noise))
   }
 
+  // Each of a grower's items is counted at exactly one of their locations,
+  // assigned round-robin. Counting every item at every site would multiply the
+  // seeded quantities by the site count and make the dashboard totals lie.
+  const locationForItem = (growerId: number, itemIndex: number): number => {
+    const locs = growerLocationMap[growerId]
+    return locs[itemIndex % locs.length]
+  }
+
   // At this volume the submissions themselves have to be batched too — five
-  // growers over a quarter is ~220 rows, and one round trip each was fine at 13
-  // but is not here. They are read back by (growerId, submissionDate), which is
-  // unique because daysAgo() pins every date to noon and nobody counts twice a day.
+  // growers over a quarter, now one row per location per day, is ~450 rows, and
+  // one round trip each was fine at 13 but is not here. They are read back by
+  // (growerId, locationId, submissionDate), which is unique because daysAgo()
+  // pins every date to noon and nobody counts a site twice a day.
   const submissionRows: Prisma.GrowerSubmissionCreateManyInput[] = []
-  const submissionPlan: { growerId: number; date: Date; dayOffset: number }[] = []
+  const submissionPlan: { growerId: number; locationId: number; date: Date; dayOffset: number }[] = []
   for (const g of growers) {
     const weekdays = cadenceByGrower[g.id] ?? [1, 3, 5]
     for (let d = QUARTER_DAYS; d >= 1; d--) {
       const date = daysAgo(d)
       if (!weekdays.includes(date.getDay())) continue
-      submissionRows.push({
-        growerId: g.id,
-        submittedBy: growerUserByGrower[g.id],
-        submissionDate: date,
-        status: "Approved",
-        createdBy: growerUserByGrower[g.id],
-        createdAt: date,
-      })
-      submissionPlan.push({ growerId: g.id, date, dayOffset: d })
+      for (const locationId of growerLocationMap[g.id]) {
+        submissionRows.push({
+          growerId: g.id,
+          locationId,
+          submittedBy: growerUserByGrower[g.id],
+          submissionDate: date,
+          status: "Approved",
+          createdBy: growerUserByGrower[g.id],
+          createdAt: date,
+        })
+        submissionPlan.push({ growerId: g.id, locationId, date, dayOffset: d })
+      }
     }
   }
-  await prisma.growerSubmission.createMany({ data: submissionRows })
+  await createManyChunked(prisma.growerSubmission, submissionRows)
   const submissionIdByKey = new Map(
     (
       await prisma.growerSubmission.findMany({
-        select: { id: true, growerId: true, submissionDate: true },
+        select: { id: true, growerId: true, locationId: true, submissionDate: true },
       })
-    ).map((s) => [`${s.growerId}:${s.submissionDate.getTime()}`, s.id])
+    ).map((s) => [`${s.growerId}:${s.locationId}:${s.submissionDate.getTime()}`, s.id])
   )
 
   const growerDetailRows: Prisma.GrowerSubmissionDetailCreateManyInput[] = []
   const ledgerRows: Prisma.InventoryLedgerCreateManyInput[] = []
   for (const plan of submissionPlan) {
-    const submissionId = submissionIdByKey.get(`${plan.growerId}:${plan.date.getTime()}`)
+    const submissionId = submissionIdByKey.get(
+      `${plan.growerId}:${plan.locationId}:${plan.date.getTime()}`
+    )
     if (submissionId == null) continue
     const itemIds = authMap[plan.growerId]
     for (let ii = 0; ii < itemIds.length; ii++) {
       const itemId = itemIds[ii]
+      const locationId = locationForItem(plan.growerId, ii)
+      // This submission only covers its own location's items.
+      if (locationId !== plan.locationId) continue
       const onHand = quantityFor(itemId, plan.dayOffset, plan.growerId * 1000 + ii * 37 + plan.dayOffset)
-      const locationId = loc[ii % loc.length].id
       growerDetailRows.push({
         submissionId,
         itemId,

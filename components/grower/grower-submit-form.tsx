@@ -1,7 +1,7 @@
 "use client"
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { format } from "date-fns"
 import { toast } from "sonner"
 import {
@@ -16,6 +16,7 @@ import {
   X,
   Megaphone,
   History,
+  MapPin,
   TrendingUp,
   TrendingDown,
   Minus,
@@ -39,6 +40,13 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   EntityFormDialog,
   type Field,
 } from "@/components/crud/entity-form-dialog"
@@ -47,15 +55,22 @@ import { cn } from "@/lib/utils"
 
 type RowState = { qty: string; low: boolean }
 
+export type GrowerLocationOption = { id: number; name: string }
+
 export function GrowerSubmitForm({
   rows,
   todayStatus,
+  locations,
+  activeLocationId,
 }: {
   rows: SubmitRow[]
   todayStatus: string | null
+  locations: GrowerLocationOption[]
+  activeLocationId: number
 }) {
   const t = useT()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [state, formAction, pending] = useActionState(
     submitInventory,
     initialActionState
@@ -117,6 +132,17 @@ export function GrowerSubmitForm({
     setValues((v) => ({ ...v, [itemId]: { ...v[itemId], ...patch } }))
   }
 
+  // Switching site is a navigation, not local state: the server has to refetch
+  // this location's prefill, today's detail rows and its own progress. The page
+  // keys the form on the location id, so the typed values reset with it —
+  // carrying half-entered Salinas numbers over to Yuma would be worse than
+  // losing them.
+  function goToLocation(id: string) {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set("location", id)
+    router.push(`?${params.toString()}`)
+  }
+
   // Prefill every box with its last submitted value so the grower only edits
   // the few that changed. Explicit action — overwrites current entries.
   const hasPrev = useMemo(() => rows.some((r) => r.previousQty != null), [rows])
@@ -140,15 +166,46 @@ export function GrowerSubmitForm({
           across the whole list and keeps the per-card order actions un-nested. */}
       <form id="grower-submit-form" action={formAction}>
         <input type="hidden" name="payload" value={payload} />
+        {/* Which site these counts belong to. The server re-checks it against
+            the grower's mapped locations — this field is a hint, not a grant. */}
+        <input type="hidden" name="locationId" value={activeLocationId} />
       </form>
 
-      {/* Sticky progress + actions */}
+      {/* Sticky location + progress + actions */}
       <div className="sticky top-14 z-10 -mx-4 mb-4 border-b bg-background/95 px-4 py-3 backdrop-blur md:-mx-6 md:px-6">
+        {/* Single-location growers get no picker: a select with one option is
+            noise, and the page already counts against that location. */}
+        {locations.length > 1 && (
+          <div className="mb-2 flex items-center gap-2">
+            <MapPin className="text-muted-foreground size-4 shrink-0" />
+            <Select
+              value={String(activeLocationId)}
+              onValueChange={goToLocation}
+              disabled={pending}
+            >
+              <SelectTrigger className="w-auto min-w-52" aria-label={t("grower.form.location")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {locations.map((l) => (
+                  <SelectItem key={l.id} value={String(l.id)}>
+                    {l.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="text-muted-foreground hidden text-xs sm:inline">
+              {t("grower.form.locationHint")}
+            </span>
+          </div>
+        )}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
           <div className="min-w-0 flex-1">
             <div className="mb-1 flex items-center justify-between text-sm">
               <span className="flex items-center gap-2 font-medium">
-                {t("grower.form.progressLabel")}
+                {locations.length === 1
+                  ? locations[0].name
+                  : t("grower.form.progressLabel")}
                 {isDraft && (
                   <Badge
                     variant="outline"

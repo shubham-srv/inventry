@@ -12,7 +12,7 @@ import {
 } from "lucide-react"
 import { requireRole } from "@/lib/auth/session"
 import { ROLES } from "@/lib/constants"
-import { getGrowerDashboard, getGrowerSubmitData } from "@/lib/grower/data"
+import { getGrowerDashboard, getTodayProgress } from "@/lib/grower/data"
 import { getT } from "@/lib/i18n/server"
 import { PageHeader } from "@/components/page-header"
 import { StatCard } from "@/components/stat-card"
@@ -26,12 +26,14 @@ export default async function GrowerDashboard() {
   if (!user.growerId) return <p className="text-sm">Your account is not mapped to a grower.</p>
 
   const t = await getT()
-  const [d, submit] = await Promise.all([
+  // Progress is summed over every location the grower counts at — the submit
+  // page shows one site at a time, the dashboard shows the day as a whole.
+  const [d, progress] = await Promise.all([
     getGrowerDashboard(user.growerId),
-    getGrowerSubmitData(user.growerId),
+    getTodayProgress(user.growerId),
   ])
-  const pct = submit.progress.total
-    ? Math.round((submit.progress.recorded / submit.progress.total) * 100)
+  const pct = progress.total
+    ? Math.round((progress.recorded / progress.total) * 100)
     : 0
   const movers = d.deltas
     .filter((x) => x.delta != null && x.delta !== 0)
@@ -87,9 +89,16 @@ export default async function GrowerDashboard() {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">{t("grower.dash.itemsSubmittedToday")}</span>
+              <span className="text-muted-foreground">
+                {t("grower.dash.itemsSubmittedToday")}
+                {progress.locationCount > 1 && (
+                  <span className="ml-1">
+                    {t("grower.dash.acrossLocations", { count: progress.locationCount })}
+                  </span>
+                )}
+              </span>
               <span className="tabular-nums">
-                {submit.progress.recorded} / {submit.progress.total}
+                {progress.recorded} / {progress.total}
               </span>
             </div>
             <Progress value={pct} />

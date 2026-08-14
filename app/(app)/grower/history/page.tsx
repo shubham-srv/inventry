@@ -43,6 +43,10 @@ export default async function GrowerHistoryPage({
             <CardHeader className="flex-row items-center justify-between border-b py-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 {format(s.submissionDate, "EEE, MMM d, yyyy")}
+                {/* A day is now one card per site, so the site has to be on it. */}
+                <span className="text-muted-foreground text-sm font-normal">
+                  {s.location.locationName}
+                </span>
                 <StatusBadge status={s.status} label={t(`status.${s.status}`)} />
               </CardTitle>
               <div className="flex items-center gap-2">

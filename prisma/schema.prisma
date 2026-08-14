@@ -88,6 +88,7 @@ model Grower {
   updatedAt DateTime @updatedAt
 
   users               User[]
+  locations           GrowerLocation[]
   authorizations      GrowerItemAuthorization[]
   submissions         GrowerSubmission[]
   ledgerEntries       InventoryLedger[]
@@ -106,7 +107,12 @@ model Vendor {
   vendorName       String
   vendorType       String? // Manufacturer, Pallet Pooling, 3PL
   regionId         Int?
-  country          String?
+  // Where the vendor operates from. A plain FK, not a join table: nothing reads
+  // it behaviourally, it is a display attribute on the vendor record.
+  locationId       Int?
+  // The vendor's own home country. Distinct from `supplyCountries`, which is
+  // where they can ship TO. Was free text until the Country lookup landed.
+  countryId        Int?
   primaryContact   String?
   contactEmail     String?
   contactPhone     String?
@@ -123,14 +129,19 @@ model Vendor {
   updatedAt DateTime @updatedAt
 
   region             Region?                  @relation(fields: [regionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  homeCountry        Country?                 @relation("VendorHomeCountry", fields: [countryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  location           Location?                @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users              User[]
   itemVendors        ItemVendor[]
   materialCategories VendorMaterialCategory[]
+  supplyCountries    VendorCountry[]
   submissions        VendorSubmission[]
   orders             Order[]
   notifications      NotificationLog[]
 
   @@index([regionId])
+  @@index([countryId])
+  @@index([locationId])
 }
 
 model Location {
@@ -138,6 +149,7 @@ model Location {
   locationName   String
   locationType   String? // Packing House, Warehouse, Cross-dock, Grower
   regionId       Int?
+  countryId      Int?
   commodityFocus String?
   keyPersonnel   String?
   notes          String?
@@ -148,10 +160,15 @@ model Location {
   updatedAt DateTime @updatedAt
 
   region            Region?                  @relation(fields: [regionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  country           Country?                 @relation(fields: [countryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  growers           GrowerLocation[]
+  vendors           Vendor[]
+  submissions       GrowerSubmission[]
   submissionDetails GrowerSubmissionDetail[]
   ledgerEntries     InventoryLedger[]
 
   @@index([regionId])
+  @@index([countryId])
 }
 
 // ============================================================
@@ -226,7 +243,7 @@ model Item {
   commodity               Commodity?                @relation(fields: [commodityCode], references: [code], onDelete: NoAction, onUpdate: NoAction)
   materialCategory        MaterialCategory?         @relation(fields: [materialCategoryCode], references: [code], onDelete: NoAction, onUpdate: NoAction)
   subCategory             SubCategory?              @relation(fields: [subCategoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  countryOfOrigin         CountryOfOrigin?          @relation(fields: [countryOfOriginId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  countryOfOrigin         Country?                  @relation(fields: [countryOfOriginId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   region                  Region?                   @relation(fields: [regionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   authorizations          GrowerItemAuthorization[]
   submissionDetails       GrowerSubmissionDetail[]
@@ -245,17 +262,47 @@ model Item {
   @@index([regionId])
 }
 
-// Country of origin lookup (dropdown source for items), managed at /admin/countries.
-model CountryOfOrigin {
-  id   Int    @id @default(autoincrement())
-  name String @unique // USA, Mexico, Canada, Peru, Ecuador, N/A
+// Shared country lookup, managed at /admin/countries. Was `CountryOfOrigin`,
+// serving only the item dropdown; now also backs a location's country, a
+// vendor's home country and the countries a vendor can supply to.
+//
+// `isSelectable` exists for the "N/A" row: a perfectly good answer for an item's
+// origin, but meaningless in a supply-to or location picker. Those pickers
+// filter on it; the item dropdown does not.
+model Country {
+  id           Int     @id @default(autoincrement())
+  name         String  @unique // USA, Mexico, Canada, Peru, Ecuador, N/A
+  isSelectable Boolean @default(true)
 
   createdBy Int?
   createdAt DateTime @default(now())
   updatedBy Int?
   updatedAt DateTime @updatedAt
 
-  items Item[]
+  items         Item[]
+  locations     Location[]
+  homeToVendors Vendor[]        @relation("VendorHomeCountry")
+  suppliedBy    VendorCountry[]
+}
+
+// Which countries a vendor can supply to. Many-to-many, soft-toggled via
+// isActive to mirror ItemVendor / VendorMaterialCategory.
+model VendorCountry {
+  id        Int     @id @default(autoincrement())
+  vendorId  Int
+  countryId Int
+  isActive  Boolean @default(true)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  vendor  Vendor  @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  country Country @relation(fields: [countryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([vendorId, countryId])
+  @@index([countryId])
 }
 
 // Region lookup (dropdown source for items, vendors and locations). Seeded from
@@ -278,6 +325,27 @@ model Region {
 // ============================================================
 // MAPPING TABLES
 // ============================================================
+
+// Which locations a grower counts inventory at. Many-to-many: per-location
+// inventory only means anything when a grower has more than one site, and the
+// submit page's location picker is driven straight off this list.
+model GrowerLocation {
+  id         Int     @id @default(autoincrement())
+  growerId   Int
+  locationId Int
+  isActive   Boolean @default(true)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  grower   Grower   @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  location Location @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([growerId, locationId])
+  @@index([locationId])
+}
 
 model GrowerItemAuthorization {
   id       Int     @id @default(autoincrement())
@@ -351,9 +419,19 @@ model VendorMaterialCategory {
 // GROWER INVENTORY SUBMISSION & WORKFLOW
 // ============================================================
 
+// One submission per grower, per LOCATION, per day.
+//
+// The location lives here rather than only on the details because `status`,
+// `submittedBy` and `comments` are per-location facts. With one row per
+// grower-day there would be no way to express "Yuma submitted, Salinas still a
+// draft", and the ledger rebuild in submitInventory — which deletes and
+// recreates every row for the submission — would promote another location's
+// draft numbers the moment any one location was submitted. Scoping the
+// submission to a location makes that rebuild correct by construction.
 model GrowerSubmission {
   id             Int       @id @default(autoincrement())
   growerId       Int
+  locationId     Int
   submittedBy    Int
   submissionDate DateTime  @default(now())
   status         String    @default("Approved") // Pending, Approved, Rejected (direct-submit => Approved)
@@ -367,19 +445,24 @@ model GrowerSubmission {
   updatedAt DateTime @updatedAt
 
   grower    Grower                   @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  location  Location                 @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   submitter User                     @relation("SubmissionSubmittedBy", fields: [submittedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
   details   GrowerSubmissionDetail[]
   ledger    InventoryLedger[]
 
   @@index([growerId])
   @@index([submissionDate])
+  @@index([growerId, locationId, submissionDate])
 }
 
 model GrowerSubmissionDetail {
   id             Int     @id @default(autoincrement())
   submissionId   Int
   itemId         String
-  locationId     Int?
+  // Denormalised from the parent submission, which now carries the location.
+  // Kept because the ledger copies it and both latestPerItem (lib/grower/data.ts)
+  // and the admin low-inventory query read it directly rather than joining up.
+  locationId     Int
   quantityOnHand Decimal @default(0)
   unitOfMeasure  String?
   isLowFlagged   Boolean @default(false)
@@ -391,10 +474,14 @@ model GrowerSubmissionDetail {
 
   submission GrowerSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   item       Item             @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  location   Location?        @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  location   Location         @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  // The submission is already scoped to one location, so item is unique within
+  // it. This was previously enforced only by a findFirst in submitInventory.
+  @@unique([submissionId, itemId])
   @@index([submissionId])
   @@index([itemId])
+  @@index([locationId])
 }
 
 // Grower purchase orders. Raised per item against one of the item's mapped
@@ -447,7 +534,7 @@ model InventoryLedger {
   date            DateTime
   growerId        Int
   itemId          String
-  locationId      Int?
+  locationId      Int
   transactionType String   @default("Daily Count Update") // Daily Count Update, Manual Adjustment
   finalQuantity   Decimal
 
@@ -459,9 +546,9 @@ model InventoryLedger {
   submission GrowerSubmission? @relation(fields: [submissionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   grower     Grower            @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   item       Item              @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  location   Location?         @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  location   Location          @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@index([growerId, itemId, date])
+  @@index([growerId, itemId, locationId, date])
   @@index([date])
 }
 

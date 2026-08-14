@@ -70,7 +70,8 @@ Table Vendor {
   vendorName varchar [not null]
   vendorType varchar [note: 'Manufacturer, Pallet Pooling, 3PL']
   regionId int [ref: > Region.id]
-  country varchar
+  locationId int [ref: > Location.id, note: 'where the vendor operates from']
+  countryId int [ref: > Country.id, note: 'the vendor own home country; see VendorCountry for supply-to']
   primaryContact varchar
   contactEmail varchar
   contactPhone varchar
@@ -90,6 +91,7 @@ Table Location {
   locationName varchar [not null]
   locationType varchar [note: 'Packing House, Warehouse, Cross-dock, Grower']
   regionId int [ref: > Region.id]
+  countryId int [ref: > Country.id]
   commodityFocus varchar
   keyPersonnel varchar
   notes varchar
@@ -143,7 +145,7 @@ Table Item {
   commodityCode varchar [ref: > Commodity.code]
   materialCategoryCode varchar [ref: > MaterialCategory.code]
   subCategoryId int [ref: > SubCategory.id]
-  countryOfOriginId int [ref: > CountryOfOrigin.id]
+  countryOfOriginId int [ref: > Country.id]
   unitOfMeasure varchar [note: 'the item unit; inherited by counts and orders']
   applicationMethod varchar [note: 'Machine, Hand, Machine/Hand, N/A']
   status varchar [not null, default: 'Active', note: 'Active, Inactive, Review']
@@ -163,14 +165,53 @@ Table Item {
   }
 }
 
-// Country of origin lookup (dropdown source for items), managed at /admin/countries.
-Table CountryOfOrigin {
+// Shared country lookup, managed at /admin/countries. Backs an item's country
+// of origin, a location's country, a vendor's home country and vendor
+// supply-to lists. isSelectable hides placeholder rows (N/A) from every picker
+// except the item origin dropdown.
+Table Country {
   id int [pk, increment]
   name varchar [not null, unique, note: 'USA, Mexico, Canada, Peru, Ecuador, N/A']
+  isSelectable boolean [not null, default: true]
   createdBy int
   createdAt datetime [not null, default: `now()`]
   updatedBy int
   updatedAt datetime [not null]
+}
+
+// Which countries a vendor can supply TO.
+Table VendorCountry {
+  id int [pk, increment]
+  vendorId int [not null, ref: > Vendor.id]
+  countryId int [not null, ref: > Country.id]
+  isActive boolean [not null, default: true]
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+
+  Indexes {
+    (vendorId, countryId) [unique]
+    countryId
+  }
+}
+
+// Which locations a grower counts inventory at. Drives the location picker on
+// the grower submit page.
+Table GrowerLocation {
+  id int [pk, increment]
+  growerId int [not null, ref: > Grower.id]
+  locationId int [not null, ref: > Location.id]
+  isActive boolean [not null, default: true]
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+
+  Indexes {
+    (growerId, locationId) [unique]
+    locationId
+  }
 }
 
 // Region lookup (dropdown source for items, vendors and locations). Seeded; no
@@ -243,9 +284,13 @@ Table VendorMaterialCategory {
 // GROWER INVENTORY SUBMISSION & WORKFLOW
 // ============================================================
 
+// One submission per grower, per LOCATION, per day. The location lives here
+// rather than only on the details because status/submittedBy/comments are
+// per-location facts, and the ledger rebuild deletes by submissionId.
 Table GrowerSubmission {
   id int [pk, increment]
   growerId int [not null, ref: > Grower.id]
+  locationId int [not null, ref: > Location.id]
   submittedBy int [not null, ref: > User.id]
   submissionDate datetime [not null, default: `now()`]
   status varchar [not null, default: 'Approved', note: 'Pending, Approved, Rejected (direct-submit => Approved)']
@@ -260,6 +305,7 @@ Table GrowerSubmission {
   Indexes {
     growerId
     submissionDate
+    (growerId, locationId, submissionDate)
   }
 }
 
@@ -267,7 +313,7 @@ Table GrowerSubmissionDetail {
   id int [pk, increment]
   submissionId int [not null, ref: > GrowerSubmission.id, note: 'ON DELETE CASCADE']
   itemId varchar [not null, ref: > Item.id]
-  locationId int [ref: > Location.id]
+  locationId int [not null, ref: > Location.id, note: 'denormalised from the parent submission']
   quantityOnHand decimal [not null, default: 0]
   unitOfMeasure varchar
   isLowFlagged boolean [not null, default: false]
@@ -277,8 +323,10 @@ Table GrowerSubmissionDetail {
   updatedAt datetime [not null]
 
   Indexes {
+    (submissionId, itemId) [unique]
     submissionId
     itemId
+    locationId
   }
 }
 
@@ -317,7 +365,7 @@ Table InventoryLedger {
   date datetime [not null, note: 'Time-series axis for Power BI']
   growerId int [not null, ref: > Grower.id]
   itemId varchar [not null, ref: > Item.id]
-  locationId int [ref: > Location.id]
+  locationId int [not null, ref: > Location.id]
   transactionType varchar [not null, default: 'Daily Count Update', note: 'Daily Count Update, Manual Adjustment']
   finalQuantity decimal [not null]
   createdBy int
@@ -326,7 +374,7 @@ Table InventoryLedger {
   updatedAt datetime [not null]
 
   Indexes {
-    (growerId, itemId, date)
+    (growerId, itemId, locationId, date)
     date
   }
 

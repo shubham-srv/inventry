@@ -27,11 +27,29 @@ const fields: Field[] = [
     required: true,
     placeholder: "Mexico",
     colSpan: 2,
-    description: "Shown in the Country of origin dropdown on items.",
+    description:
+      "Used by an item's country of origin, a location's country, a vendor's home country, and vendor supply-to lists.",
+  },
+  {
+    name: "isSelectable",
+    label: "Selectable as a real country",
+    type: "select",
+    options: [
+      { value: "true", label: "Yes" },
+      { value: "false", label: "No — origin dropdown only" },
+    ],
+    colSpan: 2,
+    description:
+      "Turn off for placeholder rows like N/A. They stay available as an item's country of origin but are hidden from location, vendor and supply-to pickers.",
   },
 ]
 
-type Row = { id: number; name: string; _count: { items: number } }
+type Row = {
+  id: number
+  name: string
+  isSelectable: boolean
+  _count: { items: number; locations: number; suppliedBy: number }
+}
 
 export default async function CountriesPage({
   searchParams,
@@ -42,23 +60,40 @@ export default async function CountriesPage({
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
   const where = countriesWhere(raw)
   const [rows, total] = await Promise.all([
-    prisma.countryOfOrigin.findMany({
+    prisma.country.findMany({
       where,
-      include: { _count: { select: { items: true } } },
+      include: {
+        _count: { select: { items: true, locations: true, suppliedBy: true } },
+      },
       orderBy: { name: "asc" },
       skip,
       take,
     }),
-    prisma.countryOfOrigin.count({ where }),
+    prisma.country.count({ where }),
   ])
 
   const columns: Column<Row>[] = [
     {
       key: "name",
       header: "Country",
-      cell: (r) => <span className="font-medium">{r.name}</span>,
+      cell: (r) => (
+        <span className="flex items-center gap-2">
+          <span className="font-medium">{r.name}</span>
+          {!r.isSelectable && (
+            <span className="text-muted-foreground text-xs">
+              origin only
+            </span>
+          )}
+        </span>
+      ),
     },
     { key: "items", header: "Items", cell: (r) => r._count.items },
+    { key: "locations", header: "Locations", cell: (r) => r._count.locations },
+    {
+      key: "supplied",
+      header: "Vendor supply lists",
+      cell: (r) => r._count.suppliedBy,
+    },
     {
       key: "actions",
       header: "",
@@ -70,7 +105,11 @@ export default async function CountriesPage({
             title="Edit country"
             fields={fields}
             action={updateCountry}
-            values={{ id: r.id, name: r.name }}
+            values={{
+              id: r.id,
+              name: r.name,
+              isSelectable: String(r.isSelectable),
+            }}
             submitLabel="Save changes"
             trigger={
               <Button variant="ghost" size="icon-sm" aria-label="Edit">
@@ -81,8 +120,8 @@ export default async function CountriesPage({
           <ConfirmButton
             title="Delete country"
             description={
-              r._count.items > 0
-                ? `${r.name} is used by ${r._count.items} item(s) and cannot be deleted until they are changed.`
+              r._count.items + r._count.locations + r._count.suppliedBy > 0
+                ? `${r.name} is in use (${r._count.items} item(s), ${r._count.locations} location(s), ${r._count.suppliedBy} vendor supply list(s)) and cannot be deleted until those are changed.`
                 : `Delete ${r.name}?`
             }
             confirmLabel="Delete"
@@ -102,8 +141,8 @@ export default async function CountriesPage({
   return (
     <>
       <PageHeader
-        title="Countries of Origin"
-        description="Lookup list behind the Country of origin dropdown on items."
+        title="Countries"
+        description="Shared lookup behind an item's country of origin, a location's country, a vendor's home country, and vendor supply-to lists."
       />
       <div className="space-y-4">
         <DataTableToolbar

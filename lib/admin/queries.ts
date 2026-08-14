@@ -48,6 +48,7 @@ export function vendorsWhere(sp: SP): Prisma.VendorWhereInput {
   if (sp.status) and.push({ status: sp.status })
   if (sp.type) and.push({ vendorType: sp.type })
   if (sp.region) and.push({ regionId: Number(sp.region) || 0 })
+  if (sp.country) and.push({ countryId: Number(sp.country) || 0 })
   return and.length ? { AND: and } : {}
 }
 
@@ -76,7 +77,7 @@ export function categoriesWhere(sp: SP): Prisma.MaterialCategoryWhereInput {
   return { OR: [{ code: { contains: sp.q } }, { name: { contains: sp.q } }] }
 }
 
-export function countriesWhere(sp: SP): Prisma.CountryOfOriginWhereInput {
+export function countriesWhere(sp: SP): Prisma.CountryWhereInput {
   if (!sp.q) return {}
   return { name: { contains: sp.q } }
 }

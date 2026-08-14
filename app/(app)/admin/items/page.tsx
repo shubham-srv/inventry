@@ -59,7 +59,7 @@ export default async function ItemsPage({
         include: { materialCategory: true },
         orderBy: { name: "asc" },
       }),
-      prisma.countryOfOrigin.findMany({ orderBy: { name: "asc" } }),
+      prisma.country.findMany({ orderBy: { name: "asc" } }),
       prisma.region.findMany({ orderBy: { name: "asc" } }),
       prisma.grower.findMany({ where: { status: "Active" }, orderBy: { growerName: "asc" } }),
       prisma.vendor.findMany({ where: { status: "Active" }, orderBy: { vendorName: "asc" } }),

@@ -108,7 +108,8 @@
       "itemsSubmittedToday": "Artículos enviados hoy",
       "continueSubmission": "Continuar envío →",
       "biggestChanges": "Mayores cambios vs la semana pasada",
-      "notEnoughHistory": "Aún no hay suficiente historial."
+      "notEnoughHistory": "Aún no hay suficiente historial.",
+      "acrossLocations": "en {count} ubicaciones"
     },
     "form": {
       "title": "Enviar inventario",
@@ -126,7 +127,10 @@
       "min": "mín",
       "noItems": "Aún no hay artículos autorizados para tu productor. Pide a un administrador que los autorice.",
       "loadPreviousHint": "La mayoría de los conteos no cambian a diario: parte de tus últimos valores enviados y edita lo que cambió.",
-      "weekChangeTitle": "Cambio frente al mismo artículo hace una semana"
+      "weekChangeTitle": "Cambio frente al mismo artículo hace una semana",
+      "location": "Ubicación",
+      "locationHint": "Los conteos se registran en la ubicación seleccionada.",
+      "noLocations": "Todavía no hay ubicaciones asignadas a tu productor. Pide a un administrador que asigne al menos una antes de enviar conteos."
     },
     "orders": {
       "heading": "Pedidos",
@@ -219,7 +223,9 @@
       "flagCleared": "Alerta de inventario bajo retirada",
       "invalidData": "Datos de envío no válidos.",
       "noItems": "Ingresa al menos una cantidad primero.",
-      "noAuthorized": "No hay artículos autorizados en este envío."
+      "noAuthorized": "No hay artículos autorizados en este envío.",
+      "noLocation": "Elige una ubicación antes de enviar.",
+      "locationNotAllowed": "Esa ubicación no está asignada a tu productor."
     }
   },
   "vendor": {
@@ -243,13 +249,15 @@
       "progressLabel": "Informe de hoy",
       "itemsOf": "{done} / {total} artículos",
       "submit": "Enviar informe",
+      "loadPrevious": "Cargar valores anteriores",
       "quantity": "Cantidad",
       "unit": "Unidad",
       "allocate": "Asignar a productores ({count})",
       "allocated": "{allocated} / {total} asignado",
       "over": "El total asignado supera la cantidad del artículo.",
       "prev": "antes",
-      "noItems": "Aún no hay artículos asignados a tu proveedor. Pide a un administrador que los asigne."
+      "noItems": "Aún no hay artículos asignados a tu proveedor. Pide a un administrador que los asigne.",
+      "loadPreviousHint": "La mayoría de los reportes no cambian de una semana a otra: parte de tus últimas cantidades reportadas y edita lo que cambió."
     },
     "history": {
       "title": "Historial de informes",
@@ -282,10 +290,11 @@
       "quantity": "Cantidad",
       "status": "Estado",
       "reviewNotes": "Notas de revisión",
-      "cadence": "Frecuencia"
+      "cadence": "Frecuencia",
+      "location": "Ubicación"
     },
     "submissionReceived": {
-      "subject": "Envío de inventario recibido — {grower}",
+      "subject": "Envío de inventario recibido — {grower} ({location})",
       "heading": "Envío de inventario recibido",
       "intro": "Se acaba de enviar un conteo diario de inventario para {grower} por {submittedBy}.",
       "cta": "Ver envíos"

@@ -40,7 +40,7 @@ export default async function AdminDashboard() {
       where: { status: SUBMISSION_STATUS.APPROVED }, // drafts aren't submissions yet
       take: 6,
       orderBy: { submissionDate: "desc" },
-      include: { grower: true, submitter: true, _count: { select: { details: true } } },
+      include: { grower: true, location: true, submitter: true, _count: { select: { details: true } } },
     }),
     prisma.auditLog.findMany({
       take: 6,
@@ -87,7 +87,15 @@ export default async function AdminDashboard() {
             {recentSubmissions.map((s) => (
               <div key={s.id} className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{s.grower.growerName}</p>
+                  <p className="truncate text-sm font-medium">
+                    {s.grower.growerName}
+                    {/* One grower can appear several times a day, once per
+                        site, so the site has to disambiguate the rows. */}
+                    <span className="text-muted-foreground font-normal">
+                      {" · "}
+                      {s.location.locationName}
+                    </span>
+                  </p>
                   <p className="text-muted-foreground truncate text-xs">
                     {s.submitter.firstName} {s.submitter.lastName} · {s._count.details} items
                   </p>

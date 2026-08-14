@@ -24,6 +24,7 @@ type Row = {
   status: string
   preferredLocale: string
   authorizations: { itemId: string }[]
+  locations: { locationId: number; location: { locationName: string } }[]
   _count: { users: number }
 }
 
@@ -35,11 +36,16 @@ export default async function GrowersPage({
   await requireCapability(CAPABILITIES.MANAGE_GROWERS_VENDORS)
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
   const where = growersWhere(raw)
-  const [rows, total, items] = await Promise.all([
+  const [rows, total, items, locations] = await Promise.all([
     prisma.grower.findMany({
       where,
       include: {
         authorizations: { where: { isActive: true }, select: { itemId: true } },
+        locations: {
+          where: { isActive: true },
+          select: { locationId: true, location: { select: { locationName: true } } },
+          orderBy: { location: { locationName: "asc" } },
+        },
         _count: { select: { users: true } },
       },
       orderBy: { growerName: "asc" },
@@ -48,6 +54,7 @@ export default async function GrowersPage({
     }),
     prisma.grower.count({ where }),
     prisma.item.findMany({ where: { status: ENTITY_STATUS.ACTIVE }, orderBy: { id: "asc" }, select: { id: true, itemName: true } }),
+    prisma.location.findMany({ orderBy: { locationName: "asc" }, select: { id: true, locationName: true } }),
   ])
 
   const fields: Field[] = [
@@ -55,6 +62,16 @@ export default async function GrowersPage({
     { name: "primaryEmail", label: "Primary email", type: "text", colSpan: 2 },
     { name: "status", label: "Status", type: "select", required: true, options: STATUSES.map((s) => ({ label: s, value: s })) },
     { name: "preferredLocale", label: "Email language", type: "select", required: true, options: LOCALE_OPTIONS },
+    {
+      name: "locationIds",
+      label: "Locations (this grower counts inventory at)",
+      type: "multiselect",
+      placeholder: "Select locations",
+      colSpan: 2,
+      options: locations.map((l) => ({ label: l.locationName, value: String(l.id) })),
+      description:
+        "Drives the location picker on the grower's submit page. A grower needs at least one to submit counts.",
+    },
     {
       name: "itemIds",
       label: "Items (this grower can access)",
@@ -70,6 +87,16 @@ export default async function GrowersPage({
     { key: "email", header: "Primary email", cell: (r) => r.primaryEmail ?? "—" },
     { key: "users", header: "Users", cell: (r) => r._count.users },
     { key: "items", header: "Items", cell: (r) => r.authorizations.length },
+    {
+      key: "locations",
+      header: "Locations",
+      cell: (r) =>
+        r.locations.length === 0 ? (
+          <span className="text-destructive text-xs">None — cannot submit</span>
+        ) : (
+          r.locations.map((l) => l.location.locationName).join(", ")
+        ),
+    },
     { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
     {
       key: "actions",
@@ -78,7 +105,7 @@ export default async function GrowersPage({
       className: "text-right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
-          <EntityFormDialog title="Edit grower" fields={fields} action={updateGrower} values={{ id: r.id, growerName: r.growerName, primaryEmail: r.primaryEmail ?? "", status: r.status, preferredLocale: r.preferredLocale, itemIds: r.authorizations.map((a) => a.itemId).join(",") }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
+          <EntityFormDialog title="Edit grower" fields={fields} action={updateGrower} values={{ id: r.id, growerName: r.growerName, primaryEmail: r.primaryEmail ?? "", status: r.status, preferredLocale: r.preferredLocale, itemIds: r.authorizations.map((a) => a.itemId).join(","), locationIds: r.locations.map((l) => l.locationId).join(",") }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
           <ConfirmButton title="Delete grower" description={`Delete ${r.growerName}? If it has users or history, set status Inactive instead.`} confirmLabel="Delete" typeToConfirm action={deleteGrower.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
         </div>
       ),

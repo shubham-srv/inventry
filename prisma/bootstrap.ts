@@ -46,7 +46,7 @@ async function main() {
     await prisma.region.upsert({ where: { name }, update: {}, create: { name } })
   }
   for (const name of COUNTRIES_OF_ORIGIN) {
-    await prisma.countryOfOrigin.upsert({ where: { name }, update: {}, create: { name } })
+    await prisma.country.upsert({ where: { name }, update: {}, create: { name } })
   }
 
   // 3. First admin — provisioned by email, authenticates via Entra (no password).

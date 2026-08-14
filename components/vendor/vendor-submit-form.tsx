@@ -3,7 +3,7 @@
 import { useActionState, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { ChevronDown, ChevronRight, CheckCircle2, Users } from "lucide-react"
+import { ChevronDown, ChevronRight, CheckCircle2, History, Users } from "lucide-react"
 import { submitVendorReport } from "@/lib/actions/vendor"
 import { initialActionState } from "@/lib/actions/types"
 import { type VendorSubmitRow } from "@/lib/vendor/data"
@@ -79,6 +79,23 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
   function set(itemId: string, patch: Partial<RowState>) {
     setValues((v) => ({ ...v, [itemId]: { ...v[itemId], ...patch } }))
   }
+
+  // Prefill every quantity with the vendor's last reported value so they only
+  // edit what moved. Mirrors the grower form: explicit, never automatic, so
+  // nobody submits last week's numbers without looking. Allocations are left
+  // alone — they are a breakdown of *this* report's quantity.
+  const hasPrev = useMemo(() => rows.some((r) => r.previousQty != null), [rows])
+  function loadPrevious() {
+    setValues((v) => {
+      const next = { ...v }
+      for (const r of rows) {
+        if (r.previousQty != null) {
+          next[r.itemId] = { ...next[r.itemId], qty: String(r.previousQty) }
+        }
+      }
+      return next
+    })
+  }
   function setAlloc(itemId: string, growerId: number, value: string) {
     setValues((v) => ({
       ...v,
@@ -106,6 +123,23 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
           </Button>
         </div>
       </div>
+
+      {hasPrev && (
+        <div className="bg-muted/40 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
+          <p className="text-muted-foreground text-sm">
+            {t("vendor.form.loadPreviousHint")}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={loadPrevious}
+            disabled={pending}
+          >
+            <History className="size-4" /> {t("vendor.form.loadPrevious")}
+          </Button>
+        </div>
+      )}
 
       <div className="grid gap-3">
         {rows.map((r) => {

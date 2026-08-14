@@ -51,14 +51,40 @@ export async function runReminderCheck(): Promise<ReminderResult> {
     if (!setting || !setting.isEnabled) continue
 
     const days = cadenceDays(setting)
-    // Drafts don't count as submitting — only Approved submissions reset the clock.
-    const lastSub = await prisma.growerSubmission.findFirst({
-      where: { growerId: g.id, status: SUBMISSION_STATUS.APPROVED },
-      orderBy: { submissionDate: "desc" },
-    })
-    const daysSince = lastSub
-      ? differenceInCalendarDays(today, startOfDay(lastSub.submissionDate))
-      : Number.POSITIVE_INFINITY
+
+    // Overdue is judged PER LOCATION, then reduced to the worst one.
+    //
+    // Taking the grower's single most recent submission would mean a three-site
+    // grower who only ever counts Salinas looks up to date forever, and the two
+    // sites nobody has touched in a month never generate a reminder. The clock
+    // is only reset for a location by that location being submitted.
+    //
+    // Drafts don't count as submitting — only Approved submissions reset it.
+    const [locations, lastByLocation] = await Promise.all([
+      prisma.growerLocation.findMany({
+        where: { growerId: g.id, isActive: true },
+        select: { locationId: true },
+      }),
+      prisma.growerSubmission.groupBy({
+        by: ["locationId"],
+        where: { growerId: g.id, status: SUBMISSION_STATUS.APPROVED },
+        _max: { submissionDate: true },
+      }),
+    ])
+    // No locations mapped means the grower cannot submit at all yet; that is an
+    // admin setup gap, not something to nag the grower about.
+    if (locations.length === 0) continue
+
+    const lastAt = new Map(
+      lastByLocation.map((r) => [r.locationId, r._max.submissionDate])
+    )
+    const daysSince = locations.reduce((worst, l) => {
+      const last = lastAt.get(l.locationId)
+      const gap = last
+        ? differenceInCalendarDays(today, startOfDay(last))
+        : Number.POSITIVE_INFINITY
+      return Math.max(worst, gap)
+    }, 0)
 
     if (daysSince < days) continue
 

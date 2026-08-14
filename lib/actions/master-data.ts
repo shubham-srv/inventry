@@ -162,10 +162,14 @@ export async function deleteSubCategory(id: number): Promise<ActionState> {
   }
 }
 
-// ---------------- Countries of origin ----------------
+// ---------------- Countries ----------------
 const countrySchema = z.object({
   id: z.string().trim().optional().default(""),
   name: z.string().trim().min(1, "Name is required"),
+  // Placeholder rows like "N/A" are valid as an item's origin but must not
+  // appear in location / vendor / supply-to pickers. Defaults to selectable:
+  // a country typed in by hand is a real one.
+  isSelectable: z.string().trim().optional().default("true"),
 })
 
 export async function createCountry(_p: ActionState, fd: FormData): Promise<ActionState> {
@@ -173,10 +177,15 @@ export async function createCountry(_p: ActionState, fd: FormData): Promise<Acti
   const { data, error } = parseForm(countrySchema, fd)
   if (error) return error
   try {
-    const created = await prisma.countryOfOrigin.create({
-      data: { name: data.name, createdBy: user.id, updatedBy: user.id },
+    const created = await prisma.country.create({
+      data: {
+        name: data.name,
+        isSelectable: data.isSelectable !== "false",
+        createdBy: user.id,
+        updatedBy: user.id,
+      },
     })
-    await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.CREATE, entityType: "CountryOfOrigin", entityId: created.id, changes: data })
+    await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.CREATE, entityType: "Country", entityId: created.id, changes: data })
     revalidatePath("/admin/countries")
     return ok("Country created")
   } catch (e) {
@@ -189,11 +198,17 @@ export async function updateCountry(_p: ActionState, fd: FormData): Promise<Acti
   const { data, error } = parseForm(countrySchema, fd)
   if (error) return error
   try {
-    await prisma.countryOfOrigin.update({
+    await prisma.country.update({
       where: { id: Number(data.id) },
-      data: { name: data.name, updatedBy: user.id },
+      data: {
+        name: data.name,
+        isSelectable: data.isSelectable !== "false",
+        updatedBy: user.id,
+      },
     })
-    await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.UPDATE, entityType: "CountryOfOrigin", entityId: data.id, changes: data })
+    revalidatePath("/admin/locations")
+    revalidatePath("/admin/vendors")
+    await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.UPDATE, entityType: "Country", entityId: data.id, changes: data })
     revalidatePath("/admin/countries")
     revalidatePath("/admin/items")
     return ok("Country updated")
@@ -204,16 +219,28 @@ export async function updateCountry(_p: ActionState, fd: FormData): Promise<Acti
 
 export async function deleteCountry(id: number): Promise<ActionState> {
   const user = await guard(CAP)
-  // Items keep their origin as a FK, so refuse rather than orphan them. (The FK
-  // would block it anyway; this turns a constraint error into a clear message.)
-  const used = await prisma.item.count({ where: { countryOfOriginId: id } })
-  if (used > 0)
+  // Four things now hold a country FK, not just items. Each would block the
+  // delete anyway; counting first turns a raw constraint error into a message
+  // that says which screen to go and fix.
+  const [items, locations, vendors, supplyLinks] = await Promise.all([
+    prisma.item.count({ where: { countryOfOriginId: id } }),
+    prisma.location.count({ where: { countryId: id } }),
+    prisma.vendor.count({ where: { countryId: id } }),
+    prisma.vendorCountry.count({ where: { countryId: id } }),
+  ])
+  const used = [
+    items && `${items} item(s)`,
+    locations && `${locations} location(s)`,
+    vendors && `${vendors} vendor(s)`,
+    supplyLinks && `${supplyLinks} vendor supply list(s)`,
+  ].filter(Boolean)
+  if (used.length > 0)
     return fail(
-      `This country is used by ${used} item(s). Change those items first, then delete it.`
+      `This country is used by ${used.join(", ")}. Change those first, then delete it.`
     )
   try {
-    await prisma.countryOfOrigin.delete({ where: { id } })
-    await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.DELETE, entityType: "CountryOfOrigin", entityId: id })
+    await prisma.country.delete({ where: { id } })
+    await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.DELETE, entityType: "Country", entityId: id })
     revalidatePath("/admin/countries")
     return ok("Country deleted")
   } catch (e) {
@@ -227,6 +254,7 @@ const locationSchema = z.object({
   locationName: z.string().trim().min(1, "Name is required"),
   locationType: z.string().trim().optional().default(""),
   regionId: z.string().trim().optional().default(""),
+  countryId: z.string().trim().optional().default(""),
   commodityFocus: z.string().trim().optional().default(""),
   keyPersonnel: z.string().trim().optional().default(""),
   notes: z.string().trim().optional().default(""),
@@ -238,6 +266,7 @@ function locationData(d: LocationInput) {
     locationName: d.locationName,
     locationType: d.locationType || null,
     regionId: d.regionId ? Number(d.regionId) : null,
+    countryId: d.countryId ? Number(d.countryId) : null,
     commodityFocus: d.commodityFocus || null,
     keyPersonnel: d.keyPersonnel || null,
     notes: d.notes || null,

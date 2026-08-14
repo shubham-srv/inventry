@@ -34,11 +34,16 @@ function revalidateGrower() {
 }
 
 // ---------------- Daily inventory submission ----------------
+// Scoped to ONE location: the form posts a `locationId` alongside the payload,
+// and the submission it lands on is the grower's row for that location today.
+//
 // Two modes, selected by the pressed button (`mode` form field):
 //  - "draft": values are stored (and re-populate the form) but do NOT count —
 //    no ledger rows, no notification, no low-flag sync, progress bar unmoved.
-//  - "submit": today's submission becomes Approved; ledger is rebuilt from all
-//    of today's details, low flags sync, notification fires, progress updates.
+//  - "submit": today's submission for this location becomes Approved; its
+//    ledger is rebuilt from all of its details, low flags sync, notification
+//    fires, progress updates. Other locations are untouched — that is the whole
+//    reason the location sits on the submission rather than only on the detail.
 // `uom` is accepted for backwards compatibility but ignored — the unit stored
 // on the detail row always comes from the item (see lib/items/uom.ts).
 const submitItemSchema = z.object({
@@ -67,6 +72,18 @@ export async function submitInventory(
   }
   if (items.length === 0) return fail(t("grower.actions.noItems"))
 
+  // Security: the location must be one this grower is mapped to. Checked the
+  // same way as the item authorizations below — the picker only offers valid
+  // locations, but the id arrives in a form field and cannot be trusted.
+  const locationId = Number(formData.get("locationId"))
+  if (!Number.isInteger(locationId) || locationId <= 0)
+    return fail(t("grower.actions.noLocation"))
+  const mapping = await prisma.growerLocation.findFirst({
+    where: { growerId, locationId, isActive: true },
+    select: { id: true },
+  })
+  if (!mapping) return fail(t("grower.actions.locationNotAllowed"))
+
   // Security: only allow items this grower is authorized for.
   const auths = await prisma.growerItemAuthorization.findMany({
     where: { growerId, isActive: true },
@@ -88,12 +105,13 @@ export async function submitInventory(
 
   await prisma.$transaction(async (tx) => {
     let sub = await tx.growerSubmission.findFirst({
-      where: { growerId, submissionDate: { gte: todayStart } },
+      where: { growerId, locationId, submissionDate: { gte: todayStart } },
     })
     if (!sub) {
       sub = await tx.growerSubmission.create({
         data: {
           growerId,
+          locationId,
           submittedBy: user.id,
           submissionDate: new Date(),
           status: newStatus,
@@ -113,31 +131,27 @@ export async function submitInventory(
       })
     }
 
+    // The submission is already scoped to one location, so (submissionId,
+    // itemId) is unique — and now backed by a real DB constraint, which lets
+    // this be a single upsert instead of a find-then-branch.
     for (const it of valid) {
-      const existing = await tx.growerSubmissionDetail.findFirst({
-        where: { submissionId: sub.id, itemId: it.itemId },
-      })
       const data = {
         quantityOnHand: it.quantityOnHand,
         unitOfMeasure: units.get(it.itemId) ?? null,
         isLowFlagged: !!it.low,
         updatedBy: user.id,
       }
-      if (existing) {
-        await tx.growerSubmissionDetail.update({
-          where: { id: existing.id },
-          data,
-        })
-      } else {
-        await tx.growerSubmissionDetail.create({
-          data: {
-            submissionId: sub.id,
-            itemId: it.itemId,
-            createdBy: user.id,
-            ...data,
-          },
-        })
-      }
+      await tx.growerSubmissionDetail.upsert({
+        where: { submissionId_itemId: { submissionId: sub.id, itemId: it.itemId } },
+        update: data,
+        create: {
+          submissionId: sub.id,
+          itemId: it.itemId,
+          locationId,
+          createdBy: user.id,
+          ...data,
+        },
+      })
     }
 
     if (isDraft) {
@@ -147,8 +161,10 @@ export async function submitInventory(
       return
     }
 
-    // SUBMIT: rebuild the ledger from ALL of today's details (covers items
-    // saved in an earlier draft pass but not re-included in this payload).
+    // SUBMIT: rebuild the ledger from ALL of this submission's details (covers
+    // items saved in an earlier draft pass but not re-included in this
+    // payload). Because the submission is one location's, this can no longer
+    // reach across and promote another location's draft numbers.
     const allDetails = await tx.growerSubmissionDetail.findMany({
       where: { submissionId: sub.id },
     })
@@ -169,6 +185,13 @@ export async function submitInventory(
     })
 
     // Sync the standalone low-inventory flag with the per-row toggle.
+    //
+    // Flags stay keyed on (grower, item) rather than picking up the location:
+    // a flag is a "come look at this" signal, and the admin review queue works
+    // at item level. The trade-off is that if one item is counted at several
+    // sites, whichever site is submitted last decides the flag — the same
+    // reasoning that leaves thresholds comparing against the total across
+    // locations (see latestPerItem in lib/grower/data.ts).
     for (const it of valid) {
       const flag = await tx.lowInventoryFlag.findFirst({
         where: { growerId, itemId: it.itemId, isActive: true },
@@ -195,10 +218,14 @@ export async function submitInventory(
   })
 
   if (!isDraft) {
-    const grower = await prisma.grower.findUnique({ where: { id: growerId } })
+    const [grower, location] = await Promise.all([
+      prisma.grower.findUnique({ where: { id: growerId } }),
+      prisma.location.findUnique({ where: { id: locationId } }),
+    ])
     await notifySubmissionReceived({
       growerId,
       growerName: grower?.growerName ?? "",
+      locationName: location?.locationName ?? "",
       toEmail: grower?.primaryEmail ?? null,
       locale: grower?.preferredLocale ?? null,
       submittedByName: `${user.firstName} ${user.lastName}`,

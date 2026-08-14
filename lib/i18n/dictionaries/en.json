@@ -108,7 +108,8 @@
       "itemsSubmittedToday": "Items submitted today",
       "continueSubmission": "Continue submission →",
       "biggestChanges": "Biggest changes vs last week",
-      "notEnoughHistory": "Not enough history yet."
+      "notEnoughHistory": "Not enough history yet.",
+      "acrossLocations": "across {count} locations"
     },
     "form": {
       "title": "Submit inventory",
@@ -126,7 +127,10 @@
       "min": "min",
       "noItems": "No items are authorized for your grower yet. Ask an admin to authorize items.",
       "loadPreviousHint": "Most counts don't change day to day — start from your last submitted values and edit what moved.",
-      "weekChangeTitle": "Change vs the same item a week ago"
+      "weekChangeTitle": "Change vs the same item a week ago",
+      "location": "Location",
+      "locationHint": "Counts are recorded against the selected location.",
+      "noLocations": "No locations are mapped to your grower yet. Ask an admin to map at least one location before submitting counts."
     },
     "orders": {
       "heading": "Orders",
@@ -219,7 +223,9 @@
       "flagCleared": "Low flag cleared",
       "invalidData": "Invalid submission data.",
       "noItems": "Enter at least one item quantity first.",
-      "noAuthorized": "No authorized items in this submission."
+      "noAuthorized": "No authorized items in this submission.",
+      "noLocation": "Choose a location before submitting.",
+      "locationNotAllowed": "That location is not mapped to your grower."
     }
   },
   "vendor": {
@@ -243,13 +249,15 @@
       "progressLabel": "Today's report",
       "itemsOf": "{done} / {total} items",
       "submit": "Submit report",
+      "loadPrevious": "Load previous values",
       "quantity": "Quantity",
       "unit": "Unit",
       "allocate": "Allocate to growers ({count})",
       "allocated": "{allocated} / {total} allocated",
       "over": "Allocated total exceeds the item quantity.",
       "prev": "prev",
-      "noItems": "No items are mapped to your vendor yet. Ask an admin to map items."
+      "noItems": "No items are mapped to your vendor yet. Ask an admin to map items.",
+      "loadPreviousHint": "Most reports don't change week to week — start from your last reported quantities and edit what moved."
     },
     "history": {
       "title": "Report history",
@@ -282,10 +290,11 @@
       "quantity": "Quantity",
       "status": "Status",
       "reviewNotes": "Review notes",
-      "cadence": "Cadence"
+      "cadence": "Cadence",
+      "location": "Location"
     },
     "submissionReceived": {
-      "subject": "Inventory submission received — {grower}",
+      "subject": "Inventory submission received — {grower} ({location})",
       "heading": "Inventory submission received",
       "intro": "A daily inventory count was just submitted for {grower} by {submittedBy}.",
       "cta": "View submissions"

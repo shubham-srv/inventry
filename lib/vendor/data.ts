@@ -36,8 +36,18 @@ export async function getVendorSubmitData(vendorId: number) {
       include: { details: { include: { allocations: true } } },
       orderBy: { submissionDate: "desc" },
     }),
+    // Bounded on purpose: this only needs each item's most recent reported
+    // quantity, and without a lower bound it pulls the vendor's entire
+    // submission history on every page load. Matches the 90-day window the
+    // grower ledger prefill uses (lib/grower/data.ts) — a value older than that
+    // is not a useful prefill anyway.
     prisma.vendorSubmissionDetail.findMany({
-      where: { submission: { vendorId, submissionDate: { lt: todayStart } } },
+      where: {
+        submission: {
+          vendorId,
+          submissionDate: { lt: todayStart, gte: subDays(todayStart, 90) },
+        },
+      },
       include: { submission: true },
       orderBy: { submission: { submissionDate: "desc" } },
     }),

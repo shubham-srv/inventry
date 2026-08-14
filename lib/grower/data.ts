@@ -128,7 +128,60 @@ export type SubmitRow = {
   messages: ItemMessageView[] // admin notices shown under this item
 }
 
-export async function getGrowerSubmitData(growerId: number) {
+/**
+ * Today's count progress across ALL of a grower's locations, for the dashboard.
+ *
+ * The denominator is authorized items × mapped locations: nothing ties an item
+ * to a particular site, so any authorized item can be counted at any of them.
+ * That also keeps this consistent with the submit page, whose per-location bar
+ * runs to the same authorized-item total.
+ *
+ * Only Approved submissions count — drafts do not move the bar, matching
+ * getGrowerSubmitData.
+ */
+export async function getTodayProgress(growerId: number) {
+  const todayStart = startOfDay(new Date())
+  const [itemCount, locationCount, recorded] = await Promise.all([
+    prisma.growerItemAuthorization.count({
+      where: { growerId, isActive: true, item: { status: "Active" } },
+    }),
+    prisma.growerLocation.count({ where: { growerId, isActive: true } }),
+    prisma.growerSubmissionDetail.count({
+      where: {
+        submission: {
+          growerId,
+          submissionDate: { gte: todayStart },
+          status: SUBMISSION_STATUS.APPROVED,
+        },
+      },
+    }),
+  ])
+  const total = itemCount * locationCount
+  // Clamped: a location deactivated after today's counts were taken would
+  // otherwise report more done than possible.
+  return { recorded: Math.min(recorded, total), total, locationCount }
+}
+
+/** The locations a grower counts at, for the submit page's location picker. */
+export async function getGrowerLocations(growerId: number) {
+  const rows = await prisma.growerLocation.findMany({
+    where: { growerId, isActive: true },
+    include: { location: { select: { id: true, locationName: true } } },
+    orderBy: { location: { locationName: "asc" } },
+  })
+  return rows.map((r) => ({ id: r.location.id, name: r.location.locationName }))
+}
+
+/**
+ * Everything the submit page needs, for ONE of the grower's locations.
+ *
+ * Both the prefill and the progress are location-scoped: `previousQty` is the
+ * last count taken at THIS site (a Salinas number is not a sensible starting
+ * point for Yuma), and "5 of 12 submitted" counts only this site's items, which
+ * is the only reading of that bar that stays true once an item can be counted
+ * at several places.
+ */
+export async function getGrowerSubmitData(growerId: number, locationId: number) {
   // Item message notes are stored per locale (ItemMessageTranslation) and picked
   // here, so a Spanish-preference grower doesn't get a localized type label
   // followed by an English note.
@@ -144,7 +197,7 @@ export async function getGrowerSubmitData(growerId: number) {
   const [todaySub, prevLedger, thresholds, lowFlags, orders, itemVendors, activeVendors, itemMessages] =
     await Promise.all([
       prisma.growerSubmission.findFirst({
-        where: { growerId, submissionDate: { gte: todayStart } },
+        where: { growerId, locationId, submissionDate: { gte: todayStart } },
         include: { details: true },
         orderBy: { submissionDate: "desc" },
       }),
@@ -155,6 +208,7 @@ export async function getGrowerSubmitData(growerId: number) {
       prisma.inventoryLedger.findMany({
         where: {
           growerId,
+          locationId,
           itemId: { in: itemIds },
           date: { lt: todayStart, gte: subDays(todayStart, 90) },
         },
@@ -305,10 +359,12 @@ export async function getGrowerHistory(growerId: number, skip = 0, take = 10) {
       where,
       include: {
         submitter: true,
+        location: { select: { locationName: true } },
         details: { include: { item: true } },
         _count: { select: { details: true } },
       },
-      orderBy: { submissionDate: "desc" },
+      // Same-day rows from different sites sort together, newest day first.
+      orderBy: [{ submissionDate: "desc" }, { location: { locationName: "asc" } }],
       skip,
       take,
     }),

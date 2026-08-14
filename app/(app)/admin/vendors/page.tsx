@@ -24,7 +24,10 @@ type Row = {
   vendorType: string | null
   regionId: number | null
   region: { name: string } | null
-  country: string | null
+  countryId: number | null
+  homeCountry: { name: string } | null
+  locationId: number | null
+  location: { locationName: string } | null
   primaryContact: string | null
   contactEmail: string | null
   contactPhone: string | null
@@ -36,6 +39,7 @@ type Row = {
   preferredLocale: string
   itemVendors: { itemId: string }[]
   materialCategories: { materialCategoryCode: string }[]
+  supplyCountries: { countryId: number }[]
   _count: { users: number }
 }
 
@@ -47,13 +51,16 @@ export default async function VendorsPage({
   await requireCapability(CAPABILITIES.MANAGE_GROWERS_VENDORS)
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
   const where = vendorsWhere(raw)
-  const [rows, total, items, categories, regions] = await Promise.all([
+  const [rows, total, items, categories, regions, countries, locations] = await Promise.all([
     prisma.vendor.findMany({
       where,
       include: {
         region: true,
+        homeCountry: true,
+        location: true,
         itemVendors: { where: { isActive: true }, select: { itemId: true } },
         materialCategories: { where: { isActive: true }, select: { materialCategoryCode: true } },
+        supplyCountries: { where: { isActive: true }, select: { countryId: true } },
         _count: { select: { users: true } },
       },
       orderBy: { vendorName: "asc" },
@@ -64,16 +71,22 @@ export default async function VendorsPage({
     prisma.item.findMany({ where: { status: ENTITY_STATUS.ACTIVE }, orderBy: { id: "asc" }, select: { id: true, itemName: true } }),
     prisma.materialCategory.findMany({ orderBy: { name: "asc" } }),
     prisma.region.findMany({ orderBy: { name: "asc" } }),
+    // Placeholder rows (N/A) are excluded: "supplies to N/A" is not a fact
+    // anyone can act on, and neither is a vendor based there.
+    prisma.country.findMany({ where: { isSelectable: true }, orderBy: { name: "asc" } }),
+    prisma.location.findMany({ orderBy: { locationName: "asc" }, select: { id: true, locationName: true } }),
   ])
 
   const regionOptions = regions.map((r) => ({ label: r.name, value: String(r.id) }))
+  const countryOptions = countries.map((c) => ({ label: c.name, value: String(c.id) }))
   const fields: Field[] = [
     { name: "vendorName", label: "Name", type: "text", required: true, colSpan: 2 },
     { name: "vendorType", label: "Type", type: "select", placeholder: "Select type", options: VENDOR_TYPES.map((t) => ({ label: t, value: t })) },
     { name: "status", label: "Status", type: "select", required: true, options: STATUSES.map((s) => ({ label: s, value: s })) },
     { name: "preferredLocale", label: "Email language", type: "select", required: true, options: LOCALE_OPTIONS },
     { name: "regionId", label: "Region", type: "select", placeholder: "Select region", options: regionOptions },
-    { name: "country", label: "Country", type: "text" },
+    { name: "countryId", label: "Country", type: "select", placeholder: "Select country", options: countryOptions, description: "Where this vendor is based." },
+    { name: "locationId", label: "Location", type: "select", placeholder: "Select location", options: locations.map((l) => ({ label: l.locationName, value: String(l.id) })) },
     { name: "primaryContact", label: "Primary contact", type: "text" },
     { name: "contactEmail", label: "Contact email", type: "text" },
     { name: "contactPhone", label: "Contact phone", type: "text" },
@@ -87,6 +100,14 @@ export default async function VendorsPage({
       placeholder: "Select categories",
       colSpan: 2,
       options: categories.map((c) => ({ label: `${c.code} — ${c.name}`, value: c.code })),
+    },
+    {
+      name: "supplyCountryIds",
+      label: "Supplies to (countries)",
+      type: "multiselect",
+      placeholder: "Select countries",
+      colSpan: 2,
+      options: countryOptions,
     },
     {
       name: "itemIds",
@@ -103,6 +124,9 @@ export default async function VendorsPage({
     { key: "name", header: "Name", cell: (r) => <span className="font-medium">{r.vendorName}</span> },
     { key: "type", header: "Type", cell: (r) => r.vendorType ?? "—" },
     { key: "region", header: "Region", cell: (r) => r.region?.name ?? "—" },
+    { key: "country", header: "Country", cell: (r) => r.homeCountry?.name ?? "—" },
+    { key: "location", header: "Location", cell: (r) => r.location?.locationName ?? "—" },
+    { key: "supplies", header: "Supplies to", cell: (r) => r.supplyCountries.length },
     { key: "email", header: "Contact", cell: (r) => r.contactEmail ?? "—" },
     { key: "categories", header: "Categories", cell: (r) => r.materialCategories.length },
     { key: "items", header: "Items", cell: (r) => r.itemVendors.length },
@@ -120,11 +144,12 @@ export default async function VendorsPage({
             action={updateVendor}
             values={{
               id: r.id, vendorName: r.vendorName, vendorType: r.vendorType ?? "", status: r.status, preferredLocale: r.preferredLocale,
-              regionId: r.regionId ?? "", country: r.country ?? "", primaryContact: r.primaryContact ?? "",
+              regionId: r.regionId ?? "", countryId: r.countryId ?? "", locationId: r.locationId ?? "", primaryContact: r.primaryContact ?? "",
               contactEmail: r.contactEmail ?? "", contactPhone: r.contactPhone ?? "", leadTimeDays: r.leadTimeDays ?? "",
               paymentTermsDays: r.paymentTermsDays ?? "", ptAccountNumber: r.ptAccountNumber ?? "", notes: r.notes ?? "",
               itemIds: r.itemVendors.map((iv) => iv.itemId).join(","),
               materialCategoryCodes: r.materialCategories.map((mc) => mc.materialCategoryCode).join(","),
+              supplyCountryIds: r.supplyCountries.map((sc) => sc.countryId).join(","),
             }}
             submitLabel="Save changes"
             trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>}
@@ -146,6 +171,7 @@ export default async function VendorsPage({
             { key: "status", label: "Status", options: STATUSES.map((s) => ({ label: s, value: s })) },
             { key: "type", label: "Type", options: VENDOR_TYPES.map((t) => ({ label: t, value: t })) },
             { key: "region", label: "Region", options: regionOptions },
+            { key: "country", label: "Country", options: countryOptions },
           ]}
         >
           <EntityFormDialog title="New vendor" fields={fields} action={createVendor} submitLabel="Create" trigger={<Button size="sm"><Plus className="size-4" /> Add vendor</Button>} />
