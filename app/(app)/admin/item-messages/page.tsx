@@ -59,7 +59,7 @@ export default async function AdminItemMessagesPage({
   else if (raw.state === "disabled") and.push({ isActive: false })
   const where: Prisma.ItemMessageWhereInput = and.length ? { AND: and } : {}
 
-  const [rows, total, items, growers] = await Promise.all([
+  const [rows, total, items, growers, auths] = await Promise.all([
     prisma.itemMessage.findMany({
       where,
       include: {
@@ -74,6 +74,15 @@ export default async function AdminItemMessagesPage({
     prisma.itemMessage.count({ where }),
     prisma.item.findMany({ where: { status: ENTITY_STATUS.ACTIVE }, orderBy: { id: "asc" }, select: { id: true, itemName: true } }),
     prisma.grower.findMany({ orderBy: { growerName: "asc" }, select: { id: true, growerName: true } }),
+    // Which growers can actually see a message about a given item. A message
+    // targeted at a grower not authorized for the item is invisible to them —
+    // getGrowerSubmitData only surfaces messages for their authorized items —
+    // so offering those growers is offering a no-op.
+    prisma.growerItemAuthorization.findMany({
+      where: { isActive: true },
+      select: { itemId: true, growerId: true },
+      orderBy: { grower: { growerName: "asc" } },
+    }),
   ])
 
   const growerName = new Map(growers.map((g) => [g.id, g.growerName]))
@@ -83,7 +92,23 @@ export default async function AdminItemMessagesPage({
     { name: "type", label: "Type", type: "select", required: true, options: ITEM_MESSAGE_TYPES.map((t) => ({ label: ITEM_MESSAGE_TYPE_LABELS[t], value: t })) },
     { name: "severity", label: "Severity", type: "select", required: true, options: ITEM_MESSAGE_SEVERITIES.map((s) => ({ label: cap(s), value: s })) },
     { name: "audience", label: "Audience", type: "select", required: true, options: [{ label: "All growers", value: "All" }, { label: "Selected growers", value: "Selected" }] },
-    { name: "growerIds", label: "Growers (when audience = Selected)", type: "multiselect", colSpan: 2, placeholder: "Select growers", options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })) },
+    {
+      name: "growerIds",
+      label: "Growers (when audience = Selected)",
+      type: "multiselect",
+      colSpan: 2,
+      placeholder: "Select growers",
+      // One option per (item, grower) authorization; the dialog filters by the
+      // chosen item and collapses the duplicate grower values that leaves.
+      dependsOn: "itemId",
+      options: auths.map((a) => ({
+        label: growerName.get(a.growerId) ?? String(a.growerId),
+        value: String(a.growerId),
+        parent: a.itemId,
+      })),
+      description:
+        "Only growers authorized for the selected item. Others would never see the message.",
+    },
     { name: "body", label: "Note (optional — shown to growers as typed)", type: "textarea", colSpan: 2 },
     {
       name: "bodyEs",

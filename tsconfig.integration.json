@@ -1,0 +1,20 @@
+{
+  // `integration/` is excluded from the app build, which means a refactor in
+  // lib/ or components/ can silently break a drop-in and nobody finds out until
+  // the day they wire it in. This config typechecks the drop-ins AGAINST the
+  // current app: `npm run typecheck:integration`.
+  //
+  // Only files that are complete and self-consistent belong here. The Entra and
+  // magic-link ROUTE modules are deliberately absent: they reference a
+  // MagicToken model that does not exist in schema.prisma until you activate
+  // them, so they cannot typecheck until that migration is run.
+  "extends": "./tsconfig.json",
+  "include": [
+    "next-env.d.ts",
+    "integration/magic-link/login-page.tsx",
+    "integration/magic-link/magic-link-form.tsx",
+    "lib/**/*.ts",
+    "components/**/*.tsx"
+  ],
+  "exclude": ["node_modules"]
+}

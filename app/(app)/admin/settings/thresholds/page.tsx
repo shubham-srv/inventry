@@ -3,7 +3,6 @@ import { prisma } from "@/lib/db"
 import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { parseListParams } from "@/lib/query"
-import { UNITS_OF_MEASURE } from "@/lib/constants"
 import { createThreshold, updateThreshold, deleteThreshold } from "@/lib/actions/settings"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
@@ -35,7 +34,7 @@ export default async function ThresholdsPage({
   const [rows, total, items, growers] = await Promise.all([
     prisma.itemThreshold.findMany({ where, include: { item: true, grower: true }, orderBy: { itemId: "asc" }, skip, take }),
     prisma.itemThreshold.count({ where }),
-    prisma.item.findMany({ where: { status: "Active" }, orderBy: { id: "asc" } }),
+    prisma.item.findMany({ where: { status: "Active" }, orderBy: { id: "asc" }, select: { id: true, itemName: true, unitOfMeasure: true } }),
     prisma.grower.findMany({ orderBy: { growerName: "asc" } }),
   ])
 
@@ -43,7 +42,17 @@ export default async function ThresholdsPage({
     { name: "itemId", label: "Item", type: "select", required: true, placeholder: "Select item", options: items.map((i) => ({ label: `${i.id} — ${i.itemName}`, value: i.id })), colSpan: 2 },
     { name: "growerId", label: "Scope", type: "select", placeholder: "Global", options: [{ label: "Global (all growers)", value: "0" }, ...growers.map((g) => ({ label: g.growerName, value: String(g.id) }))] },
     { name: "thresholdQuantity", label: "Threshold qty", type: "number", required: true, step: "any" },
-    { name: "unitOfMeasure", label: "Unit", type: "select", placeholder: "Unit", options: UNITS_OF_MEASURE.map((u) => ({ label: u, value: u })) },
+    // Read-only and derived: the unit belongs to the item, and a threshold in a
+    // different unit from the counts it is compared against is just wrong. Not
+    // posted — createThreshold/updateThreshold read it from the item.
+    {
+      name: "unitOfMeasure",
+      label: "Unit",
+      type: "preview",
+      dependsOn: "itemId",
+      derive: Object.fromEntries(items.filter((i) => i.unitOfMeasure).map((i) => [i.id, i.unitOfMeasure!])),
+      placeholder: "Inherited from the item",
+    },
   ]
 
   const columns: Column<Row>[] = [
@@ -66,7 +75,7 @@ export default async function ThresholdsPage({
       className: "text-right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
-          <EntityFormDialog title="Edit threshold" fields={fields} action={updateThreshold} values={{ id: r.id, itemId: r.itemId, growerId: r.growerId ? String(r.growerId) : "0", thresholdQuantity: Number(r.thresholdQuantity), unitOfMeasure: r.unitOfMeasure ?? "" }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
+          <EntityFormDialog title="Edit threshold" fields={fields} action={updateThreshold} values={{ id: r.id, itemId: r.itemId, growerId: r.growerId ? String(r.growerId) : "0", thresholdQuantity: Number(r.thresholdQuantity) }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
           <ConfirmButton title="Delete threshold" description="Delete this threshold?" confirmLabel="Delete" typeToConfirm action={deleteThreshold.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
         </div>
       ),
@@ -75,7 +84,7 @@ export default async function ThresholdsPage({
 
   return (
     <>
-      <PageHeader title="Item thresholds" description="Low-stock thresholds. Grower-specific values override the global default." />
+      <PageHeader title="Item thresholds" description="Low-stock thresholds. Grower-specific values override the global default. The unit always comes from the item." />
       <div className="space-y-4">
         <DataTableToolbar searchPlaceholder="Search items…">
           <EntityFormDialog title="New threshold" fields={fields} action={createThreshold} submitLabel="Create" trigger={<Button size="sm"><Plus className="size-4" /> Add threshold</Button>} />

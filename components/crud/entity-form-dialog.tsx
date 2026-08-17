@@ -55,11 +55,38 @@ export type Field = {
   readOnly?: boolean // always read-only (e.g. a unit inherited from the item)
   colSpan?: 1 | 2
   /**
-   * Name of another select this one is filtered by: only options whose `parent`
-   * matches the parent's current value are offered, and the value is cleared
-   * whenever the parent changes (e.g. sub-category filtered by category).
+   * Name of the field this one reacts to. One parent, up to three effects,
+   * each switched on by the presence of the prop that configures it:
+   *
+   *  1. FILTER — if any of this field's `options` carry a `parent`, only those
+   *     matching the parent's current value are offered (e.g. sub-category
+   *     filtered by category, growers filtered to those mapped to an item).
+   *  2. PRESET — `presetFrom` seeds this field's value from the parent's, which
+   *     is how a mapping dialog shows what is already mapped (see below).
+   *  3. DERIVE — `derive` fills a read-only `preview` from the parent's value,
+   *     e.g. showing the unit that belongs to the selected item.
+   *
+   * Empty-parent behaviour differs by the PARENT's type, deliberately:
+   *  - parent is a `select`   -> offer nothing. "Pick a category first."
+   *  - parent is a `multiselect` -> offer everything. Nothing ticked reads as
+   *    "not filtering", not as "exclude all", which is what a user means when
+   *    they clear the box.
    */
   dependsOn?: string
+  /**
+   * Parent value -> the values this field should hold when that parent is
+   * chosen. Used by the mapping dialogs: picking a grower ticks the items it is
+   * already authorized for, so the dialog edits the whole set rather than only
+   * adding to it. Changing the parent replaces the selection wholesale — the
+   * previous grower's ticks are meaningless for this one.
+   */
+  presetFrom?: Record<string, string[]>
+  /**
+   * `preview` fields only: parent value -> the text to display. For values that
+   * are looked up rather than composed (an item's unit of measure), where
+   * `pattern` cannot help because the text is not built from other fields.
+   */
+  derive?: Record<string, string>
   /**
    * `preview` fields only: a template whose `{fieldName}` placeholders are
    * replaced with the current values of those fields, e.g.
@@ -140,12 +167,70 @@ export function EntityFormDialog({
 
   const hasIdField = fields.some((f) => f.name === "id")
 
-  // Set a select's value and reset anything filtered by it, so a stale child
-  // selection can't survive a parent change.
+  /**
+   * Options of a dependent field, narrowed to the parent's current value in
+   * `state`. Takes the state explicitly so it can be run against a pending
+   * update inside a setState callback, not just the committed render.
+   */
+  function optionsIn(state: Record<string, string>, f: Field) {
+    const all = f.options ?? []
+    if (!f.dependsOn) return all
+    const parentField = fields.find((x) => x.name === f.dependsOn)
+    const raw = state[f.dependsOn] ?? ""
+    const picked = raw.split(",").filter(Boolean)
+    if (picked.length === 0) {
+      // See the `dependsOn` docs: an empty multiselect parent means "no filter".
+      return parentField?.type === "multiselect" ? all : []
+    }
+    const matched = all.filter(
+      (o) => o.parent === undefined || picked.includes(o.parent)
+    )
+    // A value can legitimately appear once per parent (one grower is mapped to
+    // several items, so it is listed once per item). Collapse those.
+    const seen = new Set<string>()
+    return matched.filter((o) => !seen.has(o.value) && seen.add(o.value))
+  }
+
+  /**
+   * Apply every dependent effect of `name` having just changed, mutating the
+   * pending state in place.
+   *
+   * Children are PRUNED rather than cleared: dropping one category out of a
+   * filter should remove that category's items from the selection and leave the
+   * rest, whereas wiping the box would throw away work the user did not undo.
+   * A `presetFrom` child is the exception — its whole point is to be replaced.
+   */
+  function applyDependents(next: Record<string, string>, name: string) {
+    for (const f of fields) {
+      if (f.dependsOn !== name) continue
+      if (f.presetFrom) {
+        next[f.name] = (f.presetFrom[next[name] ?? ""] ?? []).join(",")
+        continue
+      }
+      const valid = new Set(optionsIn(next, f).map((o) => o.value))
+      if (f.type === "multiselect") {
+        next[f.name] = (next[f.name] ?? "")
+          .split(",")
+          .filter((v) => v && valid.has(v))
+          .join(",")
+      } else if (!valid.has(next[f.name] ?? "")) {
+        next[f.name] = ""
+      }
+    }
+  }
+
   function selectValue(name: string, value: string) {
     setControlled((c) => {
       const next = { ...c, [name]: value }
-      for (const f of fields) if (f.dependsOn === name) next[f.name] = ""
+      applyDependents(next, name)
+      return next
+    })
+  }
+
+  function multiValue(name: string, values: string[]) {
+    setControlled((c) => {
+      const next = { ...c, [name]: values.join(",") }
+      applyDependents(next, name)
       return next
     })
   }
@@ -155,6 +240,12 @@ export function EntityFormDialog({
    * null while any of them is still empty.
    */
   function previewValue(f: Field): string | null {
+    // A looked-up preview (`derive`) resolves straight off its parent; only the
+    // composed kind walks a pattern.
+    if (f.derive && f.dependsOn) {
+      const parent = controlled[f.dependsOn] ?? ""
+      return parent ? (f.derive[parent] ?? null) : null
+    }
     const pattern = f.pattern ?? ""
     let complete = true
     const filled = pattern.replace(/\{(\w+)\}/g, (_m, name: string) => {
@@ -165,13 +256,9 @@ export function EntityFormDialog({
     return complete ? filled : null
   }
 
-  /** Options of a dependent select, narrowed to the parent's current value. */
+  /** Options of a dependent field, narrowed against the committed state. */
   function optionsFor(f: Field) {
-    const all = f.options ?? []
-    if (!f.dependsOn) return all
-    const parent = controlled[f.dependsOn] ?? ""
-    if (!parent) return []
-    return all.filter((o) => o.parent === undefined || o.parent === parent)
+    return optionsIn(controlled, f)
   }
 
   return (
@@ -292,15 +379,15 @@ export function EntityFormDialog({
                 ) : f.type === "multiselect" ? (
                   <>
                     <input type="hidden" name={f.name} value={controlled[f.name] ?? ""} />
+                    {/* optionsFor, not f.options — a multiselect can be filtered
+                        by a parent just as a select can. */}
                     <MultiSelect
                       id={f.name}
                       invalid={!!err}
-                      options={f.options ?? []}
+                      options={optionsFor(f)}
                       placeholder={f.placeholder}
                       value={(controlled[f.name] ?? "").split(",").filter(Boolean)}
-                      onChange={(next) =>
-                        setControlled((c) => ({ ...c, [f.name]: next.join(",") }))
-                      }
+                      onChange={(next) => multiValue(f.name, next)}
                     />
                   </>
                 ) : f.type === "switch" ? (

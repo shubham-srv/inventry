@@ -25,7 +25,6 @@ async function itemsSheet(sp: SP): Promise<ExcelSheet> {
       materialCategory: true,
       subCategory: true,
       countryOfOrigin: true,
-      region: true,
     },
     orderBy: { id: "asc" },
   })
@@ -41,7 +40,6 @@ async function itemsSheet(sp: SP): Promise<ExcelSheet> {
       { header: "Unit of measure", key: "uom", width: 16 },
       { header: "Application", key: "app", width: 16 },
       { header: "Status", key: "status", width: 12 },
-      { header: "Region", key: "region", width: 12 },
       { header: "Legacy ID", key: "legacy", width: 16 },
     ],
     rows: rows.map((i) => ({
@@ -54,7 +52,6 @@ async function itemsSheet(sp: SP): Promise<ExcelSheet> {
       uom: i.unitOfMeasure ?? "",
       app: i.applicationMethod ?? "",
       status: i.status,
-      region: i.region?.name ?? "",
       legacy: i.legacyFamousId ?? "",
     })),
   }
@@ -88,9 +85,8 @@ async function vendorsSheet(sp: SP): Promise<ExcelSheet> {
   const rows = await prisma.vendor.findMany({
     where: vendorsWhere(sp),
     include: {
-      region: true,
       homeCountry: true,
-      location: true,
+      location: { include: { region: true } },
       materialCategories: { where: { isActive: true }, include: { materialCategory: true } },
       supplyCountries: { where: { isActive: true }, include: { country: true } },
     },
@@ -117,7 +113,7 @@ async function vendorsSheet(sp: SP): Promise<ExcelSheet> {
       id: v.id,
       name: v.vendorName,
       type: v.vendorType ?? "",
-      region: v.region?.name ?? "",
+      region: v.location?.region?.name ?? "",
       country: v.homeCountry?.name ?? "",
       location: v.location?.locationName ?? "",
       suppliesTo: v.supplyCountries.map((sc) => sc.country.name).join(", "),

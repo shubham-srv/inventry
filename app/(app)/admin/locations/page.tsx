@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
 import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { locationsWhere } from "@/lib/admin/queries"
+import { LOCATION_TYPES } from "@/lib/constants"
 import { parseListParams } from "@/lib/query"
 import { createLocation, updateLocation, deleteLocation } from "@/lib/actions/master-data"
 import { PageHeader } from "@/components/page-header"
@@ -11,8 +12,6 @@ import { DataTable, type Column } from "@/components/data-table/data-table"
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
 import { EntityFormDialog, type Field } from "@/components/crud/entity-form-dialog"
 import { ConfirmButton } from "@/components/crud/confirm-button"
-
-const LOCATION_TYPES = ["Packing House", "Warehouse", "Cross-dock", "Grower"]
 
 type Row = {
   id: number
@@ -47,7 +46,10 @@ export default async function LocationsPage({
   const countryOptions = countries.map((c) => ({ label: c.name, value: String(c.id) }))
   const fields: Field[] = [
     { name: "locationName", label: "Name", type: "text", required: true, colSpan: 2 },
-    { name: "locationType", label: "Type", type: "select", placeholder: "Select type", options: LOCATION_TYPES.map((t) => ({ label: t, value: t })) },
+    // The type decides where the location can be attached: grower-side types
+    // are not offered on the vendor form and vice versa, so the label spells
+    // out which side each one serves.
+    { name: "locationType", label: "Type", type: "select", required: true, placeholder: "Select type", options: LOCATION_TYPES.map((t) => ({ label: `${t.name} (${t.appliesTo === "Both" ? "grower or vendor" : t.appliesTo.toLowerCase()})`, value: t.name })), description: "Determines whether this site can be mapped to growers, vendors, or either. A location with no type is pickable by neither." },
     { name: "regionId", label: "Region", type: "select", placeholder: "Select region", options: regionOptions },
     { name: "countryId", label: "Country", type: "select", placeholder: "Select country", options: countryOptions },
     { name: "commodityFocus", label: "Commodity focus", type: "text" },
@@ -83,7 +85,7 @@ export default async function LocationsPage({
           searchPlaceholder="Search locations…"
           exportEntity="locations"
           filters={[
-            { key: "type", label: "Type", options: LOCATION_TYPES.map((t) => ({ label: t, value: t })) },
+            { key: "type", label: "Type", options: LOCATION_TYPES.map((t) => ({ label: t.name, value: t.name })) },
             { key: "region", label: "Region", options: regionOptions },
             { key: "country", label: "Country", options: countryOptions },
           ]}

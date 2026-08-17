@@ -106,12 +106,15 @@ model Vendor {
   id               Int     @id @default(autoincrement())
   vendorName       String
   vendorType       String? // Manufacturer, Pallet Pooling, 3PL
-  regionId         Int?
   // Where the vendor operates from. A plain FK, not a join table: nothing reads
   // it behaviourally, it is a display attribute on the vendor record.
+  //
+  // The vendor's REGION is read through this rather than stored: a region is a
+  // property of a place, and duplicating it here let the two disagree.
   locationId       Int?
-  // The vendor's own home country. Distinct from `supplyCountries`, which is
-  // where they can ship TO. Was free text until the Country lookup landed.
+  // Where the vendor is headquartered. Deliberately NOT inherited from the
+  // location: a vendor can be based in one country and ship from a facility in
+  // another. Distinct again from `supplyCountries`, which is where they ship TO.
   countryId        Int?
   primaryContact   String?
   contactEmail     String?
@@ -128,7 +131,6 @@ model Vendor {
   updatedBy Int?
   updatedAt DateTime @updatedAt
 
-  region             Region?                  @relation(fields: [regionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   homeCountry        Country?                 @relation("VendorHomeCountry", fields: [countryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   location           Location?                @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users              User[]
@@ -139,7 +141,6 @@ model Vendor {
   orders             Order[]
   notifications      NotificationLog[]
 
-  @@index([regionId])
   @@index([countryId])
   @@index([locationId])
 }
@@ -233,7 +234,6 @@ model Item {
   applicationMethod    String? // Machine, Hand, Machine/Hand, N/A
   status               String  @default("Active") // Active, Inactive, Review
   notes                String?
-  regionId             Int?
 
   createdBy Int?
   createdAt DateTime @default(now())
@@ -244,7 +244,6 @@ model Item {
   materialCategory        MaterialCategory?         @relation(fields: [materialCategoryCode], references: [code], onDelete: NoAction, onUpdate: NoAction)
   subCategory             SubCategory?              @relation(fields: [subCategoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   countryOfOrigin         Country?                  @relation(fields: [countryOfOriginId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  region                  Region?                   @relation(fields: [regionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   authorizations          GrowerItemAuthorization[]
   submissionDetails       GrowerSubmissionDetail[]
   ledgerEntries           InventoryLedger[]
@@ -259,7 +258,6 @@ model Item {
   @@index([materialCategoryCode])
   @@index([subCategoryId])
   @@index([countryOfOriginId])
-  @@index([regionId])
 }
 
 // Shared country lookup, managed at /admin/countries. Was `CountryOfOrigin`,
@@ -305,9 +303,11 @@ model VendorCountry {
   @@index([countryId])
 }
 
-// Region lookup (dropdown source for items, vendors and locations). Seeded from
-// the values that used to live in the free-text `region` columns. Deliberately
-// has no admin page — values are managed in the seed / by migration.
+// Region lookup, now used by Location alone. Items dropped it (country of
+// origin is the only geography they need) and vendors read it through their
+// location. Seeded from the values that used to live in the free-text `region`
+// columns. Deliberately has no admin page — values are managed in the seed / by
+// migration.
 model Region {
   id   Int    @id @default(autoincrement())
   name String @unique // West, Central, East
@@ -317,8 +317,6 @@ model Region {
   updatedBy Int?
   updatedAt DateTime @updatedAt
 
-  items     Item[]
-  vendors   Vendor[]
   locations Location[]
 }
 
@@ -698,14 +696,24 @@ model ItemThreshold {
 }
 
 // scope = Global (growerId null) or per-grower override
+// Reminder cadence for growers who haven't submitted. A Grower-scoped row
+// replaces the Global one wholesale for that grower — there is no field-level
+// merge, so a grower row must be complete on its own.
+//
+// `thresholdDays` is only read when `cadenceType` is "AfterNDays"; the other
+// cadences imply their own tolerance (see cadenceDays in lib/scheduler/reminders.ts).
+//
+// There is deliberately no re-nag frequency. Once a grower is overdue they get
+// at most one reminder per day, enforced by the NotificationLog check in
+// runReminderCheck. A `reminderFrequency` column used to sit here and was never
+// read by anything — the admin UI offered Daily/Weekly and both behaved daily.
 model SchedulerSetting {
-  id                Int     @id @default(autoincrement())
-  scope             String  @default("Global") // Global, Grower
-  growerId          Int?
-  cadenceType       String  @default("AfterNDays") // Daily, Weekly, Monthly, AfterNDays
-  thresholdDays     Int     @default(3) // days of no submission before first reminder
-  reminderFrequency String  @default("Daily") // how often to remind after triggered
-  isEnabled         Boolean @default(true)
+  id            Int     @id @default(autoincrement())
+  scope         String  @default("Global") // Global, Grower
+  growerId      Int?
+  cadenceType   String  @default("AfterNDays") // Daily, Weekly, Monthly, AfterNDays
+  thresholdDays Int     @default(3) // days of no submission before reminders start ("AfterNDays" only)
+  isEnabled     Boolean @default(true)
 
   createdBy Int?
   createdAt DateTime @default(now())

@@ -5,7 +5,7 @@ import { CAPABILITIES } from "@/lib/rbac"
 import { authorizationsWhere } from "@/lib/admin/queries"
 import { parseListParams } from "@/lib/query"
 import {
-  createAuthorization,
+  setGrowerAuthorizations,
   setAuthorizationActive,
   deleteAuthorization,
 } from "@/lib/actions/authorizations"
@@ -33,16 +33,44 @@ export default async function GrowerAuthorizationsPage({
   await requireCapability(CAPABILITIES.MANAGE_GROWERS_VENDORS)
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 15 })
   const where = authorizationsWhere(raw)
-  const [rows, total, growers, items] = await Promise.all([
+  const [rows, total, growers, items, allAuths] = await Promise.all([
     prisma.growerItemAuthorization.findMany({ where, include: { grower: true, item: true }, orderBy: [{ growerId: "asc" }, { itemId: "asc" }], skip, take }),
     prisma.growerItemAuthorization.count({ where }),
     prisma.grower.findMany({ orderBy: { growerName: "asc" } }),
     prisma.item.findMany({ where: { status: "Active" }, orderBy: { id: "asc" } }),
+    // Every ACTIVE authorization, not just the current page's rows — the dialog
+    // pre-ticks a grower's whole set, so a paged subset would silently drop the
+    // ones that happen to be on another page and then deactivate them on save.
+    // Deliberately unbounded: this is growers x their items. It is the first
+    // thing to move behind an on-change server lookup if that grows large.
+    prisma.growerItemAuthorization.findMany({
+      where: { isActive: true },
+      select: { growerId: true, itemId: true },
+      orderBy: { itemId: "asc" },
+    }),
   ])
+
+  // growerId -> the items it is currently authorized for.
+  const mappedByGrower: Record<string, string[]> = {}
+  for (const a of allAuths) (mappedByGrower[String(a.growerId)] ??= []).push(a.itemId)
 
   const fields: Field[] = [
     { name: "growerId", label: "Grower", type: "select", required: true, placeholder: "Select grower", options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })), colSpan: 2 },
-    { name: "itemIds", label: "Items", type: "multiselect", required: true, placeholder: "Select one or more items", options: items.map((i) => ({ label: `${i.id} — ${i.itemName}`, value: i.id })), colSpan: 2 },
+    {
+      name: "itemIds",
+      label: "Items",
+      type: "multiselect",
+      placeholder: "Select one or more items",
+      // Picking a grower ticks what it already has, so this dialog edits the
+      // whole set. Options are NOT filtered by grower — the point is to see
+      // everything and add to it — hence `presetFrom` without tagged parents.
+      dependsOn: "growerId",
+      presetFrom: mappedByGrower,
+      options: items.map((i) => ({ label: `${i.id} — ${i.itemName}`, value: i.id })),
+      colSpan: 2,
+      description:
+        "Ticked items are the grower's current authorizations. Unticking one deactivates it (kept for history); the row list still shows it as Inactive.",
+    },
   ]
 
   const columns: Column<Row>[] = [
@@ -76,7 +104,7 @@ export default async function GrowerAuthorizationsPage({
           { key: "status", label: "Status", options: [{ label: "Active", value: "active" }, { label: "Inactive", value: "inactive" }] },
         ]}
       >
-        <EntityFormDialog title="Authorize item" fields={fields} action={createAuthorization} submitLabel="Authorize" trigger={<Button size="sm"><Plus className="size-4" /> Authorize item</Button>} />
+        <EntityFormDialog title="Edit grower authorizations" description="Pick a grower to load what it can access today, then adjust." fields={fields} action={setGrowerAuthorizations} submitLabel="Save authorizations" trigger={<Button size="sm"><Plus className="size-4" /> Authorize items</Button>} />
       </DataTableToolbar>
       <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} page={page} pageCount={Math.ceil(total / pageSize)} total={total} searchParams={raw} />
     </div>

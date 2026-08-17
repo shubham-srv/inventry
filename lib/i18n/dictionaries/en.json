@@ -89,7 +89,11 @@
     "growers": "Growers",
     "growersDesc": "On-field inventory users",
     "vendors": "Vendors",
-    "vendorsDesc": "Supply reporting users"
+    "vendorsDesc": "Supply reporting users",
+    "signInSubtitle": "Sign in to continue.",
+    "microsoft": "Sign in with Microsoft",
+    "or": "or",
+    "accessHelp": "Access is granted by your administrator. If you cannot sign in, ask them to check your account."
   },
   "grower": {
     "dash": {

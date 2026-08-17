@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db"
 import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { CADENCE_TYPES } from "@/lib/constants"
+import { cadenceDays } from "@/lib/scheduler/reminders"
 import {
   createScheduler,
   updateScheduler,
@@ -25,7 +26,6 @@ type Row = {
   growerId: number | null
   cadenceType: string
   thresholdDays: number
-  reminderFrequency: string
   isEnabled: boolean
   grower: { growerName: string } | null
 }
@@ -41,16 +41,19 @@ export default async function SchedulersPage() {
     { name: "scope", label: "Scope", type: "select", required: true, options: [{ label: "Global", value: "Global" }, { label: "Grower-specific", value: "Grower" }] },
     { name: "growerId", label: "Grower (if grower-scoped)", type: "select", placeholder: "Select grower", options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })) },
     { name: "cadenceType", label: "Cadence", type: "select", required: true, options: CADENCE_TYPES.map((c) => ({ label: c, value: c })) },
-    { name: "thresholdDays", label: "Remind after N days", type: "number", required: true, step: "1", description: "Days without a submission before reminders start" },
-    { name: "reminderFrequency", label: "Reminder frequency", type: "select", required: true, options: [{ label: "Daily", value: "Daily" }, { label: "Weekly", value: "Weekly" }] },
+    // Only read when cadence is "AfterNDays" — the other cadences imply their
+    // own tolerance (Daily 1, Weekly 7, Monthly 30). The description says so
+    // rather than the field disappearing, so the stored value stays visible.
+    { name: "thresholdDays", label: "Remind after N days", type: "number", required: true, step: "1", min: "1", description: "Used only when cadence is AfterNDays. Daily / Weekly / Monthly imply 1 / 7 / 30 days." },
     { name: "isEnabled", label: "Enabled", type: "switch" },
   ]
 
   const columns: Column<Row>[] = [
     { key: "scope", header: "Scope", cell: (r) => (r.scope === "Global" ? <Badge variant="outline">Global</Badge> : <Badge variant="secondary">{r.grower?.growerName ?? "Grower"}</Badge>) },
     { key: "cadence", header: "Cadence", cell: (r) => <StatusBadge status={r.cadenceType} /> },
-    { key: "days", header: "After (days)", className: "tabular-nums", cell: (r) => r.thresholdDays },
-    { key: "freq", header: "Frequency", cell: (r) => r.reminderFrequency },
+    // Show the tolerance actually in force, not the raw column, so a Weekly row
+    // with thresholdDays=3 no longer reads as if it reminds after three days.
+    { key: "days", header: "Overdue after", className: "tabular-nums", cell: (r) => `${cadenceDays(r)} day(s)` },
     { key: "enabled", header: "Enabled", cell: (r) => <StatusBadge status={r.isEnabled ? "Yes" : "No"} /> },
     {
       key: "actions",
@@ -59,7 +62,7 @@ export default async function SchedulersPage() {
       className: "text-right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
-          <EntityFormDialog title="Edit schedule" fields={fields} action={updateScheduler} values={{ id: r.id, scope: r.scope, growerId: r.growerId ? String(r.growerId) : "", cadenceType: r.cadenceType, thresholdDays: r.thresholdDays, reminderFrequency: r.reminderFrequency, isEnabled: r.isEnabled }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
+          <EntityFormDialog title="Edit schedule" fields={fields} action={updateScheduler} values={{ id: r.id, scope: r.scope, growerId: r.growerId ? String(r.growerId) : "", cadenceType: r.cadenceType, thresholdDays: r.thresholdDays, isEnabled: r.isEnabled }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
           <ConfirmButton title="Delete schedule" description="Delete this schedule?" confirmLabel="Delete" typeToConfirm action={deleteScheduler.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
         </div>
       ),

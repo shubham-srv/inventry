@@ -24,7 +24,6 @@ const schedulerSchema = z.object({
   growerId: z.string().trim().optional().default(""),
   cadenceType: z.string().trim().min(1),
   thresholdDays: z.coerce.number().int().min(1).max(90),
-  reminderFrequency: z.string().trim().min(1),
   isEnabled: z.string().trim().optional().default("true"),
 })
 
@@ -35,7 +34,6 @@ function schedulerData(d: z.infer<typeof schedulerSchema>) {
     growerId: isGrower && d.growerId ? Number(d.growerId) : null,
     cadenceType: d.cadenceType,
     thresholdDays: d.thresholdDays,
-    reminderFrequency: d.reminderFrequency,
     isEnabled: d.isEnabled === "true",
   }
 }
@@ -93,21 +91,35 @@ export async function runRemindersAction(): Promise<ActionState> {
 }
 
 // ---------------- Item thresholds ----------------
+// No unitOfMeasure: it is not the admin's to choose. See thresholdData.
 const thresholdSchema = z.object({
   id: z.string().trim().optional().default(""),
   itemId: z.string().trim().min(1, "Item is required"),
   growerId: z.string().trim().optional().default(""),
   thresholdQuantity: z.coerce.number().nonnegative(),
-  unitOfMeasure: z.string().trim().optional().default(""),
 })
 
-function thresholdData(d: z.infer<typeof thresholdSchema>) {
+/**
+ * The unit is INHERITED from the item, never posted.
+ *
+ * The form used to offer a free choice from UNITS_OF_MEASURE, which let a
+ * threshold be recorded in Cases while the item — and therefore every count and
+ * order against it — was in Bags, silently comparing two different quantities.
+ * Reading it from the item here makes that unrepresentable rather than merely
+ * discouraged. The column is kept because it records the unit a threshold was
+ * set in, and lib/grower/data.ts still falls back to it for items with no unit.
+ */
+async function thresholdData(d: z.infer<typeof thresholdSchema>) {
+  const item = await prisma.item.findUnique({
+    where: { id: d.itemId },
+    select: { unitOfMeasure: true },
+  })
   // "0" is the select sentinel for a global (all-growers) threshold.
   return {
     itemId: d.itemId,
     growerId: d.growerId && d.growerId !== "0" ? Number(d.growerId) : null,
     thresholdQuantity: d.thresholdQuantity,
-    unitOfMeasure: d.unitOfMeasure || null,
+    unitOfMeasure: item?.unitOfMeasure ?? null,
   }
 }
 
@@ -116,8 +128,9 @@ export async function createThreshold(_p: ActionState, fd: FormData): Promise<Ac
   const { data, error } = parseForm(thresholdSchema, fd)
   if (error) return error
   try {
-    await prisma.itemThreshold.create({ data: { ...thresholdData(data), createdBy: user.id, updatedBy: user.id } })
-    await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.CREATE, entityType: "ItemThreshold", entityId: data.itemId, changes: thresholdData(data) })
+    const row = await thresholdData(data)
+    await prisma.itemThreshold.create({ data: { ...row, createdBy: user.id, updatedBy: user.id } })
+    await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.CREATE, entityType: "ItemThreshold", entityId: data.itemId, changes: row })
     revalidatePath("/admin/settings/thresholds")
     return ok("Threshold created")
   } catch (e) {
@@ -130,8 +143,9 @@ export async function updateThreshold(_p: ActionState, fd: FormData): Promise<Ac
   const { data, error } = parseForm(thresholdSchema, fd)
   if (error) return error
   try {
-    await prisma.itemThreshold.update({ where: { id: Number(data.id) }, data: { ...thresholdData(data), updatedBy: user.id } })
-    await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.UPDATE, entityType: "ItemThreshold", entityId: data.id, changes: thresholdData(data) })
+    const row = await thresholdData(data)
+    await prisma.itemThreshold.update({ where: { id: Number(data.id) }, data: { ...row, updatedBy: user.id } })
+    await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.UPDATE, entityType: "ItemThreshold", entityId: data.id, changes: row })
     revalidatePath("/admin/settings/thresholds")
     return ok("Threshold updated")
   } catch (e) {

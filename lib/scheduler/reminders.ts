@@ -10,9 +10,17 @@ import { NOTIFICATION_TYPES, SUBMISSION_STATUS } from "@/lib/constants"
 //  - `npm run reminders` (scripts/run-reminders.ts)
 //  - the isolated Azure Timer Function (integration/azure-functions)
 
-type SettingLike = { cadenceType: string; thresholdDays: number; isEnabled: boolean }
+type SettingLike = { cadenceType: string; thresholdDays: number }
 
-function cadenceDays(s: SettingLike): number {
+/**
+ * Days of silence tolerated before a grower counts as overdue.
+ *
+ * `thresholdDays` is only consulted for "AfterNDays" — the named cadences carry
+ * their own tolerance. Exported so the admin table can display the figure that
+ * is actually in force rather than the raw column, which for a Weekly row can
+ * say something quite different.
+ */
+export function cadenceDays(s: SettingLike): number {
   switch (s.cadenceType) {
     case "Daily":
       return 1

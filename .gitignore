@@ -36,3 +36,6 @@ pnpm-debug.log*
 next-env.d.ts
 
 .claude
+
+# Generated master-data workbook for the client (scripts/generate-master-data-template.ts)
+master-data-template.xlsx

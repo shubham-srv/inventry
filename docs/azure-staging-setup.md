@@ -638,7 +638,8 @@ So for anything destructive, split it across two releases:
 The production approval sits **before** the migrate step for this reason: once migrations apply you
 are committed.
 
-**One-time setup in Azure DevOps:**
+**One-time setup in Azure DevOps:** the click-by-click version is a separate
+document — [azure-devops-setup.md](azure-devops-setup.md). In summary:
 - Create an **ARM service connection**; put its name in `azureSubscription` (top of the YAML).
 - Create **variable groups** `inventory-staging-secrets` and (later)
   `inventory-production-secrets`, **linked to Key Vault**, exposing `DATABASE_URL`,

@@ -53,6 +53,12 @@ Open `/login` and pick any seeded user. Reset data anytime with `npm run db:rese
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
 
+To produce the blank master-data workbook to send the client:
+
+```bash
+npx tsx scripts/generate-master-data-template.ts   # -> master-data-template.xlsx
+```
+
 ## Project structure
 
 ```
@@ -72,7 +78,16 @@ prisma/                 schema + seed
 integration/            Entra, ACS, Azure Function — drop-in, build-excluded
 ```
 
-Verification checklist: [`VERIFICATION.md`](VERIFICATION.md).
+## Documentation
+
+| Doc | What it covers |
+|---|---|
+| [`VERIFICATION.md`](VERIFICATION.md) | Manual verification checklist, one section per round of changes |
+| [`MIGRATIONS.md`](MIGRATIONS.md) | Migration workflow, renaming tables safely, fixing "drift detected" |
+| [`docs/azure-staging-setup.md`](docs/azure-staging-setup.md) | Standing up the Azure infrastructure, click by click |
+| [`docs/azure-devops-setup.md`](docs/azure-devops-setup.md) | Wiring the CI/CD pipeline in Azure DevOps |
+| [`docs/master-data-upload.md`](docs/master-data-upload.md) | Workbook format for the client's one-time master-data load |
+| [`integration/INTEGRATION.md`](integration/INTEGRATION.md) | Swapping in Entra, ACS email, the scheduler and the production login page |
 
 > **Database note:** Prisma 6 is pinned intentionally — Prisma 7 removed `url` from
 > the datasource block and requires a driver adapter. The schema avoids SQL Server

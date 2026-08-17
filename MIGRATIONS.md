@@ -19,6 +19,62 @@ push edits the schema without recording a migration, so the migration history an
 the real schema drift apart. `db:push` / `db:reset` remain in `package.json` only
 for spinning up a scratch local DB from zero; prefer `db:migrate` even locally.
 
+> ⚠️ **`npm run db:reset` is NOT the migration-aware reset.** It is
+> `prisma db push --force-reset`, which rebuilds the schema and writes **no**
+> migration history — so the very next `migrate dev` reports drift and demands
+> another reset. The one you want is `npm run db:migrate:reset`
+> (`prisma migrate reset`): it drops everything, replays every migration in
+> order, and runs the seed, leaving `_prisma_migrations` correct.
+
+## "Drift detected" when you pull new migrations
+
+Symptom — `prisma migrate dev` refuses to apply anything and offers a reset:
+
+```
+Drift detected: Your database schema is not in sync with your migration history
+```
+
+`migrate dev` replays the whole migration history into the shadow database and
+compares the result with your real one. Any mismatch is unresolvable by
+definition, so its only offer is to start over. Nothing is wrong with the new
+migrations; the database simply has no history that accounts for its tables.
+
+**Diagnose first** — this names the cause instead of guessing:
+
+```
+npm run db:migrate:status
+```
+
+- *"N migrations found … none applied"* while the database clearly has tables →
+  it was built with `db push`. There is no history to reconcile.
+- A migration listed as **failed** → resolve it with `prisma migrate resolve`.
+- Everything applied and still drifting → someone changed the schema by hand or
+  with a push after the last migration.
+
+**Fix, for a local/demo database** (fastest, and leaves the history correct so
+this cannot recur):
+
+```
+npm run db:migrate:reset
+```
+
+**Fix, when the data must survive** — baseline the migrations the schema already
+reflects, then apply only the new ones:
+
+```
+npx prisma migrate resolve --applied 0_init
+npx prisma migrate resolve --applied <each later migration already reflected>
+npm run db:migrate:deploy
+```
+
+Baselining a *pushed* database is the risky variant: `resolve` records a
+migration as applied without running it, so if push named a constraint or index
+differently from the migration SQL, a later migration that references that name
+by hand fails. Prefer the reset unless the data is genuinely worth the risk.
+
+**Never run `migrate dev` against a shared or production database.** Use
+`migrate deploy`, which has no drift check, never prompts and never resets.
+
 ## Everyday local change
 
 1. Edit `prisma/schema.prisma`.

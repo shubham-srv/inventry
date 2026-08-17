@@ -10,6 +10,7 @@
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
+    "typecheck:integration": "tsc --noEmit -p tsconfig.integration.json",
     "db:push": "prisma db push",
     "db:seed": "prisma db seed",
     "db:bootstrap": "tsx prisma/bootstrap.ts",
@@ -18,6 +19,7 @@
     "db:migrate": "prisma migrate dev",
     "db:migrate:create": "prisma migrate dev --create-only",
     "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:reset": "prisma migrate reset",
     "db:migrate:status": "prisma migrate status",
     "reminders": "tsx scripts/run-reminders.ts"
   },

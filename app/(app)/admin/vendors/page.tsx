@@ -4,7 +4,7 @@ import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { vendorsWhere } from "@/lib/admin/queries"
 import { parseListParams } from "@/lib/query"
-import { ENTITY_STATUS } from "@/lib/constants"
+import { ENTITY_STATUS, locationTypesFor } from "@/lib/constants"
 import { LOCALE_OPTIONS } from "@/lib/i18n/config"
 import { createVendor, updateVendor, deleteVendor } from "@/lib/actions/partners"
 import { PageHeader } from "@/components/page-header"
@@ -22,12 +22,11 @@ type Row = {
   id: number
   vendorName: string
   vendorType: string | null
-  regionId: number | null
-  region: { name: string } | null
   countryId: number | null
   homeCountry: { name: string } | null
   locationId: number | null
-  location: { locationName: string } | null
+  // Region is read through the location rather than stored on the vendor.
+  location: { locationName: string; region: { name: string } | null } | null
   primaryContact: string | null
   contactEmail: string | null
   contactPhone: string | null
@@ -55,9 +54,8 @@ export default async function VendorsPage({
     prisma.vendor.findMany({
       where,
       include: {
-        region: true,
         homeCountry: true,
-        location: true,
+        location: { include: { region: true } },
         itemVendors: { where: { isActive: true }, select: { itemId: true } },
         materialCategories: { where: { isActive: true }, select: { materialCategoryCode: true } },
         supplyCountries: { where: { isActive: true }, select: { countryId: true } },
@@ -68,13 +66,20 @@ export default async function VendorsPage({
       take,
     }),
     prisma.vendor.count({ where }),
-    prisma.item.findMany({ where: { status: ENTITY_STATUS.ACTIVE }, orderBy: { id: "asc" }, select: { id: true, itemName: true } }),
+    prisma.item.findMany({ where: { status: ENTITY_STATUS.ACTIVE }, orderBy: { id: "asc" }, select: { id: true, itemName: true, materialCategoryCode: true } }),
     prisma.materialCategory.findMany({ orderBy: { name: "asc" } }),
+    // Still needed for the Region filter, which now matches through the
+    // vendor's location. There is no Region field on the vendor form.
     prisma.region.findMany({ orderBy: { name: "asc" } }),
     // Placeholder rows (N/A) are excluded: "supplies to N/A" is not a fact
     // anyone can act on, and neither is a vendor based there.
     prisma.country.findMany({ where: { isSelectable: true }, orderBy: { name: "asc" } }),
-    prisma.location.findMany({ orderBy: { locationName: "asc" }, select: { id: true, locationName: true } }),
+    // Only vendor-side sites (and shared ones) can be a vendor's location.
+    prisma.location.findMany({
+      where: { locationType: { in: locationTypesFor("Vendor") } },
+      orderBy: { locationName: "asc" },
+      select: { id: true, locationName: true },
+    }),
   ])
 
   const regionOptions = regions.map((r) => ({ label: r.name, value: String(r.id) }))
@@ -84,9 +89,8 @@ export default async function VendorsPage({
     { name: "vendorType", label: "Type", type: "select", placeholder: "Select type", options: VENDOR_TYPES.map((t) => ({ label: t, value: t })) },
     { name: "status", label: "Status", type: "select", required: true, options: STATUSES.map((s) => ({ label: s, value: s })) },
     { name: "preferredLocale", label: "Email language", type: "select", required: true, options: LOCALE_OPTIONS },
-    { name: "regionId", label: "Region", type: "select", placeholder: "Select region", options: regionOptions },
-    { name: "countryId", label: "Country", type: "select", placeholder: "Select country", options: countryOptions, description: "Where this vendor is based." },
-    { name: "locationId", label: "Location", type: "select", placeholder: "Select location", options: locations.map((l) => ({ label: l.locationName, value: String(l.id) })) },
+    { name: "countryId", label: "Country (headquarters)", type: "select", placeholder: "Select country", options: countryOptions, description: "Where the vendor is based. Their facility's country comes from the location below and can differ." },
+    { name: "locationId", label: "Location", type: "select", placeholder: "Select location", options: locations.map((l) => ({ label: l.locationName, value: String(l.id) })), description: "Vendor-side sites only. The vendor's region is read from here." },
     { name: "primaryContact", label: "Primary contact", type: "text" },
     { name: "contactEmail", label: "Contact email", type: "text" },
     { name: "contactPhone", label: "Contact phone", type: "text" },
@@ -115,7 +119,17 @@ export default async function VendorsPage({
       type: "multiselect",
       placeholder: "Select items",
       colSpan: 2,
-      options: items.map((i) => ({ label: `${i.id} — ${i.itemName}`, value: i.id })),
+      // Narrowed by the categories picked above: an item belongs to exactly one
+      // material category, so tagging each option with its code is enough for
+      // the dialog to filter. With no categories picked the full list shows.
+      dependsOn: "materialCategoryCodes",
+      options: items.map((i) => ({
+        label: `${i.id} — ${i.itemName}`,
+        value: i.id,
+        parent: i.materialCategoryCode ?? undefined,
+      })),
+      description:
+        "Filtered by the material categories above. Removing a category also removes its items from this selection.",
     },
     { name: "notes", label: "Notes", type: "textarea" },
   ]
@@ -123,7 +137,7 @@ export default async function VendorsPage({
   const columns: Column<Row>[] = [
     { key: "name", header: "Name", cell: (r) => <span className="font-medium">{r.vendorName}</span> },
     { key: "type", header: "Type", cell: (r) => r.vendorType ?? "—" },
-    { key: "region", header: "Region", cell: (r) => r.region?.name ?? "—" },
+    { key: "region", header: "Region", cell: (r) => r.location?.region?.name ?? "—" },
     { key: "country", header: "Country", cell: (r) => r.homeCountry?.name ?? "—" },
     { key: "location", header: "Location", cell: (r) => r.location?.locationName ?? "—" },
     { key: "supplies", header: "Supplies to", cell: (r) => r.supplyCountries.length },
@@ -144,7 +158,7 @@ export default async function VendorsPage({
             action={updateVendor}
             values={{
               id: r.id, vendorName: r.vendorName, vendorType: r.vendorType ?? "", status: r.status, preferredLocale: r.preferredLocale,
-              regionId: r.regionId ?? "", countryId: r.countryId ?? "", locationId: r.locationId ?? "", primaryContact: r.primaryContact ?? "",
+              countryId: r.countryId ?? "", locationId: r.locationId ?? "", primaryContact: r.primaryContact ?? "",
               contactEmail: r.contactEmail ?? "", contactPhone: r.contactPhone ?? "", leadTimeDays: r.leadTimeDays ?? "",
               paymentTermsDays: r.paymentTermsDays ?? "", ptAccountNumber: r.ptAccountNumber ?? "", notes: r.notes ?? "",
               itemIds: r.itemVendors.map((iv) => iv.itemId).join(","),

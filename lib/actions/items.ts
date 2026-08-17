@@ -18,7 +18,8 @@ import { nextItemId } from "@/lib/items/item-id"
 
 const PATH = "/admin/items"
 
-// Commodity, category, sub-category, country, region and unit are all required:
+// Commodity, category, sub-category, country of origin and unit are all
+// required:
 // the first two build the item id, and the unit is inherited by every quantity
 // entered for the item later on. `legacyFamousId` is intentionally absent — it
 // only ever comes from the initial data upload, never from this form.
@@ -28,7 +29,6 @@ const baseSchema = z.object({
   materialCategoryCode: z.string().trim().min(1, "Category is required"),
   subCategoryId: z.string().trim().min(1, "Sub-category is required"),
   countryOfOriginId: z.string().trim().min(1, "Country of origin is required"),
-  regionId: z.string().trim().min(1, "Region is required"),
   unitOfMeasure: z
     .string()
     .trim()
@@ -60,7 +60,6 @@ function toData(d: ItemInput) {
     materialCategoryCode: d.materialCategoryCode,
     subCategoryId: Number(d.subCategoryId),
     countryOfOriginId: Number(d.countryOfOriginId),
-    regionId: Number(d.regionId),
     unitOfMeasure: d.unitOfMeasure,
     applicationMethod: d.applicationMethod || null,
     status: d.status,

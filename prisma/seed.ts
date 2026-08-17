@@ -174,17 +174,23 @@ async function main() {
       { locationName: "Central Warehouse", locationType: "Warehouse", regionId: regionByName["Central"], countryId: cooByName["USA"], commodityFocus: "Mixed" },
       { locationName: "East Cross-dock", locationType: "Cross-dock", regionId: regionByName["East"], countryId: cooByName["USA"], commodityFocus: "Berries" },
       { locationName: "Hermosillo Yard", locationType: "Warehouse", regionId: regionByName["West"], countryId: cooByName["Mexico"], commodityFocus: "Table Grapes" },
+      // Vendor-side sites. Types are gated (lib/constants.ts LOCATION_TYPES), so
+      // a vendor cannot sit at the Packing House above and a grower cannot count
+      // inventory at these — which is the whole point of the type field.
+      { locationName: "PackRight Plant", locationType: "Manufacturing Plant", regionId: regionByName["West"], countryId: cooByName["USA"] },
+      { locationName: "Gulf Distribution Center", locationType: "Distribution Center", regionId: regionByName["East"], countryId: cooByName["USA"] },
+      { locationName: "Nogales 3PL", locationType: "3PL Facility", regionId: regionByName["West"], countryId: cooByName["Mexico"] },
     ].map((l) => prisma.location.create({ data: l }))
   )
 
   // ---- Vendors --------------------------------------------------------
   await prisma.vendor.createMany({
     data: [
-      { vendorName: "PackRight Manufacturing", vendorType: "Manufacturer", regionId: regionByName["West"], countryId: cooByName["USA"], locationId: loc[0].id, primaryContact: "Sam Carter", contactEmail: "sam@packright.example", contactPhone: "+1-555-0101", leadTimeDays: 5, paymentTermsDays: 30, status: "Active" },
-      { vendorName: "PalletPool Co", vendorType: "Pallet Pooling", regionId: regionByName["Central"], countryId: cooByName["USA"], locationId: loc[1].id, primaryContact: "Lena Ortiz", contactEmail: "lena@palletpool.example", leadTimeDays: 3, paymentTermsDays: 15, status: "Active", preferredLocale: "es" },
-      { vendorName: "LabelWorks 3PL", vendorType: "3PL", regionId: regionByName["East"], countryId: cooByName["USA"], locationId: loc[2].id, primaryContact: "Omar Reed", contactEmail: "omar@labelworks.example", leadTimeDays: 7, paymentTermsDays: 45, status: "Active" },
-      { vendorName: "BoxCraft Industries", vendorType: "Manufacturer", regionId: regionByName["Central"], countryId: cooByName["USA"], locationId: loc[1].id, primaryContact: "Nina Patel", contactEmail: "nina@boxcraft.example", leadTimeDays: 10, paymentTermsDays: 60, status: "Active" },
-      { vendorName: "StickerPro Labels", vendorType: "3PL", regionId: regionByName["West"], countryId: cooByName["Mexico"], locationId: loc[3].id, primaryContact: "Hugo Marín", contactEmail: "hugo@stickerpro.example", leadTimeDays: 4, paymentTermsDays: 30, status: "Active", preferredLocale: "es" },
+      { vendorName: "PackRight Manufacturing", vendorType: "Manufacturer", countryId: cooByName["USA"], locationId: loc[4].id, primaryContact: "Sam Carter", contactEmail: "sam@packright.example", contactPhone: "+1-555-0101", leadTimeDays: 5, paymentTermsDays: 30, status: "Active" },
+      { vendorName: "PalletPool Co", vendorType: "Pallet Pooling", countryId: cooByName["USA"], locationId: loc[1].id, primaryContact: "Lena Ortiz", contactEmail: "lena@palletpool.example", leadTimeDays: 3, paymentTermsDays: 15, status: "Active", preferredLocale: "es" },
+      { vendorName: "LabelWorks 3PL", vendorType: "3PL", countryId: cooByName["USA"], locationId: loc[5].id, primaryContact: "Omar Reed", contactEmail: "omar@labelworks.example", leadTimeDays: 7, paymentTermsDays: 45, status: "Active" },
+      { vendorName: "BoxCraft Industries", vendorType: "Manufacturer", countryId: cooByName["USA"], locationId: loc[1].id, primaryContact: "Nina Patel", contactEmail: "nina@boxcraft.example", leadTimeDays: 10, paymentTermsDays: 60, status: "Active" },
+      { vendorName: "StickerPro Labels", vendorType: "3PL", countryId: cooByName["Mexico"], locationId: loc[6].id, primaryContact: "Hugo Marín", contactEmail: "hugo@stickerpro.example", leadTimeDays: 4, paymentTermsDays: 30, status: "Active", preferredLocale: "es" },
     ],
   })
   const vendorRows = await prisma.vendor.findMany({ orderBy: { id: "asc" } })
@@ -330,7 +336,6 @@ async function main() {
       unitOfMeasure: it.uom,
       applicationMethod: "Machine/Hand",
       status: "Active",
-      regionId: regionByName["West"],
       createdBy: adminId,
     })),
   })
@@ -451,8 +456,8 @@ async function main() {
   // ---- Scheduler settings (global + one per-grower) -------------------
   await prisma.schedulerSetting.createMany({
     data: [
-      { scope: "Global", cadenceType: "AfterNDays", thresholdDays: 3, reminderFrequency: "Daily", isEnabled: true, createdBy: adminId },
-      { scope: "Grower", growerId: pdg.id, cadenceType: "Weekly", thresholdDays: 7, reminderFrequency: "Daily", isEnabled: true, createdBy: adminId },
+      { scope: "Global", cadenceType: "AfterNDays", thresholdDays: 3, isEnabled: true, createdBy: adminId },
+      { scope: "Grower", growerId: pdg.id, cadenceType: "Weekly", thresholdDays: 7, isEnabled: true, createdBy: adminId },
     ],
   })
 

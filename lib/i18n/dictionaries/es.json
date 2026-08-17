@@ -89,7 +89,11 @@
     "growers": "Productores",
     "growersDesc": "Usuarios de inventario en campo",
     "vendors": "Proveedores",
-    "vendorsDesc": "Usuarios de informes de suministro"
+    "vendorsDesc": "Usuarios de informes de suministro",
+    "signInSubtitle": "Inicia sesión para continuar.",
+    "microsoft": "Iniciar sesión con Microsoft",
+    "or": "o",
+    "accessHelp": "El acceso lo concede tu administrador. Si no puedes iniciar sesión, pídele que revise tu cuenta."
   },
   "grower": {
     "dash": {

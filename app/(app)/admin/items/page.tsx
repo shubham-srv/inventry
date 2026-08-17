@@ -26,7 +26,6 @@ async function getItems(where: ReturnType<typeof itemsWhere>, skip: number, take
         materialCategory: true,
         subCategory: true,
         countryOfOrigin: true,
-        region: true,
         authorizations: { where: { isActive: true }, select: { growerId: true } },
         itemVendors: { where: { isActive: true }, select: { vendorId: true } },
       },
@@ -49,7 +48,7 @@ export default async function ItemsPage({
   const { page, pageSize, skip, take, raw } = parseListParams(sp)
   const where = itemsWhere(raw)
 
-  const [{ rows, total }, nextSequence, commodities, categories, subCategories, countries, regions, growers, vendors] =
+  const [{ rows, total }, nextSequence, commodities, categories, subCategories, countries, growers, vendors] =
     await Promise.all([
       getItems(where, skip, take),
       peekNextSequence(prisma),
@@ -60,7 +59,6 @@ export default async function ItemsPage({
         orderBy: { name: "asc" },
       }),
       prisma.country.findMany({ orderBy: { name: "asc" } }),
-      prisma.region.findMany({ orderBy: { name: "asc" } }),
       prisma.grower.findMany({ where: { status: "Active" }, orderBy: { growerName: "asc" } }),
       prisma.vendor.findMany({ where: { status: "Active" }, orderBy: { vendorName: "asc" } }),
     ])
@@ -107,14 +105,6 @@ export default async function ItemsPage({
       required: true,
       placeholder: "Select country",
       options: countries.map((c) => ({ label: c.name, value: String(c.id) })),
-    },
-    {
-      name: "regionId",
-      label: "Region",
-      type: "select",
-      required: true,
-      placeholder: "Select region",
-      options: regions.map((r) => ({ label: r.name, value: String(r.id) })),
     },
     {
       name: "unitOfMeasure",
@@ -183,7 +173,6 @@ export default async function ItemsPage({
     { key: "commodity", header: "Commodity", cell: (r) => r.commodity?.name ?? "—" },
     { key: "category", header: "Category", cell: (r) => r.materialCategory?.name ?? "—" },
     { key: "coo", header: "Origin", cell: (r) => r.countryOfOrigin?.name ?? "—" },
-    { key: "region", header: "Region", cell: (r) => r.region?.name ?? "—" },
     { key: "uom", header: "Unit", cell: (r) => r.unitOfMeasure ?? "—" },
     { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
     {
@@ -205,7 +194,6 @@ export default async function ItemsPage({
               materialCategoryCode: r.materialCategoryCode ?? "",
               subCategoryId: r.subCategoryId ?? "",
               countryOfOriginId: r.countryOfOriginId ?? "",
-              regionId: r.regionId ?? "",
               unitOfMeasure: r.unitOfMeasure ?? "",
               applicationMethod: r.applicationMethod ?? "",
               status: r.status,
@@ -260,11 +248,6 @@ export default async function ItemsPage({
               key: "category",
               label: "Category",
               options: categories.map((c) => ({ label: c.name, value: c.code })),
-            },
-            {
-              key: "region",
-              label: "Region",
-              options: regions.map((r) => ({ label: r.name, value: String(r.id) })),
             },
           ]}
         >

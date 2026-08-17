@@ -121,8 +121,8 @@ To activate:
    - `app/api/auth/magic/request/route.ts` → `export { requestLink as POST } from "@/integration/magic-link/magic-link-routes"`
    - `app/api/auth/magic/consume/route.ts` → `export { consumeLink as GET } from "..."`
    (or copy the file into `lib/auth/` and import from there)
-5. **Add the email form** to `/login` (an email input that POSTs to
-   `/api/auth/magic/request`), alongside the "Sign in with Microsoft" button.
+5. **Swap in the production login page** — see §5 below. The page and its email
+   form are already written; you copy two files.
 6. **(Recommended) sliding session** so daily users aren't logged out every 7 days: copy
    `sliding-session.ts` into `lib/auth/` and either export its `middleware` from root
    `middleware.ts`, or call `slideSession(req, res)` from your existing middleware. Keep
@@ -131,3 +131,58 @@ To activate:
 Security baked into the reference: single-use (burned on consume), prior links invalidated
 on new request, neutral response (no email enumeration), only a token **hash** stored, and
 external-only (internal roles are refused — they use Entra).
+
+---
+
+## 5. Switching on the production login page
+
+The app ships with a **demo user-picker** at `app/(auth)/login/page.tsx`: it lists
+every seeded user and logs in as whoever you click, with no credential of any
+kind. That is exactly what you want on a laptop and a total compromise anywhere
+else, so replacing it is the last step of going live — and deliberately a
+separate, manual step rather than something an env var flips.
+
+The replacement is already written:
+
+| File | Copy to | What it is |
+|---|---|---|
+| [`magic-link/login-page.tsx`](magic-link/login-page.tsx) | `app/(auth)/login/page.tsx` | server component: Microsoft button + email box |
+| [`magic-link/magic-link-form.tsx`](magic-link/magic-link-form.tsx) | `components/auth/magic-link-form.tsx` | client component: the email box itself |
+
+Both audiences on one page — internal staff to Entra (§1), growers and vendors to
+a magic link (§4) — because splitting them across two URLs means telling every
+user which one is theirs.
+
+Steps, once §1 and §4 are wired:
+
+1. Copy the two files to the paths above.
+2. In the copied page, change the `MagicLinkForm` import from
+   `@/integration/magic-link/magic-link-form` to `@/components/auth/magic-link-form`.
+3. **Delete `lib/auth/dummy.ts`** and the `loginAs` action. Removing the page is
+   not enough on its own — `loginAs` is a server action, so while it exists it
+   is a reachable endpoint that logs in as any user id, page or no page.
+4. Check nothing else imports `loginAs`:
+   ```
+   grep -rn "loginAs\|auth/dummy" app lib components
+   ```
+5. Deploy and confirm `/login` shows the two options and **no user list**.
+
+The translation keys the page uses (`login.signInSubtitle`, `login.microsoft`,
+`login.or`, `login.accessHelp`) are already in both dictionaries, so the swap
+needs no i18n work.
+
+### Keeping the drop-ins compiling
+
+`integration/` is outside the app build (`tsconfig.json` → `exclude`), so a
+refactor in `lib/` or `components/` can break a drop-in silently and you would
+not find out until the day you wired it in. Guard against that with:
+
+```
+npm run typecheck:integration
+```
+
+which typechecks the login page and form against the current app
+([`tsconfig.integration.json`](../tsconfig.integration.json)). The Entra and
+magic-link *route* modules are excluded from that check on purpose: they
+reference the `MagicToken` model, which does not exist in `schema.prisma` until
+step 1 of §4 is done.

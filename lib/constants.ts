@@ -80,6 +80,45 @@ export const APPLICATION_METHODS = [
 // bootstraps it in the seed / migration.
 export const REGIONS = ["West", "Central", "East"] as const
 
+/**
+ * Location types, and which side of the business each one may be attached to.
+ *
+ * A location's type decides where it can be picked: a grower-side type is not
+ * offered when mapping a vendor's site, and vice versa. `Both` exists because
+ * some places genuinely serve either — a shared cross-dock is a cross-dock
+ * whoever is using it — and without it the list would need near-duplicate
+ * entries ("Grower Warehouse" / "Vendor Warehouse") that mean the same thing.
+ *
+ * This is the single source of truth for the gate. The pickers filter on it and
+ * the server actions re-check it (lib/actions/partners.ts), so a hand-posted
+ * locationId cannot attach a vendor site to a grower.
+ *
+ * A location with NO type is pickable by neither — it is incomplete data, and
+ * silently allowing it everywhere would defeat the gate.
+ */
+export const LOCATION_TYPES = [
+  { name: "Grower Field", appliesTo: "Grower" },
+  { name: "Packing House", appliesTo: "Grower" },
+  { name: "Cold Storage", appliesTo: "Grower" },
+  { name: "Manufacturing Plant", appliesTo: "Vendor" },
+  { name: "Distribution Center", appliesTo: "Vendor" },
+  { name: "3PL Facility", appliesTo: "Vendor" },
+  { name: "Warehouse", appliesTo: "Both" },
+  { name: "Cross-dock", appliesTo: "Both" },
+] as const
+
+export type LocationSide = "Grower" | "Vendor"
+export type LocationTypeName = (typeof LOCATION_TYPES)[number]["name"]
+
+export const LOCATION_TYPE_NAMES = LOCATION_TYPES.map((t) => t.name)
+
+/** Type names attachable to `side` — i.e. that side's own types plus "Both". */
+export function locationTypesFor(side: LocationSide): string[] {
+  return LOCATION_TYPES.filter(
+    (t) => t.appliesTo === side || t.appliesTo === "Both"
+  ).map((t) => t.name)
+}
+
 // Seed values for the CountryOfOrigin lookup table (dropdown source for items).
 export const COUNTRIES_OF_ORIGIN = [
   "USA",

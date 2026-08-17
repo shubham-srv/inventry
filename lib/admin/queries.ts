@@ -21,7 +21,8 @@ export function itemsWhere(sp: SP): Prisma.ItemWhereInput {
   if (sp.status) and.push({ status: sp.status })
   if (sp.commodity) and.push({ commodityCode: sp.commodity })
   if (sp.category) and.push({ materialCategoryCode: sp.category })
-  if (sp.region) and.push({ regionId: Number(sp.region) || 0 })
+  // No region filter: items carry country of origin as their only geography.
+  if (sp.country) and.push({ countryOfOriginId: Number(sp.country) || 0 })
   return and.length ? { AND: and } : {}
 }
 
@@ -47,7 +48,9 @@ export function vendorsWhere(sp: SP): Prisma.VendorWhereInput {
     })
   if (sp.status) and.push({ status: sp.status })
   if (sp.type) and.push({ vendorType: sp.type })
-  if (sp.region) and.push({ regionId: Number(sp.region) || 0 })
+  // A vendor's region is a property of its location now, so filtering reaches
+  // through the relation. Vendors with no location match no region.
+  if (sp.region) and.push({ location: { regionId: Number(sp.region) || 0 } })
   if (sp.country) and.push({ countryId: Number(sp.country) || 0 })
   return and.length ? { AND: and } : {}
 }

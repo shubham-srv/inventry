@@ -5,7 +5,7 @@ import { CAPABILITIES } from "@/lib/rbac"
 import { itemVendorsWhere } from "@/lib/admin/queries"
 import { parseListParams } from "@/lib/query"
 import {
-  createItemVendor,
+  setVendorItems,
   setItemVendorActive,
   deleteItemVendor,
   setItemVendorPackaging,
@@ -40,7 +40,7 @@ export default async function VendorItemMappingsPage({
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 15 })
   const where = itemVendorsWhere(raw)
 
-  const [rows, total, vendors, items, chains] = await Promise.all([
+  const [rows, total, vendors, items, chains, allMappings] = await Promise.all([
     prisma.itemVendor.findMany({
       where,
       include: {
@@ -61,11 +61,36 @@ export default async function VendorItemMappingsPage({
       include: { levels: { orderBy: { level: "asc" } } },
       orderBy: [{ materialCategoryCode: "asc" }, { name: "asc" }],
     }),
+    // Every ACTIVE mapping, unpaged — the dialog pre-ticks a vendor's whole set,
+    // so a page-sized subset would quietly deactivate everything not on screen.
+    // Same scaling caveat as the grower authorizations page.
+    prisma.itemVendor.findMany({
+      where: { isActive: true },
+      select: { vendorId: true, itemId: true },
+      orderBy: { itemId: "asc" },
+    }),
   ])
+
+  // vendorId -> the items it currently supplies.
+  const mappedByVendor: Record<string, string[]> = {}
+  for (const m of allMappings) (mappedByVendor[String(m.vendorId)] ??= []).push(m.itemId)
 
   const createFields: Field[] = [
     { name: "vendorId", label: "Vendor", type: "select", required: true, placeholder: "Select vendor", options: vendors.map((v) => ({ label: v.vendorName, value: String(v.id) })), colSpan: 2 },
-    { name: "itemIds", label: "Items", type: "multiselect", required: true, placeholder: "Select one or more items", options: items.map((i) => ({ label: `${i.id} — ${i.itemName}`, value: i.id })), colSpan: 2 },
+    {
+      name: "itemIds",
+      label: "Items",
+      type: "multiselect",
+      placeholder: "Select one or more items",
+      // Picking a vendor ticks what it already supplies; this dialog edits the
+      // whole set rather than only adding to it.
+      dependsOn: "vendorId",
+      presetFrom: mappedByVendor,
+      options: items.map((i) => ({ label: `${i.id} — ${i.itemName}`, value: i.id })),
+      colSpan: 2,
+      description:
+        "Ticked items are what the vendor supplies today. Unticking one deactivates the mapping — its packaging setup is kept, so re-ticking later restores it.",
+    },
   ]
 
   // A chain is only offered for an item whose unit matches the chain's base
@@ -202,7 +227,7 @@ export default async function VendorItemMappingsPage({
           { key: "packaging", label: "Packaging", options: [{ label: "Configured", value: "configured" }, { label: "Not set", value: "missing" }] },
         ]}
       >
-        <EntityFormDialog title="Map items to vendor" fields={createFields} action={createItemVendor} submitLabel="Map items" trigger={<Button size="sm"><Plus className="size-4" /> Map items</Button>} />
+        <EntityFormDialog title="Edit vendor item mappings" description="Pick a vendor to load what it supplies today, then adjust." fields={createFields} action={setVendorItems} submitLabel="Save mappings" trigger={<Button size="sm"><Plus className="size-4" /> Map items</Button>} />
       </DataTableToolbar>
       <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} page={page} pageCount={Math.ceil(total / pageSize)} total={total} searchParams={raw} />
     </div>

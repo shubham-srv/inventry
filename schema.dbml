@@ -69,9 +69,8 @@ Table Vendor {
   id int [pk, increment]
   vendorName varchar [not null]
   vendorType varchar [note: 'Manufacturer, Pallet Pooling, 3PL']
-  regionId int [ref: > Region.id]
-  locationId int [ref: > Location.id, note: 'where the vendor operates from']
-  countryId int [ref: > Country.id, note: 'the vendor own home country; see VendorCountry for supply-to']
+  locationId int [ref: > Location.id, note: 'where the vendor operates from; the vendor REGION is read through this, not stored']
+  countryId int [ref: > Country.id, note: 'headquarters country - can differ from the location country; see VendorCountry for supply-to']
   primaryContact varchar
   contactEmail varchar
   contactPhone varchar
@@ -89,7 +88,7 @@ Table Vendor {
 Table Location {
   id int [pk, increment]
   locationName varchar [not null]
-  locationType varchar [note: 'Packing House, Warehouse, Cross-dock, Grower']
+  locationType varchar [note: 'Gates which side may attach this site - see LOCATION_TYPES in lib/constants.ts. Grower-side: Grower Field, Packing House, Cold Storage. Vendor-side: Manufacturing Plant, Distribution Center, 3PL Facility. Either: Warehouse, Cross-dock. Untyped = pickable by neither.']
   regionId int [ref: > Region.id]
   countryId int [ref: > Country.id]
   commodityFocus varchar
@@ -145,12 +144,11 @@ Table Item {
   commodityCode varchar [ref: > Commodity.code]
   materialCategoryCode varchar [ref: > MaterialCategory.code]
   subCategoryId int [ref: > SubCategory.id]
-  countryOfOriginId int [ref: > Country.id]
+  countryOfOriginId int [ref: > Country.id, note: 'the only geography on an item - region was dropped']
   unitOfMeasure varchar [note: 'the item unit; inherited by counts and orders']
   applicationMethod varchar [note: 'Machine, Hand, Machine/Hand, N/A']
   status varchar [not null, default: 'Active', note: 'Active, Inactive, Review']
   notes varchar
-  regionId int [ref: > Region.id]
   createdBy int
   createdAt datetime [not null, default: `now()`]
   updatedBy int
@@ -161,7 +159,6 @@ Table Item {
     materialCategoryCode
     subCategoryId
     countryOfOriginId
-    regionId
   }
 }
 
@@ -214,7 +211,8 @@ Table GrowerLocation {
   }
 }
 
-// Region lookup (dropdown source for items, vendors and locations). Seeded; no
+// Region lookup, used by Location alone. Items dropped it (country of origin is
+// their only geography) and vendors read it through their location. Seeded; no
 // admin page - values are managed in the seed / by migration.
 Table Region {
   id int [pk, increment]
@@ -514,8 +512,7 @@ Table SchedulerSetting {
   scope varchar [not null, default: 'Global', note: 'Global, Grower']
   growerId int [ref: > Grower.id]
   cadenceType varchar [not null, default: 'AfterNDays', note: 'Daily, Weekly, Monthly, AfterNDays']
-  thresholdDays int [not null, default: 3, note: 'days of no submission before first reminder']
-  reminderFrequency varchar [not null, default: 'Daily', note: 'how often to remind after triggered']
+  thresholdDays int [not null, default: 3, note: 'days of no submission before reminders start - READ ONLY WHEN cadenceType = AfterNDays']
   isEnabled boolean [not null, default: true]
   createdBy int
   createdAt datetime [not null, default: `now()`]

@@ -902,5 +902,156 @@ As **sam@packright.local**, `/vendor/submit`:
 - [ ] The previous-value lookup is now bounded to 90 days — it used to read the
       vendor's entire submission history on every page load.
 
+## Round 9 — region cleanup, location gating, scheduler honesty (August 2026)
+
+> One migration, `20260817090000_drop_region_from_item_vendor_and_reminder_frequency`.
+> `npm run db:migrate:deploy` then `npm run db:seed` (or `npm run db:reset` on a
+> pushed database — see the Round 8 note).
+>
+> **This migration deletes data on purpose.** `Item.regionId` and
+> `Vendor.regionId` go away, and those values were themselves backfilled from
+> free text in `20260731090000`. Vendor region stays derivable through the
+> vendor's location; item region is simply gone. Back up first if anyone still
+> wants those columns.
+>
+> Replayed on a scratch database, seeded, and `prisma migrate dev` afterwards
+> reports **"Already in sync"** — the hand-written SQL reproduces schema.prisma.
+
+### R9.1 — Region removed from items
+- [ ] `/admin/items`: no **Region** column, no Region filter, and the Add/Edit
+      dialog has no Region field. Country of origin is still there and still required.
+- [ ] Creating and editing an item works without ever supplying a region
+      (it used to be a required field that would block the save).
+- [ ] **Export items** (.xlsx) has no Region column; Country of origin remains.
+
+### R9.2 — Vendor region comes from its location
+- [ ] `/admin/vendors`: the Add/Edit dialog has **no Region field**. It keeps
+      **Country (headquarters)**, which is deliberate — a vendor can be based in
+      one country and ship from a facility in another.
+- [ ] The **Region** column still shows a value, read through the vendor's
+      location. A vendor with no location shows "—".
+- [ ] The **Region** filter still works, matching through the location. Vendors
+      with no location correctly drop out of it.
+- [ ] **Export vendors** (.xlsx) Region column matches the on-screen value.
+- [ ] Seeded check: PackRight=West, PalletPool=Central, LabelWorks=East,
+      BoxCraft=Central, StickerPro=West — all resolved via their sites.
+
+### R9.3 — Location types gate which side can use a site
+Types live in `LOCATION_TYPES` in [lib/constants.ts](lib/constants.ts):
+
+| Side | Types |
+|---|---|
+| Grower only | Grower Field, Packing House, Cold Storage |
+| Vendor only | Manufacturing Plant, Distribution Center, 3PL Facility |
+| Either | Warehouse, Cross-dock |
+
+> **The list is a starting point, not a specification.** Edit that one array to
+> add, rename or re-side a type — the pickers, the filters and the server-side
+> checks all read from it.
+
+- [ ] `/admin/locations`: **Type** is now required, and each option is labelled
+      with the side it serves, e.g. "Packing House (grower)", "Warehouse (grower or vendor)".
+- [ ] `/admin/growers` → Edit → **Locations**: offers only grower-side and shared
+      sites. "PackRight Plant" and "Gulf Distribution Center" must NOT appear.
+- [ ] `/admin/vendors` → Edit → **Location**: offers only vendor-side and shared
+      sites. "Salinas Packing House" must NOT appear.
+- [ ] A location with **no type** appears in neither picker.
+- [ ] The gate is enforced server-side too, not just in the dropdown — posting a
+      grower-side location id on the vendor form stores null rather than saving it
+      ([lib/actions/partners.ts](lib/actions/partners.ts) `validVendorLocationId`
+      and `syncGrowerLocations`).
+
+### R9.4 — Scheduler: dead field removed, real tolerance shown
+- [ ] `/admin/settings/schedulers`: the **Frequency** column and the
+      "Reminder frequency" form field are **gone**. They were never read — the
+      re-nag interval has always been "at most one per grower per day", enforced
+      by a NotificationLog check, so Daily and Weekly behaved identically.
+- [ ] The table's **Overdue after** column shows the tolerance actually in force:
+      the seeded Global row reads **3 day(s)** (AfterNDays/3) and the PDG row
+      reads **7 day(s)** (Weekly). Previously a Weekly row displayed its unused
+      `thresholdDays`, which could say something entirely different.
+- [ ] The "Remind after N days" field now says it applies only to **AfterNDays**.
+      Set a grower to Weekly with N=1 and confirm they are still only chased
+      after 7 days.
+- [ ] **Run reminder check now** still works.
+
+## Round 10 — reactive dialog fields (August 2026)
+
+> **No migration.** UI and server-action changes only — `git pull` and restart
+> the dev server. One behaviour change is not cosmetic, though: the two mapping
+> dialogs now REMOVE as well as add. See R10.2.
+
+All five changes ride on one addition to
+[EntityFormDialog](components/crud/entity-form-dialog.tsx): a field can now
+react to another field via `dependsOn`, with three effects — **filter** options
+(existing, now working for multiselects too), **preset** the value
+(`presetFrom`), and **derive** a read-only display (`derive`).
+
+Two rules worth knowing while testing:
+- An empty **select** parent offers nothing ("pick an item first"). An empty
+  **multiselect** parent offers everything — nothing ticked means "not
+  filtering", not "exclude all".
+- Filtered children are **pruned**, not cleared. Removing one category drops
+  that category's items from the selection and leaves the rest alone.
+
+### R10.1 — Vendor items filtered by material category (`/admin/vendors`)
+- [ ] Edit a vendor. With **no** categories ticked, the Items list shows every
+      active item.
+- [ ] Tick **BX** only — the Items list narrows to BX items. Tick **BG** as well
+      and BG items join it.
+- [ ] Tick BX + BG, select one item from each, then untick BX: the BX item drops
+      out of the selection and the BG one stays. (This is the pruning rule — it
+      should not wipe the whole box.)
+- [ ] Save and reopen: the surviving selection persisted.
+
+### R10.2 — Mapping dialogs pre-tick and reconcile ⚠️
+**This changes what the dialog does.** It used to only add; unticking was
+impossible and removal happened via the per-row Deactivate button. It now edits
+the whole set, so **an unticked box is a removal instruction**.
+
+`/admin/mappings/growers` → **Authorize items**:
+- [ ] Before a grower is chosen the Items list is empty.
+- [ ] Choosing **Agribar** ticks its 8 current items. Switching to **Brigo**
+      replaces them with Brigo's 8 — no leftovers from Agribar.
+- [ ] Add one item, save → toast reads "1 added". The row list shows it Active.
+- [ ] Reopen, untick an item, save → toast reads "1 removed". The row list shows
+      that row as **Inactive**, not gone — removal is soft, so submissions and
+      ledger rows that reference it still resolve.
+- [ ] Save with nothing changed → "No changes".
+- [ ] Unticking everything is allowed (it deactivates the lot) — it used to fail
+      validation with "At least one item is required".
+- [ ] The preset covers a grower's **whole** set, not just the visible page.
+      Page to the last page of the table, open the dialog, pick a grower with
+      more items than one page holds, and confirm all of them are ticked.
+
+`/admin/mappings/vendors` → **Map items** — the same checks. Additionally:
+- [ ] Untick a mapped item that has packaging configured, save, then re-tick it:
+      the packaging chain and ratios are still there (the row was deactivated,
+      not deleted).
+
+- [ ] The equivalent multiselects on `/admin/growers` and `/admin/vendors` still
+      work and agree with the mapping pages — both routes reconcile the same way.
+
+### R10.3 — Threshold unit inherited from the item
+- [ ] `/admin/settings/thresholds` → Add: the **Unit** field is a grey read-only
+      box reading "Inherited from the item" until an item is chosen, then shows
+      that item's unit.
+- [ ] Changing the item changes the displayed unit.
+- [ ] Saving stores the item's unit — the table's Threshold column shows e.g.
+      "50 Cases" matching the item's own unit. It is no longer possible to set a
+      threshold in Cases for an item counted in Bags, which previously compared
+      two different quantities silently.
+- [ ] Editing an existing threshold keeps the right unit.
+
+### R10.4 — Item message growers filtered by item
+- [ ] `/admin/item-messages` → Add: before an item is chosen the Growers list is
+      empty.
+- [ ] Choose an item — only growers **authorized for that item** are offered.
+      Cross-check against `/admin/mappings/growers` filtered to that item.
+- [ ] Change the item: growers who are not authorized for the new item are
+      pruned from the selection.
+- [ ] Set audience **Selected**, pick growers, save, and confirm the message
+      appears on those growers' submit pages under that item — and only there.
+
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.
