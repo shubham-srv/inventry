@@ -1053,5 +1053,98 @@ the whole set, so **an unticked box is a removal instruction**.
 - [ ] Set audience **Selected**, pick growers, save, and confirm the message
       appears on those growers' submit pages under that item — and only there.
 
+## Round 11 — vendor locations, submit search & sort (August 2026)
+
+> **Requires a migration**, `20260820090000_vendor_locations`.
+>
+> ```bash
+> npm run db:migrate:deploy   # creates VendorLocation, carries the old column over
+> npm run db:seed             # reseed so two vendors have multiple sites
+> ```
+>
+> `Vendor.locationId` is **dropped**. The value is not lost — each vendor's
+> single site becomes its first `VendorLocation` row, `createdBy`/`updatedBy`
+> included — but anything reading `Vendor.locationId` directly must be updated.
+>
+> Replayed on a scratch database against pre-migration fixtures (vendors with a
+> vendor-side site, an untyped site, and `locationId` NULL): 3 of 4 vendors got a
+> row, the NULL one correctly got none, the column is gone, and
+> `prisma migrate diff` reports no drift afterwards.
+
+### What changed at the schema level
+| Change | Notes |
+|---|---|
+| `VendorLocation` | new join table, mirroring `GrowerLocation` — unique `(vendorId, locationId)`, soft `isActive` |
+| `Vendor.locationId` | **dropped**, backfilled into the table above |
+| Reporting grain | **unchanged** — a `VendorSubmission` is still one per vendor per day, *not* per site |
+
+### R11.1 — Vendor sites (`/admin/vendors`, admin@demo.local)
+- [ ] The **Location** column is now **Locations** and lists every mapped site,
+      comma-separated. Seeded: PackRight 2 (PackRight Plant, Central Warehouse),
+      StickerPro 2 (Nogales 3PL, Gulf Distribution Center), the rest 1.
+- [ ] The **Region** column shows every distinct region those sites are in —
+      PackRight reads `West, Central` and StickerPro `West, East`. A vendor with
+      two sites in the *same* region shows that region **once**, not twice.
+- [ ] A vendor with no sites shows `—` in both columns (and still saves fine —
+      unlike growers, a vendor with no location is not broken).
+- [ ] Add/Edit now has a **Locations (this vendor operates from)** multi-select
+      that pre-fills with the current sites and saves.
+- [ ] Only vendor-side and shared types are offered. **"Salinas Packing House"
+      must NOT appear.** (Same gate as before, still re-checked server-side in
+      `syncVendorLocations` — posting a grower-side id drops it rather than
+      saving it.)
+- [ ] Unticking a site and saving removes it from the row. Re-tick it and save:
+      it comes back (the row was deactivated, not deleted — same as item mappings).
+- [ ] The **Region** filter now matches a vendor if **any** of its sites is in
+      that region. Filter to `Central` → PackRight appears even though its other
+      site is in the West. Vendors with no sites drop out of every region.
+- [ ] **Export vendors** (.xlsx): `Locations` and `Region` columns match what is
+      on screen, comma-separated and deduped the same way.
+
+### R11.2 — Submit list: search & sort (both roles)
+Same control on `/grower/submit` (james@agribar.local) and `/vendor/submit`
+(sam@packright.local) — it sits in the sticky bar, so it stays reachable while
+scrolling a long list.
+
+- [ ] The list still **opens sorted by item ID** — unchanged from before.
+- [ ] **Name (A–Z)** re-sorts alphabetically by item name.
+- [ ] **Quantity (high to low)** / **(low to high)** sort on the *last known*
+      count — today's saved value, else the previous one. Items that have never
+      been counted sink to the bottom in **both** directions.
+- [ ] ⚠️ **Type a number into a box while a quantity sort is active — the row
+      must NOT jump.** Sorting deliberately ignores what is currently typed; a
+      hint under the control says so.
+- [ ] Search filters as you type on **item name, item ID, commodity and
+      category**. "box" finds items by category, not just by name.
+- [ ] The **✕** in the search box clears it; a "Showing 3 of 12" count appears
+      only while filtering.
+- [ ] No matches shows a message, not an empty page.
+
+### R11.3 — Searching must never lose a count ⚠️
+The one thing worth being deliberate about: filtering is a **view**, not a
+filter on what gets submitted.
+
+- [ ] Enter quantities on 3 items. Search for something that hides them all.
+      The progress bar and the `n / total` counter **still count all 3**, and a
+      note reads "3 item(s) you entered are hidden by the search — all of them
+      are still included when you submit."
+- [ ] Submit while the search is still active → all 3 are saved. Clear the
+      search and confirm all 3 show as submitted.
+- [ ] Grower page: **Save draft** while filtered behaves the same way.
+- [ ] **Load previous values** fills every row, including hidden ones.
+- [ ] Switching location on the grower page still clears typed values (unchanged)
+      — the search box and sort persist, which is intended.
+
+### R11.4 — Vendor form no longer submits on Enter (behaviour change)
+The vendor report used to wrap every input, so **Enter** in a quantity box
+submitted it. The form now holds only the payload and the button reaches it by
+`form=` attribute — the same arrangement the grower form has always had. This
+was needed so the new search box could not fire off a half-finished report.
+
+- [ ] Press **Enter** in a quantity box, an allocation box, or the search box on
+      `/vendor/submit`: nothing submits.
+- [ ] The **Submit report** button still works, is still disabled until at least
+      one quantity is entered, and allocations still post with it.
+
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.

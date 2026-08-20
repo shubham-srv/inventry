@@ -35,6 +35,19 @@
       "VendorUser": "Proveedor"
     }
   },
+  "submitList": {
+    "search": "Buscar artículos…",
+    "clearSearch": "Borrar búsqueda",
+    "sort": "Ordenar",
+    "sortById": "ID de artículo",
+    "sortByName": "Nombre (A–Z)",
+    "sortByQtyDesc": "Cantidad (mayor a menor)",
+    "sortByQtyAsc": "Cantidad (menor a mayor)",
+    "sortHint": "La cantidad se ordena por el último conteo conocido, así las filas no se mueven mientras escribe.",
+    "showing": "Mostrando {shown} de {total}",
+    "noMatches": "Ningún artículo coincide con su búsqueda.",
+    "hiddenEntries": "La búsqueda oculta {count} artículo(s) que ya completó — todos se incluyen al enviar."
+  },
   "status": {
     "Approved": "Aprobado",
     "Draft": "Borrador",

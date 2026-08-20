@@ -51,6 +51,12 @@ import {
   type Field,
 } from "@/components/crud/entity-form-dialog"
 import { ConfirmButton } from "@/components/crud/confirm-button"
+import {
+  SubmitListControls,
+  useSubmitListView,
+  DEFAULT_SUBMIT_SORT,
+  type SubmitSort,
+} from "@/components/submit/submit-list-controls"
 import { cn } from "@/lib/utils"
 
 type RowState = { qty: string; low: boolean }
@@ -101,10 +107,26 @@ export function GrowerSubmitForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, router])
 
+  // Search and sort are a view over the list only. Everything that decides what
+  // gets SUBMITTED — the payload, the counters, load-previous — keeps reading
+  // `rows`, so filtering can never drop a count somebody typed.
+  const [query, setQuery] = useState("")
+  const [sort, setSort] = useState<SubmitSort>(DEFAULT_SUBMIT_SORT)
+  const view = useSubmitListView(rows, query, sort)
+
   const entered = useMemo(
     () => rows.filter((r) => values[r.itemId]?.qty.trim() !== "").length,
     [rows, values]
   )
+  // Entered rows the search is currently hiding. Worth saying out loud: they
+  // are still in the payload, and the progress bar counts them.
+  const hiddenEntered = useMemo(() => {
+    if (query.trim() === "") return 0
+    const visible = new Set(view.map((r) => r.itemId))
+    return rows.filter(
+      (r) => !visible.has(r.itemId) && values[r.itemId]?.qty.trim() !== ""
+    ).length
+  }, [rows, view, values, query])
   // The bar reflects SUBMITTED items (server state), not what's typed locally.
   const submitted = useMemo(
     () => rows.filter((r) => r.submittedToday).length,
@@ -247,6 +269,21 @@ export function GrowerSubmitForm({
             </Button>
           </div>
         </div>
+        {/* Inside the sticky bar so a long item list stays searchable without
+            scrolling back to the top. */}
+        {rows.length > 0 && (
+          <div className="mt-2">
+            <SubmitListControls
+              query={query}
+              onQueryChange={setQuery}
+              sort={sort}
+              onSortChange={setSort}
+              shown={view.length}
+              total={rows.length}
+              disabled={pending}
+            />
+          </div>
+        )}
       </div>
 
       {/* Load-previous reads as the first step of the count, not as one more
@@ -270,8 +307,14 @@ export function GrowerSubmitForm({
         </div>
       )}
 
+      {hiddenEntered > 0 && (
+        <p className="text-muted-foreground mb-3 text-xs">
+          {t("submitList.hiddenEntries", { count: hiddenEntered })}
+        </p>
+      )}
+
       <div className="grid gap-3">
-        {rows.map((r) => {
+        {view.map((r) => {
           const v = values[r.itemId]
           const filled = v.qty.trim() !== ""
           return (
@@ -402,6 +445,12 @@ export function GrowerSubmitForm({
       {rows.length === 0 && (
         <p className="text-sm text-muted-foreground">
           {t("grower.form.noItems")}
+        </p>
+      )}
+
+      {rows.length > 0 && view.length === 0 && (
+        <p className="text-muted-foreground text-sm">
+          {t("submitList.noMatches")}
         </p>
       )}
     </>

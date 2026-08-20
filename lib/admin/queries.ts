@@ -48,9 +48,13 @@ export function vendorsWhere(sp: SP): Prisma.VendorWhereInput {
     })
   if (sp.status) and.push({ status: sp.status })
   if (sp.type) and.push({ vendorType: sp.type })
-  // A vendor's region is a property of its location now, so filtering reaches
-  // through the relation. Vendors with no location match no region.
-  if (sp.region) and.push({ location: { regionId: Number(sp.region) || 0 } })
+  // A vendor's region is a property of its locations now, so filtering reaches
+  // through the join table and matches if ANY active site is in the region.
+  // Vendors with no location match no region.
+  if (sp.region)
+    and.push({
+      locations: { some: { isActive: true, location: { regionId: Number(sp.region) || 0 } } },
+    })
   if (sp.country) and.push({ countryId: Number(sp.country) || 0 })
   return and.length ? { AND: and } : {}
 }

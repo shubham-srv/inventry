@@ -35,6 +35,19 @@
       "VendorUser": "Vendor"
     }
   },
+  "submitList": {
+    "search": "Search items…",
+    "clearSearch": "Clear search",
+    "sort": "Sort",
+    "sortById": "Item ID",
+    "sortByName": "Name (A–Z)",
+    "sortByQtyDesc": "Quantity (high to low)",
+    "sortByQtyAsc": "Quantity (low to high)",
+    "sortHint": "Quantity sorts on the last known count, so rows stay put while you type.",
+    "showing": "Showing {shown} of {total}",
+    "noMatches": "No items match your search.",
+    "hiddenEntries": "{count} item(s) you entered are hidden by the search — all of them are still included when you submit."
+  },
   "status": {
     "Approved": "Approved",
     "Draft": "Draft",

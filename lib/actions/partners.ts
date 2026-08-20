@@ -104,6 +104,43 @@ async function syncGrowerLocations(
   }
 }
 
+/**
+ * Reconcile a vendor's locations — the sites they operate from.
+ *
+ * Same shape as syncGrowerLocations, including the soft deactivate and the
+ * re-checked type gate (a grower-side site must not become a vendor's location
+ * by way of a hand-edited request). The only difference is which side of
+ * LOCATION_TYPES is allowed.
+ */
+async function syncVendorLocations(
+  tx: Prisma.TransactionClient,
+  vendorId: number,
+  locationIds: number[],
+  userId: number
+) {
+  const allowed = await tx.location.findMany({
+    where: { id: { in: locationIds }, locationType: { in: locationTypesFor("Vendor") } },
+    select: { id: true },
+  })
+  const want = new Set(allowed.map((l) => l.id))
+  const existing = await tx.vendorLocation.findMany({ where: { vendorId } })
+  for (const locationId of want) {
+    await tx.vendorLocation.upsert({
+      where: { vendorId_locationId: { vendorId, locationId } },
+      update: { isActive: true, updatedBy: userId },
+      create: { vendorId, locationId, isActive: true, createdBy: userId, updatedBy: userId },
+    })
+  }
+  for (const vl of existing) {
+    if (vl.isActive && !want.has(vl.locationId)) {
+      await tx.vendorLocation.update({
+        where: { id: vl.id },
+        data: { isActive: false, updatedBy: userId },
+      })
+    }
+  }
+}
+
 /** Reconcile the countries a vendor can supply to. */
 async function syncVendorCountries(
   tx: Prisma.TransactionClient,
@@ -256,9 +293,10 @@ const vendorSchema = z.object({
   id: z.string().trim().optional().default(""),
   vendorName: z.string().trim().min(1, "Name is required"),
   vendorType: z.string().trim().optional().default(""),
-  // The vendor's own country and operating site — both single-valued lookups.
+  // Where the vendor is headquartered — a single lookup, unlike the sites below.
   countryId: z.string().trim().optional().default(""),
-  locationId: z.string().trim().optional().default(""),
+  // Comma-joined location ids — the sites this vendor operates from.
+  locationIds: z.string().trim().optional().default(""),
   primaryContact: z.string().trim().optional().default(""),
   contactEmail: z.string().trim().email("Enter a valid email").optional().or(z.literal("")),
   contactPhone: z.string().trim().optional().default(""),
@@ -290,30 +328,13 @@ function days(v: string): number | null {
   return Number.isInteger(n) && n >= 0 ? n : null
 }
 
-/**
- * A vendor may only sit at a vendor-side (or shared) location. Returns null for
- * anything else, so a posted grower-site id is dropped rather than stored — the
- * picker's filtering is a convenience, not a boundary. Same reasoning as
- * syncGrowerLocations above.
- */
-async function validVendorLocationId(raw: string): Promise<number | null> {
-  if (!raw) return null
-  const id = Number(raw)
-  if (!Number.isInteger(id)) return null
-  const loc = await prisma.location.findFirst({
-    where: { id, locationType: { in: locationTypesFor("Vendor") } },
-    select: { id: true },
-  })
-  return loc?.id ?? null
-}
-
-function vendorData(d: VendorInput, locationId: number | null) {
+function vendorData(d: VendorInput) {
   return {
     vendorName: d.vendorName,
     vendorType: d.vendorType || null,
-    // No regionId: a vendor's region is read through its location.
+    // No regionId and no locationId: a vendor's sites are VendorLocation rows,
+    // and their region is read through those.
     countryId: d.countryId ? Number(d.countryId) : null,
-    locationId,
     primaryContact: d.primaryContact || null,
     contactEmail: d.contactEmail || null,
     contactPhone: d.contactPhone || null,
@@ -331,13 +352,13 @@ export async function createVendor(_p: ActionState, fd: FormData): Promise<Actio
   const { data, error } = parseForm(vendorSchema, fd)
   if (error) return error
   try {
-    const locationId = await validVendorLocationId(data.locationId)
-    const row = vendorData(data, locationId)
+    const row = vendorData(data)
     const created = await prisma.$transaction(async (tx) => {
       const vendor = await tx.vendor.create({ data: { ...row, createdBy: user.id, updatedBy: user.id } })
       await syncVendorItems(tx, vendor.id, parseItemIds(data.itemIds), user.id)
       await syncVendorMaterialCategories(tx, vendor.id, parseItemIds(data.materialCategoryCodes), user.id)
       await syncVendorCountries(tx, vendor.id, parseIntIds(data.supplyCountryIds), user.id)
+      await syncVendorLocations(tx, vendor.id, parseIntIds(data.locationIds), user.id)
       return vendor
     })
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.CREATE, entityType: "Vendor", entityId: created.id, changes: row })
@@ -354,13 +375,13 @@ export async function updateVendor(_p: ActionState, fd: FormData): Promise<Actio
   if (error) return error
   try {
     const vendorId = Number(data.id)
-    const locationId = await validVendorLocationId(data.locationId)
-    const row = vendorData(data, locationId)
+    const row = vendorData(data)
     await prisma.$transaction(async (tx) => {
       await tx.vendor.update({ where: { id: vendorId }, data: { ...row, updatedBy: user.id } })
       await syncVendorItems(tx, vendorId, parseItemIds(data.itemIds), user.id)
       await syncVendorMaterialCategories(tx, vendorId, parseItemIds(data.materialCategoryCodes), user.id)
       await syncVendorCountries(tx, vendorId, parseIntIds(data.supplyCountryIds), user.id)
+      await syncVendorLocations(tx, vendorId, parseIntIds(data.locationIds), user.id)
     })
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.UPDATE, entityType: "Vendor", entityId: data.id, changes: row })
     revalidatePath("/admin/vendors")

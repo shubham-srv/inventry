@@ -186,11 +186,11 @@ async function main() {
   // ---- Vendors --------------------------------------------------------
   await prisma.vendor.createMany({
     data: [
-      { vendorName: "PackRight Manufacturing", vendorType: "Manufacturer", countryId: cooByName["USA"], locationId: loc[4].id, primaryContact: "Sam Carter", contactEmail: "sam@packright.example", contactPhone: "+1-555-0101", leadTimeDays: 5, paymentTermsDays: 30, status: "Active" },
-      { vendorName: "PalletPool Co", vendorType: "Pallet Pooling", countryId: cooByName["USA"], locationId: loc[1].id, primaryContact: "Lena Ortiz", contactEmail: "lena@palletpool.example", leadTimeDays: 3, paymentTermsDays: 15, status: "Active", preferredLocale: "es" },
-      { vendorName: "LabelWorks 3PL", vendorType: "3PL", countryId: cooByName["USA"], locationId: loc[5].id, primaryContact: "Omar Reed", contactEmail: "omar@labelworks.example", leadTimeDays: 7, paymentTermsDays: 45, status: "Active" },
-      { vendorName: "BoxCraft Industries", vendorType: "Manufacturer", countryId: cooByName["USA"], locationId: loc[1].id, primaryContact: "Nina Patel", contactEmail: "nina@boxcraft.example", leadTimeDays: 10, paymentTermsDays: 60, status: "Active" },
-      { vendorName: "StickerPro Labels", vendorType: "3PL", countryId: cooByName["Mexico"], locationId: loc[6].id, primaryContact: "Hugo Marín", contactEmail: "hugo@stickerpro.example", leadTimeDays: 4, paymentTermsDays: 30, status: "Active", preferredLocale: "es" },
+      { vendorName: "PackRight Manufacturing", vendorType: "Manufacturer", countryId: cooByName["USA"], primaryContact: "Sam Carter", contactEmail: "sam@packright.example", contactPhone: "+1-555-0101", leadTimeDays: 5, paymentTermsDays: 30, status: "Active" },
+      { vendorName: "PalletPool Co", vendorType: "Pallet Pooling", countryId: cooByName["USA"], primaryContact: "Lena Ortiz", contactEmail: "lena@palletpool.example", leadTimeDays: 3, paymentTermsDays: 15, status: "Active", preferredLocale: "es" },
+      { vendorName: "LabelWorks 3PL", vendorType: "3PL", countryId: cooByName["USA"], primaryContact: "Omar Reed", contactEmail: "omar@labelworks.example", leadTimeDays: 7, paymentTermsDays: 45, status: "Active" },
+      { vendorName: "BoxCraft Industries", vendorType: "Manufacturer", countryId: cooByName["USA"], primaryContact: "Nina Patel", contactEmail: "nina@boxcraft.example", leadTimeDays: 10, paymentTermsDays: 60, status: "Active" },
+      { vendorName: "StickerPro Labels", vendorType: "3PL", countryId: cooByName["Mexico"], primaryContact: "Hugo Marín", contactEmail: "hugo@stickerpro.example", leadTimeDays: 4, paymentTermsDays: 30, status: "Active", preferredLocale: "es" },
     ],
   })
   const vendorRows = await prisma.vendor.findMany({ orderBy: { id: "asc" } })
@@ -203,6 +203,22 @@ async function main() {
   const labelWorks = vendorByName["LabelWorks 3PL"]
   const boxCraft = vendorByName["BoxCraft Industries"]
   const stickerPro = vendorByName["StickerPro Labels"]
+
+  // Vendor sites. Two vendors get more than one on purpose: PackRight spans
+  // West + Central and StickerPro spans West + East, so the admin list's region
+  // column and the region filter are exercised against a multi-region vendor
+  // rather than only the one-site case.
+  await prisma.vendorLocation.createMany({
+    data: [
+      { vendorId: packRight.id, locationId: loc[4].id, isActive: true },
+      { vendorId: packRight.id, locationId: loc[1].id, isActive: true },
+      { vendorId: palletPool.id, locationId: loc[1].id, isActive: true },
+      { vendorId: labelWorks.id, locationId: loc[5].id, isActive: true },
+      { vendorId: boxCraft.id, locationId: loc[1].id, isActive: true },
+      { vendorId: stickerPro.id, locationId: loc[6].id, isActive: true },
+      { vendorId: stickerPro.id, locationId: loc[5].id, isActive: true },
+    ],
+  })
 
   // ---- Users ----------------------------------------------------------
   console.log("Seeding users…")

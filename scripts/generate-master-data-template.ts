@@ -192,7 +192,6 @@ const SHEETS: { name: string; purpose: string; cols: Col[]; example: unknown[] }
       { key: "VendorName", width: 30, required: true, help: "Unique. Used as the key in the mapping sheets." },
       { key: "VendorType", width: 20, list: VENDOR_TYPES, help: "" },
       { key: "HeadquartersCountry", width: 24, help: "Must exist in 2-Countries. Where the vendor is BASED — may differ from the country of the site it ships from." },
-      { key: "LocationName", width: 30, help: "Must exist in 6-Locations and be a vendor-usable type. The vendor's region is read from here." },
       { key: "PrimaryContact", width: 24, help: "" },
       { key: "ContactEmail", width: 30, help: "" },
       { key: "ContactPhone", width: 20, help: "" },
@@ -204,7 +203,7 @@ const SHEETS: { name: string; purpose: string; cols: Col[]; example: unknown[] }
       { key: "Notes", width: 40, help: "" },
     ],
     example: [
-      "PackRight Manufacturing", "Manufacturer", "USA", "PackRight Plant", "Sam Carter",
+      "PackRight Manufacturing", "Manufacturer", "USA", "Sam Carter",
       "sam@packright.example", "+1-555-0101", 5, 30, "", "Active", "en", "",
     ],
   },
@@ -277,6 +276,19 @@ const SHEETS: { name: string; purpose: string; cols: Col[]; example: unknown[] }
       { key: "CountryName", width: 24, required: true, help: "Must exist in 2-Countries and be Selectable" },
     ],
     example: ["PackRight Manufacturing", "Canada"],
+  },
+  {
+    // Appended rather than slotted next to 11-GrowerLocations so the existing
+    // sheet numbers stay put — a client mid-fill should not have to rename tabs.
+    // It still loads in order: both sheets it depends on come earlier.
+    name: "16-VendorLocations",
+    purpose:
+      "Which sites each vendor operates from. One row per pair — repeat the vendor name for each site. The vendor's region(s) are read from here.",
+    cols: [
+      { key: "VendorName", width: 30, required: true, help: "Must exist in 9-Vendors" },
+      { key: "LocationName", width: 30, required: true, help: "Must exist in 6-Locations and be a vendor-usable type" },
+    ],
+    example: ["PackRight Manufacturing", "PackRight Plant"],
   },
 ]
 

@@ -106,15 +106,13 @@ model Vendor {
   id               Int     @id @default(autoincrement())
   vendorName       String
   vendorType       String? // Manufacturer, Pallet Pooling, 3PL
-  // Where the vendor operates from. A plain FK, not a join table: nothing reads
-  // it behaviourally, it is a display attribute on the vendor record.
+  // Sites are a many-to-many (VendorLocation) — see that model. A vendor's
+  // REGION is read through those rather than stored: a region is a property of
+  // a place, and duplicating it here let the two disagree.
   //
-  // The vendor's REGION is read through this rather than stored: a region is a
-  // property of a place, and duplicating it here let the two disagree.
-  locationId       Int?
   // Where the vendor is headquartered. Deliberately NOT inherited from the
-  // location: a vendor can be based in one country and ship from a facility in
-  // another. Distinct again from `supplyCountries`, which is where they ship TO.
+  // locations: a vendor can be based in one country and ship from facilities in
+  // others. Distinct again from `supplyCountries`, which is where they ship TO.
   countryId        Int?
   primaryContact   String?
   contactEmail     String?
@@ -132,7 +130,7 @@ model Vendor {
   updatedAt DateTime @updatedAt
 
   homeCountry        Country?                 @relation("VendorHomeCountry", fields: [countryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  location           Location?                @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  locations          VendorLocation[]
   users              User[]
   itemVendors        ItemVendor[]
   materialCategories VendorMaterialCategory[]
@@ -142,7 +140,6 @@ model Vendor {
   notifications      NotificationLog[]
 
   @@index([countryId])
-  @@index([locationId])
 }
 
 model Location {
@@ -163,7 +160,7 @@ model Location {
   region            Region?                  @relation(fields: [regionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   country           Country?                 @relation(fields: [countryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   growers           GrowerLocation[]
-  vendors           Vendor[]
+  vendors           VendorLocation[]
   submissions       GrowerSubmission[]
   submissionDetails GrowerSubmissionDetail[]
   ledgerEntries     InventoryLedger[]
@@ -342,6 +339,31 @@ model GrowerLocation {
   location Location @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([growerId, locationId])
+  @@index([locationId])
+}
+
+// Which sites a vendor operates from. Many-to-many, mirroring GrowerLocation:
+// a vendor can manufacture in one place and ship from another, and their region
+// is read through these rather than stored on the vendor.
+//
+// Unlike the grower side this drives no submission scoping — a vendor's report
+// is still one per vendor per day, not per site. These sites are master data:
+// the admin list, the region filter and the export read them.
+model VendorLocation {
+  id         Int     @id @default(autoincrement())
+  vendorId   Int
+  locationId Int
+  isActive   Boolean @default(true)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  vendor   Vendor   @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  location Location @relation(fields: [locationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([vendorId, locationId])
   @@index([locationId])
 }
 

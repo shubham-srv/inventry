@@ -14,6 +14,12 @@ import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
+import {
+  SubmitListControls,
+  useSubmitListView,
+  DEFAULT_SUBMIT_SORT,
+  type SubmitSort,
+} from "@/components/submit/submit-list-controls"
 import { cn } from "@/lib/utils"
 
 type RowState = {
@@ -56,8 +62,20 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
     handled.current = state.ok
   }, [state, router])
 
+  // A view over the list, nothing more: the payload and the counters below stay
+  // on `rows`, so a search can never drop a quantity that was typed.
+  const [query, setQuery] = useState("")
+  const [sort, setSort] = useState<SubmitSort>(DEFAULT_SUBMIT_SORT)
+  const view = useSubmitListView(rows, query, sort)
+
   const entered = useMemo(() => rows.filter((r) => values[r.itemId]?.qty.trim() !== "").length, [rows, values])
   const pct = rows.length ? Math.round((entered / rows.length) * 100) : 0
+  // Entered rows the search is hiding — still submitted, still counted.
+  const hiddenEntered = useMemo(() => {
+    if (query.trim() === "") return 0
+    const visible = new Set(view.map((r) => r.itemId))
+    return rows.filter((r) => !visible.has(r.itemId) && values[r.itemId]?.qty.trim() !== "").length
+  }, [rows, view, values, query])
 
   const payload = useMemo(
     () =>
@@ -104,8 +122,14 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
   }
 
   return (
-    <form action={formAction}>
-      <input type="hidden" name="payload" value={payload} />
+    <>
+      {/* The form holds only the payload; the submit button reaches it by `form`
+          attribute. That keeps the quantity, allocation and search inputs OUT of
+          it, so Enter in any of them can't fire off a half-finished report.
+          Same arrangement as the grower submit form. */}
+      <form id="vendor-submit-form" action={formAction}>
+        <input type="hidden" name="payload" value={payload} />
+      </form>
 
       <div className="bg-background/95 sticky top-14 z-10 -mx-4 mb-4 border-b px-4 py-3 backdrop-blur md:-mx-6 md:px-6">
         <div className="flex items-center justify-between gap-3">
@@ -118,10 +142,27 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
             </div>
             <Progress value={pct} />
           </div>
-          <Button type="submit" disabled={pending || entered === 0}>
+          <Button
+            type="submit"
+            form="vendor-submit-form"
+            disabled={pending || entered === 0}
+          >
             {pending ? t("common.saving") : t("vendor.form.submit")}
           </Button>
         </div>
+        {rows.length > 0 && (
+          <div className="mt-2">
+            <SubmitListControls
+              query={query}
+              onQueryChange={setQuery}
+              sort={sort}
+              onSortChange={setSort}
+              shown={view.length}
+              total={rows.length}
+              disabled={pending}
+            />
+          </div>
+        )}
       </div>
 
       {hasPrev && (
@@ -141,8 +182,14 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
         </div>
       )}
 
+      {hiddenEntered > 0 && (
+        <p className="text-muted-foreground mb-3 text-xs">
+          {t("submitList.hiddenEntries", { count: hiddenEntered })}
+        </p>
+      )}
+
       <div className="grid gap-3">
-        {rows.map((r) => {
+        {view.map((r) => {
           const v = values[r.itemId]
           const done = v.qty.trim() !== ""
           const allocated = r.growers.reduce((s, g) => s + Number(v.allocations[g.growerId] || 0), 0)
@@ -231,6 +278,10 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
       {rows.length === 0 && (
         <p className="text-muted-foreground text-sm">{t("vendor.form.noItems")}</p>
       )}
-    </form>
+
+      {rows.length > 0 && view.length === 0 && (
+        <p className="text-muted-foreground text-sm">{t("submitList.noMatches")}</p>
+      )}
+    </>
   )
 }

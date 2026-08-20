@@ -69,8 +69,7 @@ Table Vendor {
   id int [pk, increment]
   vendorName varchar [not null]
   vendorType varchar [note: 'Manufacturer, Pallet Pooling, 3PL']
-  locationId int [ref: > Location.id, note: 'where the vendor operates from; the vendor REGION is read through this, not stored']
-  countryId int [ref: > Country.id, note: 'headquarters country - can differ from the location country; see VendorCountry for supply-to']
+  countryId int [ref: > Country.id, note: 'headquarters country - can differ from the site countries; see VendorLocation for sites and VendorCountry for supply-to']
   primaryContact varchar
   contactEmail varchar
   contactPhone varchar
@@ -211,8 +210,27 @@ Table GrowerLocation {
   }
 }
 
+// Which sites a vendor operates from. Master data only - unlike GrowerLocation
+// it scopes no submissions; a VendorSubmission is still one per vendor per day.
+// The vendor REGION is read through these, not stored.
+Table VendorLocation {
+  id int [pk, increment]
+  vendorId int [not null, ref: > Vendor.id]
+  locationId int [not null, ref: > Location.id]
+  isActive boolean [not null, default: true]
+  createdBy int
+  createdAt datetime [not null, default: `now()`]
+  updatedBy int
+  updatedAt datetime [not null]
+
+  Indexes {
+    (vendorId, locationId) [unique]
+    locationId
+  }
+}
+
 // Region lookup, used by Location alone. Items dropped it (country of origin is
-// their only geography) and vendors read it through their location. Seeded; no
+// their only geography) and vendors read it through their locations. Seeded; no
 // admin page - values are managed in the seed / by migration.
 Table Region {
   id int [pk, increment]

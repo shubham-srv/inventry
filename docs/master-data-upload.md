@@ -47,13 +47,14 @@ transaction, so a failure rolls the whole thing back and nothing is half-loaded.
 6  Locations            -> Regions, Countries
 7  Items                -> Commodities, MaterialCategories, SubCategories, Countries
 8  Growers
-9  Vendors              -> Countries, Locations
+9  Vendors              -> Countries
 10 Users                -> Growers, Vendors
 11 GrowerLocations      -> Growers, Locations
 12 GrowerItems          -> Growers, Items
 13 VendorItems          -> Vendors, Items
 14 VendorCategories     -> Vendors, MaterialCategories
 15 VendorSupplyCountries-> Vendors, Countries
+16 VendorLocations      -> Vendors, Locations
 ```
 
 ---
@@ -225,8 +226,7 @@ quantities, so it silently reinterprets them. Get it right in the upload.
 |---|---|---|---|
 | `VendorName` | ✅ | text | Unique. Used as the key in mapping sheets |
 | `VendorType` | | list | `Manufacturer`, `Pallet Pooling`, `3PL`, `Distributor` |
-| `HeadquartersCountry` | | text | Must exist in **Countries**. Where the vendor is *based* — can differ from the country of the site they ship from |
-| `LocationName` | | text | Must exist in **Locations** and be a **vendor-usable type**. The vendor's region is read from here |
+| `HeadquartersCountry` | | text | Must exist in **Countries**. Where the vendor is *based* — can differ from the country of the sites they ship from |
 | `PrimaryContact` | | text | |
 | `ContactEmail` | | email | Where vendor notifications go |
 | `ContactPhone` | | text | |
@@ -236,6 +236,9 @@ quantities, so it silently reinterprets them. Get it right in the upload.
 | `Status` | ✅ | list | `Active`, `Inactive` |
 | `PreferredLocale` | ✅ | list | `en` or `es` |
 | `Notes` | | text | |
+
+> A vendor's sites live in **16. VendorLocations**, not here — a vendor can
+> operate from several.
 
 ---
 
@@ -338,6 +341,25 @@ Which countries each vendor can ship **to**. Distinct from
 |---|---|---|---|
 | `VendorName` | ✅ | text | Must exist in **Vendors** |
 | `CountryName` | ✅ | text | Must exist in **Countries**, and be `Selectable` |
+
+---
+
+## 16. VendorLocations
+
+Which sites each vendor operates from — a manufacturing plant, a distribution
+centre, a 3PL facility. The vendor's **region(s)** are read from here; there is
+no region column on the vendor sheet.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `VendorName` | ✅ | text | Must exist in **Vendors** |
+| `LocationName` | ✅ | text | Must exist in **Locations** and be a **vendor-usable type** |
+
+One row per pair. Repeat the vendor name for each of its sites.
+
+> Unlike **GrowerLocations**, a vendor with no row here still works — they just
+> show no location and no region. Vendors report one figure per item per day
+> regardless of how many sites they run.
 
 ---
 

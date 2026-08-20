@@ -24,9 +24,12 @@ type Row = {
   vendorType: string | null
   countryId: number | null
   homeCountry: { name: string } | null
-  locationId: number | null
-  // Region is read through the location rather than stored on the vendor.
-  location: { locationName: string; region: { name: string } | null } | null
+  // Regions are read through the vendor's locations rather than stored on the
+  // vendor, so a vendor with sites in two regions shows both.
+  locations: {
+    locationId: number
+    location: { locationName: string; region: { name: string } | null }
+  }[]
   primaryContact: string | null
   contactEmail: string | null
   contactPhone: string | null
@@ -42,6 +45,15 @@ type Row = {
   _count: { users: number }
 }
 
+/** The distinct regions a vendor's sites sit in, in the order the sites list. */
+function regionNames(r: Row): string[] {
+  return [
+    ...new Set(
+      r.locations.map((l) => l.location.region?.name).filter((n): n is string => !!n)
+    ),
+  ]
+}
+
 export default async function VendorsPage({
   searchParams,
 }: {
@@ -55,7 +67,14 @@ export default async function VendorsPage({
       where,
       include: {
         homeCountry: true,
-        location: { include: { region: true } },
+        locations: {
+          where: { isActive: true },
+          select: {
+            locationId: true,
+            location: { select: { locationName: true, region: { select: { name: true } } } },
+          },
+          orderBy: { location: { locationName: "asc" } },
+        },
         itemVendors: { where: { isActive: true }, select: { itemId: true } },
         materialCategories: { where: { isActive: true }, select: { materialCategoryCode: true } },
         supplyCountries: { where: { isActive: true }, select: { countryId: true } },
@@ -68,8 +87,8 @@ export default async function VendorsPage({
     prisma.vendor.count({ where }),
     prisma.item.findMany({ where: { status: ENTITY_STATUS.ACTIVE }, orderBy: { id: "asc" }, select: { id: true, itemName: true, materialCategoryCode: true } }),
     prisma.materialCategory.findMany({ orderBy: { name: "asc" } }),
-    // Still needed for the Region filter, which now matches through the
-    // vendor's location. There is no Region field on the vendor form.
+    // Still needed for the Region filter, which matches a vendor if ANY of its
+    // locations sits in the region. There is no Region field on the vendor form.
     prisma.region.findMany({ orderBy: { name: "asc" } }),
     // Placeholder rows (N/A) are excluded: "supplies to N/A" is not a fact
     // anyone can act on, and neither is a vendor based there.
@@ -90,7 +109,15 @@ export default async function VendorsPage({
     { name: "status", label: "Status", type: "select", required: true, options: STATUSES.map((s) => ({ label: s, value: s })) },
     { name: "preferredLocale", label: "Email language", type: "select", required: true, options: LOCALE_OPTIONS },
     { name: "countryId", label: "Country (headquarters)", type: "select", placeholder: "Select country", options: countryOptions, description: "Where the vendor is based. Their facility's country comes from the location below and can differ." },
-    { name: "locationId", label: "Location", type: "select", placeholder: "Select location", options: locations.map((l) => ({ label: l.locationName, value: String(l.id) })), description: "Vendor-side sites only. The vendor's region is read from here." },
+    {
+      name: "locationIds",
+      label: "Locations (this vendor operates from)",
+      type: "multiselect",
+      placeholder: "Select locations",
+      colSpan: 2,
+      options: locations.map((l) => ({ label: l.locationName, value: String(l.id) })),
+      description: "Vendor-side sites only. The vendor's region(s) are read from here.",
+    },
     { name: "primaryContact", label: "Primary contact", type: "text" },
     { name: "contactEmail", label: "Contact email", type: "text" },
     { name: "contactPhone", label: "Contact phone", type: "text" },
@@ -137,9 +164,14 @@ export default async function VendorsPage({
   const columns: Column<Row>[] = [
     { key: "name", header: "Name", cell: (r) => <span className="font-medium">{r.vendorName}</span> },
     { key: "type", header: "Type", cell: (r) => r.vendorType ?? "—" },
-    { key: "region", header: "Region", cell: (r) => r.location?.region?.name ?? "—" },
+    // Deduped: two sites in the same region should read "West", not "West, West".
+    { key: "region", header: "Region", cell: (r) => regionNames(r).join(", ") || "—" },
     { key: "country", header: "Country", cell: (r) => r.homeCountry?.name ?? "—" },
-    { key: "location", header: "Location", cell: (r) => r.location?.locationName ?? "—" },
+    {
+      key: "locations",
+      header: "Locations",
+      cell: (r) => r.locations.map((l) => l.location.locationName).join(", ") || "—",
+    },
     { key: "supplies", header: "Supplies to", cell: (r) => r.supplyCountries.length },
     { key: "email", header: "Contact", cell: (r) => r.contactEmail ?? "—" },
     { key: "categories", header: "Categories", cell: (r) => r.materialCategories.length },
@@ -158,7 +190,7 @@ export default async function VendorsPage({
             action={updateVendor}
             values={{
               id: r.id, vendorName: r.vendorName, vendorType: r.vendorType ?? "", status: r.status, preferredLocale: r.preferredLocale,
-              countryId: r.countryId ?? "", locationId: r.locationId ?? "", primaryContact: r.primaryContact ?? "",
+              countryId: r.countryId ?? "", locationIds: r.locations.map((l) => l.locationId).join(","), primaryContact: r.primaryContact ?? "",
               contactEmail: r.contactEmail ?? "", contactPhone: r.contactPhone ?? "", leadTimeDays: r.leadTimeDays ?? "",
               paymentTermsDays: r.paymentTermsDays ?? "", ptAccountNumber: r.ptAccountNumber ?? "", notes: r.notes ?? "",
               itemIds: r.itemVendors.map((iv) => iv.itemId).join(","),
