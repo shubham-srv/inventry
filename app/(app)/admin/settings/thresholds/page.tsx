@@ -17,8 +17,7 @@ type Row = {
   itemId: string
   growerId: number | null
   thresholdQuantity: unknown
-  unitOfMeasure: string | null
-  item: { itemName: string }
+  item: { itemName: string; materialCategory: { name: string } | null }
   grower: { growerName: string } | null
 }
 
@@ -32,9 +31,9 @@ export default async function ThresholdsPage({
 
   const where = raw.q ? { OR: [{ itemId: { contains: raw.q } }, { item: { itemName: { contains: raw.q } } }] } : {}
   const [rows, total, items, growers] = await Promise.all([
-    prisma.itemThreshold.findMany({ where, include: { item: true, grower: true }, orderBy: { itemId: "asc" }, skip, take }),
+    prisma.itemThreshold.findMany({ where, include: { item: { include: { materialCategory: true } }, grower: true }, orderBy: { itemId: "asc" }, skip, take }),
     prisma.itemThreshold.count({ where }),
-    prisma.item.findMany({ where: { status: "Active" }, orderBy: { id: "asc" }, select: { id: true, itemName: true, unitOfMeasure: true } }),
+    prisma.item.findMany({ where: { status: "Active" }, orderBy: { id: "asc" }, select: { id: true, itemName: true, materialCategory: { select: { name: true } } } }),
     prisma.grower.findMany({ orderBy: { growerName: "asc" } }),
   ])
 
@@ -42,16 +41,20 @@ export default async function ThresholdsPage({
     { name: "itemId", label: "Item", type: "select", required: true, placeholder: "Select item", options: items.map((i) => ({ label: `${i.id} — ${i.itemName}`, value: i.id })), colSpan: 2 },
     { name: "growerId", label: "Scope", type: "select", placeholder: "Global", options: [{ label: "Global (all growers)", value: "0" }, ...growers.map((g) => ({ label: g.growerName, value: String(g.id) }))] },
     { name: "thresholdQuantity", label: "Threshold qty", type: "number", required: true, step: "any" },
-    // Read-only and derived: the unit belongs to the item, and a threshold in a
-    // different unit from the counts it is compared against is just wrong. Not
-    // posted — createThreshold/updateThreshold read it from the item.
+    // Read-only and derived. A quantity is counted in the item's material
+    // category, so the threshold and the counts it is compared against are in
+    // the same terms by construction. Never posted.
     {
-      name: "unitOfMeasure",
-      label: "Unit",
+      name: "categoryName",
+      label: "Counted in",
       type: "preview",
       dependsOn: "itemId",
-      derive: Object.fromEntries(items.filter((i) => i.unitOfMeasure).map((i) => [i.id, i.unitOfMeasure!])),
-      placeholder: "Inherited from the item",
+      derive: Object.fromEntries(
+        items
+          .filter((i) => i.materialCategory)
+          .map((i) => [i.id, i.materialCategory!.name])
+      ),
+      placeholder: "The item's category",
     },
   ]
 
@@ -67,7 +70,7 @@ export default async function ThresholdsPage({
       ),
     },
     { key: "scope", header: "Scope", cell: (r) => (r.grower ? <Badge variant="secondary">{r.grower.growerName}</Badge> : <Badge variant="outline">Global</Badge>) },
-    { key: "qty", header: "Threshold", className: "tabular-nums", cell: (r) => `${Number(r.thresholdQuantity)} ${r.unitOfMeasure ?? ""}` },
+    { key: "qty", header: "Threshold", className: "tabular-nums", cell: (r) => `${Number(r.thresholdQuantity)} ${r.item.materialCategory?.name ?? ""}` },
     {
       key: "actions",
       header: "",
@@ -84,7 +87,7 @@ export default async function ThresholdsPage({
 
   return (
     <>
-      <PageHeader title="Item thresholds" description="Low-stock thresholds. Grower-specific values override the global default. The unit always comes from the item." />
+      <PageHeader title="Item thresholds" description="Low-stock thresholds. Grower-specific values override the global default. Quantities are always in the item's material category." />
       <div className="space-y-4">
         <DataTableToolbar searchPlaceholder="Search items…">
           <EntityFormDialog title="New threshold" fields={fields} action={createThreshold} submitLabel="Create" trigger={<Button size="sm"><Plus className="size-4" /> Add threshold</Button>} />

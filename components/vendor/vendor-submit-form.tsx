@@ -24,7 +24,6 @@ import { cn } from "@/lib/utils"
 
 type RowState = {
   qty: string
-  uom: string
   allocations: Record<number, string>
   open: boolean
 }
@@ -41,7 +40,6 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
         r.itemId,
         {
           qty: r.todayQty != null ? String(r.todayQty) : "",
-          uom: r.uom ?? "",
           allocations: Object.fromEntries(
             r.growers.map((g) => [g.growerId, r.todayAllocations[g.growerId] != null ? String(r.todayAllocations[g.growerId]) : ""])
           ),
@@ -85,7 +83,6 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
           .map((r) => ({
             itemId: r.itemId,
             quantity: Number(values[r.itemId].qty),
-            uom: values[r.itemId].uom || null,
             allocations: r.growers
               .filter((g) => (values[r.itemId].allocations[g.growerId] ?? "").trim() !== "")
               .map((g) => ({ growerId: g.growerId, quantity: Number(values[r.itemId].allocations[g.growerId]) })),
@@ -211,21 +208,16 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
                     </p>
                   </div>
 
+                  {/* The quantity is counted in the item's material category,
+                      which the label names — it used to sit in a read-only box
+                      beside it, repeating what the meta line above already says. */}
                   <div className="flex items-end gap-3">
-                    <div className="w-28">
-                      <Label htmlFor={`q-${r.itemId}`} className="text-xs">{t("vendor.form.quantity")}</Label>
+                    <div className="w-32">
+                      <Label htmlFor={`q-${r.itemId}`} className="text-xs">
+                        {t("vendor.form.quantity")}
+                        {r.categoryName ? ` (${r.categoryName})` : ""}
+                      </Label>
                       <Input id={`q-${r.itemId}`} type="number" min={0} inputMode="decimal" value={v.qty} onChange={(e) => set(r.itemId, { qty: e.target.value })} placeholder="0" />
-                    </div>
-                    {/* The unit belongs to the item — shown, never edited. */}
-                    <div className="w-24">
-                      <Label htmlFor={`u-${r.itemId}`} className="text-xs">{t("vendor.form.unit")}</Label>
-                      <Input
-                        id={`u-${r.itemId}`}
-                        value={v.uom || "—"}
-                        readOnly
-                        tabIndex={-1}
-                        className="bg-muted text-muted-foreground cursor-not-allowed"
-                      />
                     </div>
                   </div>
                 </div>

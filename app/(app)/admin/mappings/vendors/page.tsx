@@ -23,11 +23,14 @@ type Row = {
   id: number
   isActive: boolean
   itemId: string
-  shipsInLevel: number
   packagingChainId: number | null
   vendor: { vendorName: string }
-  item: { itemName: string; unitOfMeasure: string | null; materialCategoryCode: string | null }
-  packagingChain: { id: number; name: string; baseUnit: string; levels: { level: number; unitName: string }[] } | null
+  item: {
+    itemName: string
+    materialCategoryCode: string | null
+    materialCategory: { name: string } | null
+  }
+  packagingChain: { id: number; name: string; levels: { level: number; unitName: string }[] } | null
   packRatios: { level: number; perParent: number }[]
 }
 
@@ -45,7 +48,13 @@ export default async function VendorItemMappingsPage({
       where,
       include: {
         vendor: true,
-        item: { select: { itemName: true, unitOfMeasure: true, materialCategoryCode: true } },
+        item: {
+          select: {
+            itemName: true,
+            materialCategoryCode: true,
+            materialCategory: { select: { name: true } },
+          },
+        },
         packagingChain: { include: { levels: { orderBy: { level: "asc" } } } },
         packRatios: { orderBy: { level: "asc" } },
       },
@@ -93,35 +102,29 @@ export default async function VendorItemMappingsPage({
     },
   ]
 
-  // A chain is only offered for an item whose unit matches the chain's base
-  // unit AND whose material category it belongs to. `parent` drives the
-  // dependsOn filter so the dropdown narrows as soon as the row is known.
+  // A chain is offered for an item in the same material category — the chain
+  // starts from that category, so the two cannot disagree by construction.
   function packagingFields(r: Row): Field[] {
     const eligible = chains.filter(
-      (c) =>
-        c.materialCategoryCode === r.item.materialCategoryCode &&
-        (!r.item.unitOfMeasure || c.baseUnit === r.item.unitOfMeasure)
+      (c) => c.materialCategoryCode === r.item.materialCategoryCode
     )
     const chain = r.packagingChain
-    const levelOptions = [
-      { label: `${r.item.unitOfMeasure ?? "Base unit"} — partial containers allowed`, value: "0" },
-      ...(chain?.levels ?? []).map((l) => ({ label: `Whole ${l.unitName}`, value: String(l.level) })),
-    ]
+    const base = r.item.materialCategory?.name ?? "the item's category"
     return [
       { name: "id", type: "hidden" },
       {
         name: "packagingChainId",
         label: "Packaging chain",
         type: "select",
-        placeholder: eligible.length ? "Select a chain" : "No chain matches this item's unit",
+        placeholder: eligible.length ? "Select a chain" : "No chain for this category",
         options: [
           { label: "— none (order in plain units) —", value: "none" },
-          ...eligible.map((c) => ({ label: `${c.name}  (${c.baseUnit})`, value: String(c.id) })),
+          ...eligible.map((c) => ({ label: c.name, value: String(c.id) })),
         ],
         colSpan: 2,
         description: eligible.length
-          ? undefined
-          : `No chain is defined for category ${r.item.materialCategoryCode ?? "—"} starting from ${r.item.unitOfMeasure ?? "this item's unit"}. Add one under Packaging first.`,
+          ? "Describes how this vendor ships the item. It never changes the ordered quantity."
+          : `No chain is defined for category ${r.item.materialCategoryCode ?? "—"}. Add one under Packaging first.`,
       },
       {
         name: "ratios",
@@ -130,16 +133,8 @@ export default async function VendorItemMappingsPage({
         placeholder: chain ? chain.levels.map(() => "10").join(", ") : "10, 5",
         colSpan: 2,
         description: chain
-          ? `Comma-separated, innermost first: how many ${chain.baseUnit} per ${chain.levels[0]?.unitName ?? "container"}${chain.levels.length > 1 ? `, then how many ${chain.levels[0].unitName} per ${chain.levels[1].unitName}` : ""}.`
+          ? `Comma-separated, innermost first: how many ${base} per ${chain.levels[0]?.unitName ?? "container"}${chain.levels.length > 1 ? `, then how many ${chain.levels[0].unitName} per ${chain.levels[1].unitName}` : ""}.`
           : "Pick a chain first.",
-      },
-      {
-        name: "shipsInLevel",
-        label: "Ships in",
-        type: "select",
-        options: levelOptions,
-        colSpan: 2,
-        description: "The level that must be a whole number. Anything above the base unit rounds the order up, so the grower may receive more than they asked for.",
       },
     ]
   }
@@ -153,7 +148,7 @@ export default async function VendorItemMappingsPage({
       cell: (r) => (
         <div>
           {r.item.itemName}
-          <p className="text-muted-foreground text-xs">{r.item.unitOfMeasure ?? "no unit"}</p>
+          <p className="text-muted-foreground text-xs">{r.item.materialCategory?.name ?? "no category"}</p>
         </div>
       ),
     },
@@ -167,7 +162,9 @@ export default async function VendorItemMappingsPage({
         return (
           <div>
             <span className="flex flex-wrap items-center gap-1 text-xs">
-              <Badge variant="secondary" className="font-mono text-[10px]">{r.packagingChain.baseUnit}</Badge>
+              <Badge variant="secondary" className="font-mono text-[10px]">
+                {r.item.materialCategory?.name ?? "units"}
+              </Badge>
               {r.packagingChain.levels.map((l) => (
                 <span key={l.level} className="flex items-center gap-1">
                   <span className="text-muted-foreground tabular-nums">×{byLevel.get(l.level) ?? "?"}</span>
@@ -176,12 +173,6 @@ export default async function VendorItemMappingsPage({
                 </span>
               ))}
             </span>
-            <p className="text-muted-foreground mt-0.5 text-xs">
-              ships in{" "}
-              {r.shipsInLevel === 0
-                ? `${r.packagingChain.baseUnit} (partials ok)`
-                : `whole ${r.packagingChain.levels.find((l) => l.level === r.shipsInLevel)?.unitName ?? "?"}`}
-            </p>
           </div>
         )
       },
@@ -203,7 +194,6 @@ export default async function VendorItemMappingsPage({
               id: r.id,
               packagingChainId: r.packagingChainId ? String(r.packagingChainId) : "none",
               ratios: r.packRatios.map((p) => p.perParent).join(", "),
-              shipsInLevel: String(r.shipsInLevel),
             }}
             submitLabel="Save packaging"
             trigger={<Button variant="ghost" size="icon-sm" aria-label="Packaging"><Package /></Button>}

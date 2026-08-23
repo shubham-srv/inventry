@@ -101,13 +101,20 @@ export function getNavForUser(roleName: RoleName): NavSection[] {
     sections.push({ label: "nav.sections.partners", items: partners })
   }
 
-  sections.push({
-    label: "nav.sections.tools",
-    items: [
-      { title: "nav.packaging", href: "/admin/packaging", icon: "ruler" },
-      { title: "nav.reports", href: "/admin/reports", icon: "barChart" },
-    ],
-  })
+  const tools: NavItem[] = [
+    { title: "nav.packaging", href: "/admin/packaging", icon: "ruler" },
+  ]
+  // Reports is admin-only (VIEW_REPORTS). It used to sit here ungated, so an
+  // Editor saw the link and got bounced by requireCapability on arrival.
+  //
+  // Points at the INDEX route, not a tab: the sidebar marks an item active on
+  // `pathname.startsWith(item.href)`, so naming a leaf would leave Reports
+  // unhighlighted on the other three tabs. The index redirects to the first tab,
+  // which also keeps the landing tab defined in exactly one place.
+  if (can(roleName, CAPABILITIES.VIEW_REPORTS)) {
+    tools.push({ title: "nav.reports", href: "/admin/reports", icon: "barChart" })
+  }
+  sections.push({ label: "nav.sections.tools", items: tools })
 
   if (can(roleName, CAPABILITIES.ACCESS_SETTINGS)) {
     sections.push({

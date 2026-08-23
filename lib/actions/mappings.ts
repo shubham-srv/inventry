@@ -29,8 +29,8 @@ const createSchema = z.object({
  *
  * The mirror of setGrowerAuthorizations: the dialog pre-ticks what is already
  * mapped, so unticking is a removal instruction. Deactivates rather than
- * deletes — a mapping carries the vendor's packaging setup (chain, ratios,
- * shipsInLevel), and past orders reference it.
+ * deletes — a mapping carries the vendor's packaging setup (chain and ratios),
+ * and past orders reference it.
  */
 export async function setVendorItems(_p: ActionState, fd: FormData): Promise<ActionState> {
   const user = await guard(CAP)
@@ -128,7 +128,6 @@ const packagingSchema = z.object({
   id: z.string().trim().min(1),
   packagingChainId: z.string().trim().optional().default(""),
   ratios: z.string().trim().optional().default(""),
-  shipsInLevel: z.string().trim().optional().default("0"),
 })
 
 export async function setItemVendorPackaging(
@@ -143,7 +142,7 @@ export async function setItemVendorPackaging(
 
   const mapping = await prisma.itemVendor.findUnique({
     where: { id },
-    include: { item: { select: { unitOfMeasure: true } } },
+    include: { item: { select: { materialCategoryCode: true } } },
   })
   if (!mapping) return fail("Mapping not found.")
 
@@ -154,7 +153,7 @@ export async function setItemVendorPackaging(
         prisma.vendorPackRatio.deleteMany({ where: { itemVendorId: id } }),
         prisma.itemVendor.update({
           where: { id },
-          data: { packagingChainId: null, shipsInLevel: 0, updatedBy: user.id },
+          data: { packagingChainId: null, updatedBy: user.id },
         }),
       ])
       revalidatePath(PATH)
@@ -171,11 +170,13 @@ export async function setItemVendorPackaging(
   })
   if (!chain) return fail("Packaging chain not found.")
 
-  // The chain's base unit must match the item's own unit, otherwise the maths
-  // would silently convert between unrelated units.
-  if (mapping.item.unitOfMeasure && chain.baseUnit !== mapping.item.unitOfMeasure)
+  // The chain must belong to the item's material category — that category is
+  // what the item's quantities are counted in, so a chain from another one would
+  // describe containers of the wrong thing. The dropdown already filters on
+  // this; re-check it here because the id arrives in a form field.
+  if (chain.materialCategoryCode !== mapping.item.materialCategoryCode)
     return fail(
-      `That chain starts from ${chain.baseUnit}, but this item is measured in ${mapping.item.unitOfMeasure}.`
+      `That chain belongs to category ${chain.materialCategoryCode}, but this item is in ${mapping.item.materialCategoryCode ?? "no category"}.`
     )
 
   const ratios = data.ratios
@@ -190,10 +191,6 @@ export async function setItemVendorPackaging(
   if (ratios.some((n) => !Number.isInteger(n) || n < 1))
     return fail("Each quantity must be a whole number of 1 or more.")
 
-  const shipsInLevel = Number(data.shipsInLevel) || 0
-  if (shipsInLevel < 0 || shipsInLevel > chain.levels.length)
-    return fail("Ships-in level is outside this chain.")
-
   try {
     await prisma.$transaction([
       prisma.vendorPackRatio.deleteMany({ where: { itemVendorId: id } }),
@@ -201,7 +198,6 @@ export async function setItemVendorPackaging(
         where: { id },
         data: {
           packagingChainId: chainId,
-          shipsInLevel,
           updatedBy: user.id,
           packRatios: {
             create: ratios.map((perParent, i) => ({
@@ -219,7 +215,7 @@ export async function setItemVendorPackaging(
       action: AUDIT_ACTIONS.UPDATE,
       entityType: "ItemVendor",
       entityId: id,
-      changes: { packagingChainId: chainId, ratios, shipsInLevel },
+      changes: { packagingChainId: chainId, ratios },
     })
     revalidatePath(PATH)
     return ok("Packaging saved")

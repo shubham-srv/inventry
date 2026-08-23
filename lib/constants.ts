@@ -129,15 +129,10 @@ export const COUNTRIES_OF_ORIGIN = [
   "N/A",
 ] as const
 
-export const UNITS_OF_MEASURE = [
-  "Cases",
-  "Pallets",
-  "Rolls",
-  "Bags",
-  "Boxes",
-  "Each",
-  "Bundles",
-] as const
+// There is deliberately no UNITS_OF_MEASURE list. A quantity is expressed in the
+// item's MATERIAL CATEGORY — an item in "Boxes" is counted in boxes — so a
+// second, separately-chosen unit could only ever disagree with it. See the
+// MaterialCategory model in prisma/schema.prisma.
 
 // Global item messages shown to growers under an item on their submit view.
 export const ITEM_MESSAGE_TYPES = [

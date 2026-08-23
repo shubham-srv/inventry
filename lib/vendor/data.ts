@@ -9,8 +9,8 @@ export type VendorSubmitRow = {
   itemId: string
   itemName: string
   commodityName: string | null
+  /** The item's material category — also what its quantities are counted in. */
   categoryName: string | null
-  uom: string | null
   previousQty: number | null
   todayQty: number | null
   growers: VendorAllocTarget[]
@@ -75,8 +75,6 @@ export async function getVendorSubmitData(vendorId: number) {
       itemName: iv.item.itemName,
       commodityName: iv.item.commodity?.name ?? null,
       categoryName: iv.item.materialCategory?.name ?? null,
-      // Fixed by the item — the vendor sees it, but cannot change it.
-      uom: iv.item.unitOfMeasure ?? detail?.unitOfMeasure ?? null,
       previousQty: prevByItem.has(iv.itemId) ? prevByItem.get(iv.itemId)! : null,
       todayQty: detail ? num(detail.quantity) : null,
       growers: (growersByItem.get(iv.itemId) ?? []).sort((a, b) =>
@@ -98,7 +96,12 @@ export async function getVendorHistory(vendorId: number, skip = 0, take = 10) {
       where,
       include: {
         submitter: true,
-        details: { include: { item: true, allocations: { include: { grower: true } } } },
+        details: {
+          include: {
+            item: { include: { materialCategory: true } },
+            allocations: { include: { grower: true } },
+          },
+        },
         _count: { select: { details: true } },
       },
       orderBy: { submissionDate: "desc" },

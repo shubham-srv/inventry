@@ -29,9 +29,28 @@ const chainSchema = z.object({
   id: z.string().trim().optional().default(""),
   materialCategoryCode: z.string().trim().min(1, "Category is required"),
   name: z.string().trim().min(1, "Name is required"),
-  baseUnit: z.string().trim().min(1, "Base unit is required"),
   levels: z.string().trim().min(1, "Add at least one packaging level"),
 })
+
+/**
+ * A chain starts from its material category — that is what level 0 is labelled
+ * with, so a packaging level of the same name would produce "Boxes → Boxes".
+ * Returns an error message, or null when the levels are fine.
+ */
+async function levelNameClash(
+  materialCategoryCode: string,
+  levels: string[]
+): Promise<string | null> {
+  const category = await prisma.materialCategory.findUnique({
+    where: { code: materialCategoryCode },
+    select: { name: true },
+  })
+  if (!category) return "That material category no longer exists."
+  const base = category.name.trim().toLowerCase()
+  return levels.some((l) => l.toLowerCase() === base)
+    ? `A packaging level cannot repeat the category it starts from ("${category.name}").`
+    : null
+}
 
 /** "Boxes, Cases" -> ["Boxes", "Cases"], trimmed and de-duplicated. */
 function parseLevels(raw: string): string[] {
@@ -55,15 +74,14 @@ export async function createPackagingChain(
   if (error) return error
   const levels = parseLevels(data.levels)
   if (levels.length === 0) return fail("Add at least one packaging level.")
-  if (levels.some((l) => l.toLowerCase() === data.baseUnit.trim().toLowerCase()))
-    return fail("A packaging level cannot repeat the base unit.")
+  const clash = await levelNameClash(data.materialCategoryCode, levels)
+  if (clash) return fail(clash)
 
   try {
     const chain = await prisma.packagingChain.create({
       data: {
         materialCategoryCode: data.materialCategoryCode,
         name: data.name,
-        baseUnit: data.baseUnit,
         createdBy: user.id,
         updatedBy: user.id,
         levels: { create: levels.map((unitName, i) => ({ level: i + 1, unitName })) },
@@ -94,8 +112,8 @@ export async function updatePackagingChain(
   if (!id) return fail("Missing chain id.")
   const levels = parseLevels(data.levels)
   if (levels.length === 0) return fail("Add at least one packaging level.")
-  if (levels.some((l) => l.toLowerCase() === data.baseUnit.trim().toLowerCase()))
-    return fail("A packaging level cannot repeat the base unit.")
+  const clash = await levelNameClash(data.materialCategoryCode, levels)
+  if (clash) return fail(clash)
 
   // Vendors store one ratio per level. Shortening a chain would orphan ratios
   // for levels that no longer exist, and shift the meaning of the rest, so
@@ -116,7 +134,6 @@ export async function updatePackagingChain(
         data: {
           materialCategoryCode: data.materialCategoryCode,
           name: data.name,
-          baseUnit: data.baseUnit,
           updatedBy: user.id,
           levels: { create: levels.map((unitName, i) => ({ level: i + 1, unitName })) },
         },

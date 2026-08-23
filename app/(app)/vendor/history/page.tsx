@@ -63,7 +63,7 @@ export default async function VendorHistoryPage({
                         <span className="font-medium">{d.item.itemName}</span>
                         <span className="text-muted-foreground ml-2 font-mono text-xs">{d.itemId}</span>
                       </TableCell>
-                      <TableCell className="tabular-nums">{Number(d.quantity)} {d.unitOfMeasure ?? ""}</TableCell>
+                      <TableCell className="tabular-nums">{Number(d.quantity)} {d.item.materialCategory?.name ?? ""}</TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
                           {d.allocations.length === 0 && <span className="text-muted-foreground text-xs">—</span>}

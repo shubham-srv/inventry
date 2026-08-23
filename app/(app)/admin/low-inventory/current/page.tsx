@@ -47,7 +47,7 @@ export default async function CurrentlyLowPage({
           <div className="min-w-40">
             <div className="mb-1 flex items-baseline justify-between gap-2 text-xs">
               <span className="font-medium tabular-nums">
-                {r.onHand} / {r.threshold} {r.unitOfMeasure ?? ""}
+                {r.onHand} / {r.threshold} {r.categoryName ?? ""}
               </span>
               <span className="text-muted-foreground tabular-nums">{Math.round(pct)}%</span>
             </div>

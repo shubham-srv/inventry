@@ -1,5 +1,5 @@
 import { PrismaClient, Prisma } from "@prisma/client"
-import { resolvePack } from "../lib/packaging/resolve"
+import { describePack } from "../lib/packaging/resolve"
 import {
   ROLES,
   NOTIFICATION_TYPES,
@@ -69,17 +69,17 @@ async function clearAll() {
   await prisma.packagingChainLevel.deleteMany()
   await prisma.packagingChain.deleteMany()
   await prisma.growerItemAuthorization.deleteMany()
-  // Both hold FKs into tables cleared further down (Country, Location, Grower,
-  // Vendor), so they have to go first.
+  // These three hold FKs into tables cleared further down (Country, Location,
+  // Grower, Vendor), so they have to go first.
   await prisma.vendorCountry.deleteMany()
   await prisma.growerLocation.deleteMany()
+  await prisma.vendorLocation.deleteMany()
   // Both FK to Item/Grower with NoAction, so they must go before item/grower
   // below — otherwise a re-run of the seed dies on a FK constraint violation.
   await prisma.itemMessageGrower.deleteMany()
   await prisma.itemMessageTranslation.deleteMany()
   await prisma.itemMessage.deleteMany()
   await prisma.item.deleteMany()
-  await prisma.country.deleteMany()
   await prisma.subCategory.deleteMany()
   await prisma.materialCategory.deleteMany()
   await prisma.commodity.deleteMany()
@@ -89,6 +89,13 @@ async function clearAll() {
   await prisma.location.deleteMany()
   await prisma.vendor.deleteMany()
   await prisma.grower.deleteMany()
+  // Country goes LAST of the lookups, after every table that points at it:
+  // Item.countryOfOriginId, Location.countryId, Vendor.countryId and
+  // VendorCountry — all of which are gone by here. It used to sit up with the
+  // other lookups, which made a second `db:seed` against a populated database
+  // fail on Location_countryId_fkey. Region follows for the same reason
+  // (Location.regionId).
+  await prisma.country.deleteMany()
   await prisma.region.deleteMany()
 }
 
@@ -315,29 +322,29 @@ async function main() {
 
   // ---- Items ----------------------------------------------------------
   const itemDefs = [
-    { id: "AP-BX-00001", itemName: "Asparagus Cardboard Box 11lb", commodityCode: "AP", materialCategoryCode: "BX", subCategory: "Cardboard Boxes", uom: "Cases", coo: "USA" },
-    { id: "AP-BG-00002", itemName: "Asparagus Mesh Bag 2lb", commodityCode: "AP", materialCategoryCode: "BG", subCategory: "Mesh Bags", uom: "Bags", coo: "Mexico" },
-    { id: "BP-BX-00003", itemName: "Bell Pepper Box 25lb", commodityCode: "BP", materialCategoryCode: "BX", subCategory: "Cardboard Boxes", uom: "Cases", coo: "USA" },
-    { id: "BP-LB-00004", itemName: "Bell Pepper PLU Sticker", commodityCode: "BP", materialCategoryCode: "LB", subCategory: "PLU Stickers", uom: "Rolls", coo: "USA" },
-    { id: "CG-BX-00005", itemName: "Grape Clamshell Box", commodityCode: "CG", materialCategoryCode: "BX", subCategory: "Packaged Boxes", uom: "Cases", coo: "Peru" },
-    { id: "CG-PL-00006", itemName: "Grape Wooden Pallet", commodityCode: "CG", materialCategoryCode: "PL", subCategory: "Wooden Pallets", uom: "Pallets", coo: "Canada" },
-    { id: "BR-BX-00007", itemName: "Berry Clamshell 6oz", commodityCode: "BR", materialCategoryCode: "BX", subCategory: "Packaged Boxes", uom: "Cases", coo: "Mexico" },
-    { id: "BR-LB-00008", itemName: "Berry Brand Label", commodityCode: "BR", materialCategoryCode: "LB", subCategory: "Brand Labels", uom: "Rolls", coo: "USA" },
-    { id: "AV-BX-00009", itemName: "Avocado Box 25lb", commodityCode: "AV", materialCategoryCode: "BX", subCategory: "Cardboard Boxes", uom: "Cases", coo: "Mexico" },
-    { id: "AV-BG-00010", itemName: "Avocado Poly Bag 4ct", commodityCode: "AV", materialCategoryCode: "BG", subCategory: "Poly Bags", uom: "Bags", coo: "Ecuador" },
-    { id: "BP-PL-00011", itemName: "Bell Pepper Pallet", commodityCode: "BP", materialCategoryCode: "PL", subCategory: "Wooden Pallets", uom: "Pallets", coo: "USA" },
-    { id: "CG-ST-00012", itemName: "Grape Adhesive Sticker", commodityCode: "CG", materialCategoryCode: "ST", subCategory: "Adhesive Stickers", uom: "Rolls", coo: "N/A" },
-    // Units stay consistent per material category (BX=Cases, BG=Bags, LB/ST=Rolls,
-    // PL=Pallets) — packaging chains hang off the category and are only offered
-    // for items whose unit matches the chain's baseUnit.
-    { id: "AP-LB-00013", itemName: "Asparagus Brand Label", commodityCode: "AP", materialCategoryCode: "LB", subCategory: "Brand Labels", uom: "Rolls", coo: "USA" },
-    { id: "BP-BG-00014", itemName: "Bell Pepper Mesh Bag 3lb", commodityCode: "BP", materialCategoryCode: "BG", subCategory: "Mesh Bags", uom: "Bags", coo: "Mexico" },
-    { id: "CG-BG-00015", itemName: "Grape Poly Bag 2lb", commodityCode: "CG", materialCategoryCode: "BG", subCategory: "Poly Bags", uom: "Bags", coo: "Peru" },
-    { id: "BR-PL-00016", itemName: "Berry Wooden Pallet", commodityCode: "BR", materialCategoryCode: "PL", subCategory: "Wooden Pallets", uom: "Pallets", coo: "USA" },
-    { id: "AV-LB-00017", itemName: "Avocado PLU Sticker", commodityCode: "AV", materialCategoryCode: "LB", subCategory: "PLU Stickers", uom: "Rolls", coo: "Mexico" },
-    { id: "AP-PL-00018", itemName: "Asparagus Pallet", commodityCode: "AP", materialCategoryCode: "PL", subCategory: "Wooden Pallets", uom: "Pallets", coo: "USA" },
-    { id: "BR-BG-00019", itemName: "Berry Poly Bag 1lb", commodityCode: "BR", materialCategoryCode: "BG", subCategory: "Poly Bags", uom: "Bags", coo: "Mexico" },
-    { id: "BP-ST-00020", itemName: "Bell Pepper Adhesive Sticker", commodityCode: "BP", materialCategoryCode: "ST", subCategory: "Adhesive Stickers", uom: "Rolls", coo: "N/A" },
+    { id: "AP-BX-00001", itemName: "Asparagus Cardboard Box 11lb", commodityCode: "AP", materialCategoryCode: "BX", subCategory: "Cardboard Boxes", coo: "USA" },
+    { id: "AP-BG-00002", itemName: "Asparagus Mesh Bag 2lb", commodityCode: "AP", materialCategoryCode: "BG", subCategory: "Mesh Bags", coo: "Mexico" },
+    { id: "BP-BX-00003", itemName: "Bell Pepper Box 25lb", commodityCode: "BP", materialCategoryCode: "BX", subCategory: "Cardboard Boxes", coo: "USA" },
+    { id: "BP-LB-00004", itemName: "Bell Pepper PLU Sticker", commodityCode: "BP", materialCategoryCode: "LB", subCategory: "PLU Stickers", coo: "USA" },
+    { id: "CG-BX-00005", itemName: "Grape Clamshell Box", commodityCode: "CG", materialCategoryCode: "BX", subCategory: "Packaged Boxes", coo: "Peru" },
+    { id: "CG-PL-00006", itemName: "Grape Wooden Pallet", commodityCode: "CG", materialCategoryCode: "PL", subCategory: "Wooden Pallets", coo: "Canada" },
+    { id: "BR-BX-00007", itemName: "Berry Clamshell 6oz", commodityCode: "BR", materialCategoryCode: "BX", subCategory: "Packaged Boxes", coo: "Mexico" },
+    { id: "BR-LB-00008", itemName: "Berry Brand Label", commodityCode: "BR", materialCategoryCode: "LB", subCategory: "Brand Labels", coo: "USA" },
+    { id: "AV-BX-00009", itemName: "Avocado Box 25lb", commodityCode: "AV", materialCategoryCode: "BX", subCategory: "Cardboard Boxes", coo: "Mexico" },
+    { id: "AV-BG-00010", itemName: "Avocado Poly Bag 4ct", commodityCode: "AV", materialCategoryCode: "BG", subCategory: "Poly Bags", coo: "Ecuador" },
+    { id: "BP-PL-00011", itemName: "Bell Pepper Pallet", commodityCode: "BP", materialCategoryCode: "PL", subCategory: "Wooden Pallets", coo: "USA" },
+    { id: "CG-ST-00012", itemName: "Grape Adhesive Sticker", commodityCode: "CG", materialCategoryCode: "ST", subCategory: "Adhesive Stickers", coo: "N/A" },
+    // No unit per item: a quantity is counted in the item's material category
+    // (BX=Boxes, BG=Bags, LB=Labels, PL=Pallets, ST=Stickers). Packaging chains
+    // hang off the same category, so the two can never disagree.
+    { id: "AP-LB-00013", itemName: "Asparagus Brand Label", commodityCode: "AP", materialCategoryCode: "LB", subCategory: "Brand Labels", coo: "USA" },
+    { id: "BP-BG-00014", itemName: "Bell Pepper Mesh Bag 3lb", commodityCode: "BP", materialCategoryCode: "BG", subCategory: "Mesh Bags", coo: "Mexico" },
+    { id: "CG-BG-00015", itemName: "Grape Poly Bag 2lb", commodityCode: "CG", materialCategoryCode: "BG", subCategory: "Poly Bags", coo: "Peru" },
+    { id: "BR-PL-00016", itemName: "Berry Wooden Pallet", commodityCode: "BR", materialCategoryCode: "PL", subCategory: "Wooden Pallets", coo: "USA" },
+    { id: "AV-LB-00017", itemName: "Avocado PLU Sticker", commodityCode: "AV", materialCategoryCode: "LB", subCategory: "PLU Stickers", coo: "Mexico" },
+    { id: "AP-PL-00018", itemName: "Asparagus Pallet", commodityCode: "AP", materialCategoryCode: "PL", subCategory: "Wooden Pallets", coo: "USA" },
+    { id: "BR-BG-00019", itemName: "Berry Poly Bag 1lb", commodityCode: "BR", materialCategoryCode: "BG", subCategory: "Poly Bags", coo: "Mexico" },
+    { id: "BP-ST-00020", itemName: "Bell Pepper Adhesive Sticker", commodityCode: "BP", materialCategoryCode: "ST", subCategory: "Adhesive Stickers", coo: "N/A" },
   ]
   await prisma.item.createMany({
     data: itemDefs.map((it) => ({
@@ -347,15 +354,18 @@ async function main() {
       materialCategoryCode: it.materialCategoryCode,
       subCategoryId: subCats[it.subCategory],
       countryOfOriginId: cooByName[it.coo],
-      // The item's own unit — the source of truth resolveItemUnits() reads.
-      // Without it only items that happen to have a threshold get a unit.
-      unitOfMeasure: it.uom,
       applicationMethod: "Machine/Hand",
       status: "Active",
       createdBy: adminId,
     })),
   })
-  const uomByItem: Record<string, string> = Object.fromEntries(itemDefs.map((i) => [i.id, i.uom]))
+  // What each item's quantities are counted in — its material category's name.
+  const categoryNameByItem: Record<string, string> = Object.fromEntries(
+    itemDefs.map((i) => [
+      i.id,
+      materialCategories.find((m) => m.code === i.materialCategoryCode)!.name,
+    ])
+  )
 
   // ---- Grower ↔ Item authorizations -----------------------------------
   const authMap: Record<number, string[]> = {
@@ -464,7 +474,6 @@ async function main() {
       itemId: t.itemId,
       growerId: t.growerId,
       thresholdQuantity: new Prisma.Decimal(t.qty),
-      unitOfMeasure: uomByItem[t.itemId],
       createdBy: adminId,
     })),
   })
@@ -478,13 +487,13 @@ async function main() {
   })
 
   // ---- Packaging chains (structure only — no numbers) -----------------
-  // Scoped to a material category; `baseUnit` must match the unit of the items
-  // in it, which is what makes a chain pickable for a given item.
+  // Scoped to a material category, which is also what level 0 is labelled with:
+  // a BG chain starts from "Bags" because that is what BG items are counted in.
   const chainDefs = [
-    { materialCategoryCode: "BG", name: "Bags → Boxes → Cases", baseUnit: "Bags", levels: ["Boxes", "Cases"] },
-    { materialCategoryCode: "BX", name: "Cases → Pallets", baseUnit: "Cases", levels: ["Pallets"] },
-    { materialCategoryCode: "LB", name: "Rolls → Cartons", baseUnit: "Rolls", levels: ["Cartons"] },
-    { materialCategoryCode: "ST", name: "Rolls → Cartons", baseUnit: "Rolls", levels: ["Cartons"] },
+    { materialCategoryCode: "BG", name: "Bags → Boxes → Cases", levels: ["Boxes", "Cases"] },
+    { materialCategoryCode: "BX", name: "Boxes → Pallets", levels: ["Pallets"] },
+    { materialCategoryCode: "LB", name: "Labels → Cartons", levels: ["Cartons"] },
+    { materialCategoryCode: "ST", name: "Stickers → Cartons", levels: ["Cartons"] },
     // Nothing for PL: pallets ship as-is, so those mappings stay chainless and
     // demo the "no packaging configured" path.
   ]
@@ -492,13 +501,12 @@ async function main() {
     data: chainDefs.map((c) => ({
       materialCategoryCode: c.materialCategoryCode,
       name: c.name,
-      baseUnit: c.baseUnit,
       isActive: true,
       createdBy: adminId,
     })),
   })
   const chains = await prisma.packagingChain.findMany({
-    select: { id: true, materialCategoryCode: true, baseUnit: true },
+    select: { id: true, materialCategoryCode: true },
   })
   const chainByCategory: Record<string, number> = Object.fromEntries(
     chains.map((c) => [c.materialCategoryCode, c.id])
@@ -513,33 +521,33 @@ async function main() {
     ),
   })
 
-  // ---- Per-vendor pack ratios + shipping level ------------------------
-  // shipsInLevel: 0 = partials allowed (delivered == ordered), 1 = whole first
-  // level, 2 = whole second level. Seeded across all three so the demo shows
-  // each behaviour.
-  const packSetup: Record<string, { ratios: number[]; shipsInLevel: number }> = {
+  // ---- Per-vendor pack ratios -----------------------------------------
+  // How many of each level fit in the next one up. Purely descriptive: the
+  // ordered quantity is what arrives, and these only say how many containers it
+  // occupies on the way.
+  const packSetup: Record<string, number[]> = {
     // vendorId:itemId -> ratios indexed by level-1
-    [`${packRight.id}:AP-BG-00002`]: { ratios: [10, 5], shipsInLevel: 1 }, // whole boxes
-    [`${packRight.id}:AV-BG-00010`]: { ratios: [20, 4], shipsInLevel: 2 }, // whole cases
-    [`${packRight.id}:AP-BX-00001`]: { ratios: [60], shipsInLevel: 0 }, // partials fine
-    [`${packRight.id}:BP-BX-00003`]: { ratios: [60], shipsInLevel: 0 },
-    [`${packRight.id}:CG-BX-00005`]: { ratios: [48], shipsInLevel: 1 },
-    [`${packRight.id}:BR-BX-00007`]: { ratios: [60], shipsInLevel: 0 },
-    [`${packRight.id}:AV-BX-00009`]: { ratios: [50], shipsInLevel: 1 },
-    [`${labelWorks.id}:BP-LB-00004`]: { ratios: [12], shipsInLevel: 1 },
-    [`${labelWorks.id}:BR-LB-00008`]: { ratios: [12], shipsInLevel: 1 },
-    [`${labelWorks.id}:CG-ST-00012`]: { ratios: [24], shipsInLevel: 1 },
+    [`${packRight.id}:AP-BG-00002`]: [10, 5],
+    [`${packRight.id}:AV-BG-00010`]: [20, 4],
+    [`${packRight.id}:AP-BX-00001`]: [60],
+    [`${packRight.id}:BP-BX-00003`]: [60],
+    [`${packRight.id}:CG-BX-00005`]: [48],
+    [`${packRight.id}:BR-BX-00007`]: [60],
+    [`${packRight.id}:AV-BX-00009`]: [50],
+    [`${labelWorks.id}:BP-LB-00004`]: [12],
+    [`${labelWorks.id}:BR-LB-00008`]: [12],
+    [`${labelWorks.id}:CG-ST-00012`]: [24],
     // BoxCraft is a second source for items PackRight also supplies, packed
     // differently — the same SKU ordered from either vendor resolves to a
     // different number of containers, which is the whole point of the feature.
-    [`${boxCraft.id}:BP-BX-00003`]: { ratios: [40], shipsInLevel: 1 },
-    [`${boxCraft.id}:BR-BX-00007`]: { ratios: [75], shipsInLevel: 0 },
-    [`${boxCraft.id}:BP-BG-00014`]: { ratios: [25, 4], shipsInLevel: 1 },
-    [`${boxCraft.id}:CG-BG-00015`]: { ratios: [12, 6], shipsInLevel: 2 },
-    [`${boxCraft.id}:BR-BG-00019`]: { ratios: [15, 8], shipsInLevel: 1 },
-    [`${stickerPro.id}:AP-LB-00013`]: { ratios: [18], shipsInLevel: 1 },
-    [`${stickerPro.id}:AV-LB-00017`]: { ratios: [30], shipsInLevel: 0 },
-    [`${stickerPro.id}:BP-ST-00020`]: { ratios: [20], shipsInLevel: 1 },
+    [`${boxCraft.id}:BP-BX-00003`]: [40],
+    [`${boxCraft.id}:BR-BX-00007`]: [75],
+    [`${boxCraft.id}:BP-BG-00014`]: [25, 4],
+    [`${boxCraft.id}:CG-BG-00015`]: [12, 6],
+    [`${boxCraft.id}:BR-BG-00019`]: [15, 8],
+    [`${stickerPro.id}:AP-LB-00013`]: [18],
+    [`${stickerPro.id}:AV-LB-00017`]: [30],
+    [`${stickerPro.id}:BP-ST-00020`]: [20],
   }
   const itemVendorRows = await prisma.itemVendor.findMany({
     select: { id: true, vendorId: true, itemId: true, item: { select: { materialCategoryCode: true } } },
@@ -551,9 +559,9 @@ async function main() {
     if (!setup || chainId == null) continue
     await prisma.itemVendor.update({
       where: { id: iv.id },
-      data: { packagingChainId: chainId, shipsInLevel: setup.shipsInLevel },
+      data: { packagingChainId: chainId },
     })
-    setup.ratios.forEach((perParent, i) =>
+    setup.forEach((perParent, i) =>
       packRatioRows.push({ itemVendorId: iv.id, level: i + 1, perParent, createdBy: adminId })
     )
   }
@@ -654,7 +662,6 @@ async function main() {
         itemId,
         locationId,
         quantityOnHand: new Prisma.Decimal(onHand),
-        unitOfMeasure: uomByItem[itemId],
         createdAt: plan.date,
       })
       ledgerRows.push({
@@ -682,21 +689,20 @@ async function main() {
   }
   const now = new Date()
 
-  // Resolve an order through the vendor's packaging exactly as the app does, so
-  // the seeded expectedQuantity and pack lines match what the UI would compute.
+  // Describe an order through the vendor's packaging exactly as the app does, so
+  // the seeded pack lines match what the UI would compute.
   const itemDefById = Object.fromEntries(itemDefs.map((i) => [i.id, i]))
   const chainLevelsByCategory: Record<string, string[]> = Object.fromEntries(
     chainDefs.map((c) => [c.materialCategoryCode, c.levels])
   )
   function packFor(vendorId: number, itemId: string, quantity: number) {
-    const setup = packSetup[`${vendorId}:${itemId}`]
+    const ratios = packSetup[`${vendorId}:${itemId}`]
     const levelNames = chainLevelsByCategory[itemDefById[itemId]?.materialCategoryCode ?? ""]
-    return resolvePack({
+    return describePack({
       requested: quantity,
-      baseUnit: uomByItem[itemId] ?? "units",
-      levels: setup && levelNames ? levelNames.map((unitName, i) => ({ level: i + 1, unitName })) : [],
-      ratios: setup ? setup.ratios.map((perParent, i) => ({ level: i + 1, perParent })) : [],
-      shipsInLevel: setup?.shipsInLevel ?? 0,
+      baseLabel: categoryNameByItem[itemId] ?? "units",
+      levels: ratios && levelNames ? levelNames.map((unitName, i) => ({ level: i + 1, unitName })) : [],
+      ratios: ratios ? ratios.map((perParent, i) => ({ level: i + 1, perParent })) : [],
     })
   }
 
@@ -710,8 +716,20 @@ async function main() {
     orderDate: Date
     status: string
     closedAt: Date | null
-    received: boolean
+    /** Promised arrival. Derived from the VENDOR'S OWN quoted lead time. */
+    expectedDeliveryDate: Date
+    /** null while Open or Cancelled; may differ from `quantity` (see below). */
+    receivedQuantity: number | null
+    receiptNote: string | null
   }[] = []
+
+  // Each vendor's quoted SLA, which is what an order promises on the day it is
+  // raised. Driving the ETA off this (rather than off the day the order actually
+  // closed) is what gives the admin orders report a real promised-vs-actual
+  // spread — and what leaves some open orders genuinely overdue.
+  const leadDaysByVendor: Record<number, number> = Object.fromEntries(
+    vendorRows.map((v) => [v.id, v.leadTimeDays ?? 5])
+  )
 
   for (const g of growers) {
     const orderable = authMap[g.id].filter((id) => itemToVendors[id]?.length)
@@ -724,8 +742,39 @@ async function main() {
       const vendors = itemToVendors[itemId]
       const vendorId = vendors[n % vendors.length]
       const quantity = 20 + Math.round(rng(g.id * 31 + n) * 120)
-      // Anything ordered more than a fortnight ago has long since arrived.
+      const lead = leadDaysByVendor[vendorId]
+      // Anything ordered more than a fortnight ago has long since arrived —
+      // though WHEN it arrived now varies by vendor, around their SLA.
       const closed = d > 14
+      // Actual transit: the SLA give or take a few days. Math.max(1, …) keeps
+      // the close date at least a day ago — an order closing TODAY would leak
+      // into the grower's "closed today" window and spoil the Agribar setup
+      // seeded immediately below.
+      const actual = Math.max(1, lead + Math.round((rng(g.id * 13 + n) - 0.35) * 6))
+      const closedAt = closed ? daysAgo(Math.max(1, d - actual)) : null
+
+      // Receipts. Most match; a minority are short, damaged or over. One branch
+      // records a real mismatch with NO reason given — the reason is optional in
+      // the UI, so any report that detects discrepancies via `receiptNote IS NOT
+      // NULL` rather than by comparing quantities will miss exactly this case.
+      let receivedQuantity: number | null = closed ? quantity : null
+      let receiptNote: string | null = null
+      if (closed) {
+        const roll = Math.floor(rng(g.id * 53 + n * 7) * 24)
+        if (roll === 0) {
+          receivedQuantity = quantity - Math.max(1, Math.round(quantity * 0.05))
+          receiptNote = "Short"
+        } else if (roll === 1) {
+          receivedQuantity = quantity - Math.max(1, Math.round(quantity * 0.02))
+          receiptNote = "Damaged"
+        } else if (roll === 2) {
+          receivedQuantity = quantity + Math.max(1, Math.round(quantity * 0.03))
+          receiptNote = "Over"
+        } else if (roll === 3) {
+          receivedQuantity = quantity - 1 // mismatch, no reason given
+        }
+      }
+
       orderPlan.push({
         growerId: g.id,
         itemId,
@@ -733,8 +782,10 @@ async function main() {
         quantity,
         orderDate: daysAgo(d),
         status: closed ? "Received" : "Open",
-        closedAt: closed ? daysAgo(d - 4) : null,
-        received: closed,
+        closedAt,
+        expectedDeliveryDate: daysAgo(d - lead),
+        receivedQuantity,
+        receiptNote,
       })
       n++
     }
@@ -746,30 +797,29 @@ async function main() {
   if (agriOrderable.length >= 2) {
     const [a0, a1] = agriOrderable
     orderPlan.push(
-      { growerId: agribar.id, itemId: a0, vendorId: itemToVendors[a0][0], quantity: 25, orderDate: daysAgo(3), status: "Received", closedAt: now, received: true },
-      { growerId: agribar.id, itemId: a1, vendorId: itemToVendors[a1][0], quantity: 15, orderDate: daysAgo(2), status: "Cancelled", closedAt: now, received: false },
-      { growerId: agribar.id, itemId: a0, vendorId: itemToVendors[a0][0], quantity: 30, orderDate: daysAgo(5), status: "Received", closedAt: daysAgo(1), received: true }
+      { growerId: agribar.id, itemId: a0, vendorId: itemToVendors[a0][0], quantity: 25, orderDate: daysAgo(3), status: "Received", closedAt: now, expectedDeliveryDate: daysAgo(1), receivedQuantity: 25, receiptNote: null },
+      // Cancelled orders carry a closedAt too — it is the day it was cancelled,
+      // NOT a delivery. Any lead-time maths that forgets that turns a
+      // cancellation into a suspiciously fast delivery.
+      { growerId: agribar.id, itemId: a1, vendorId: itemToVendors[a1][0], quantity: 15, orderDate: daysAgo(2), status: "Cancelled", closedAt: now, expectedDeliveryDate: daysAgo(-2), receivedQuantity: null, receiptNote: null },
+      { growerId: agribar.id, itemId: a0, vendorId: itemToVendors[a0][0], quantity: 30, orderDate: daysAgo(5), status: "Received", closedAt: daysAgo(1), expectedDeliveryDate: daysAgo(3), receivedQuantity: 28, receiptNote: "Short" }
     )
   }
 
   await createManyChunked(
     prisma.order,
     orderPlan.map((o) => {
-      const pack = packFor(o.vendorId, o.itemId, o.quantity)
       return {
         growerId: o.growerId,
         itemId: o.itemId,
         vendorId: o.vendorId,
         quantity: new Prisma.Decimal(o.quantity),
-        unitOfMeasure: uomByItem[o.itemId],
-        expectedQuantity: new Prisma.Decimal(pack.deliveredQuantity),
-        // Receipts match what the pack maths predicted — no discrepancies are
-        // seeded, so the vendor-scorecard views start clean. Edit a receipt in
-        // the UI to see the mismatch path.
-        receivedQuantity: o.received ? new Prisma.Decimal(pack.deliveredQuantity) : null,
+        receivedQuantity:
+          o.receivedQuantity == null ? null : new Prisma.Decimal(o.receivedQuantity),
+        receiptNote: o.receiptNote,
         status: o.status,
         orderDate: o.orderDate,
-        expectedDeliveryDate: o.closedAt ?? daysAgo(-4),
+        expectedDeliveryDate: o.expectedDeliveryDate,
         closedAt: o.closedAt,
         createdBy: growerUserByGrower[o.growerId],
         createdAt: o.orderDate,
@@ -788,10 +838,10 @@ async function main() {
   for (const o of orderPlan) {
     const orderId = orderIdByKey.get(`${o.growerId}:${o.itemId}:${o.orderDate.getTime()}`)
     if (orderId == null) continue
-    const pack = packFor(o.vendorId, o.itemId, o.quantity)
-    // A single base-unit line means no packaging is configured — nothing to snapshot.
-    if (pack.lines.length < 2) continue
-    for (const l of pack.lines)
+    const lines = packFor(o.vendorId, o.itemId, o.quantity)
+    // A single line means no packaging is configured — nothing to snapshot.
+    if (lines.length < 2) continue
+    for (const l of lines)
       packLineRows.push({
         orderId,
         level: l.level,
@@ -803,22 +853,55 @@ async function main() {
 
   // ---- Historical vendor submissions + allocations --------------------
   console.log("Seeding vendor submissions + allocations…")
-  // Weekly supply reports across the same quarter.
-  const vendorSubmitDays = Array.from(
-    { length: Math.floor(QUARTER_DAYS / 7) },
-    (_, i) => QUARTER_DAYS - 2 - i * 7
-  ).filter((d) => d >= 1)
+  // Weekly supply reports across the same quarter, but on a DIFFERENT ANCHOR per
+  // vendor. How stale a vendor's numbers are is the whole point of the admin
+  // vendor-stock report, and a single shared schedule made all 22 vendor/item
+  // rows read "reported 5 days ago" — one repeated value in the column that
+  // exists to distinguish them.
+  const vendorLastReportDay: Record<number, number> = {
+    [packRight.id]: 2, // Fresh
+    [palletPool.id]: 5, // Fresh
+    [boxCraft.id]: 9, // Ageing — missed a week
+    [labelWorks.id]: 24, // Stale — missed three
+    [stickerPro.id]: 3, // Fresh, but see the skip sets below
+  }
+  // ⚠️ INDEX DIRECTION: index 0 is now the MOST RECENT report and later indices
+  // go further back. It used to be the other way round. Every `di`-keyed rule
+  // below depends on this — a rule aimed at `di === 0` expecting the oldest
+  // report would decorate three-month-old history and leave the report unchanged.
+  const submitDaysFor = (vendorId: number): number[] =>
+    Array.from({ length: 13 }, (_, i) => (vendorLastReportDay[vendorId] ?? 5) + i * 7).filter(
+      (d) => d <= QUARTER_DAYS
+    )
+
+  // Mapped to the vendor, but never reported on — the "Never reported" row that
+  // proves the vendor-stock report lists MAPPINGS, not just submissions.
+  // Deliberately a skip here rather than a new ItemVendor mapping: adding one
+  // would feed the order-vendor rotation above and shift the order counts.
+  const vendorNeverReports = new Set([`${stickerPro.id}:BP-ST-00020`])
+  // Reported historically, then dropped from the two most recent submissions, so
+  // this item reads Stale while its siblings at the same vendor read Fresh.
+  const vendorRecentSkips = new Set([`${stickerPro.id}:AV-LB-00017`])
+
   const vendors = vendorRows
   // Allocations hang off the *detail* id, so unlike the grower loop above the
   // details have to be read back after their bulk insert. (submissionId, itemId)
-  // is unique within a submission here, which makes a safe key to match them on.
-  const vendorDetailPlan: { submissionId: number; itemId: string; qty: number; date: Date }[] = []
+  // is unique within a submission here (by construction — there is no DB
+  // constraint), which makes a safe key to match them on.
+  const vendorDetailPlan: {
+    submissionId: number
+    itemId: string
+    qty: number
+    date: Date
+    /** Leave part of this report unspoken for. See the allocation loop. */
+    underAllocate: boolean
+  }[] = []
 
   // Same pattern as the grower side: submissions in one bulk insert, then read
   // back by (vendorId, submissionDate) — unique, since a vendor reports once a day.
   const vendorSubmissionRows: Prisma.VendorSubmissionCreateManyInput[] = []
   for (const v of vendors) {
-    for (const d of vendorSubmitDays) {
+    for (const d of submitDaysFor(v.id)) {
       const date = daysAgo(d)
       vendorSubmissionRows.push({
         vendorId: v.id,
@@ -841,19 +924,33 @@ async function main() {
 
   for (const v of vendors) {
     const items = vendorItemMap[v.id] ?? []
-    for (let di = 0; di < vendorSubmitDays.length; di++) {
-      const date = daysAgo(vendorSubmitDays[di])
+    const days = submitDaysFor(v.id)
+    for (let di = 0; di < days.length; di++) {
+      const date = daysAgo(days[di])
       const submissionId = vendorSubmissionIdByKey.get(`${v.id}:${date.getTime()}`)
       if (submissionId == null) continue
       for (let ii = 0; ii < items.length; ii++) {
         const itemId = items[ii]
+        const key = `${v.id}:${itemId}`
+        if (vendorNeverReports.has(key)) continue
+        // di < 2 is the two most RECENT reports (see the index-direction note).
+        if (vendorRecentSkips.has(key) && di < 2) continue
         // Same smooth shape as the grower counts: slow drift plus a little noise.
-        const dayOffset = vendorSubmitDays[di]
+        const dayOffset = days[di]
         const progress = 1 - dayOffset / QUARTER_DAYS
         const qty = Math.round(
           (220 + ((ii * 37) % 160)) * (1 + 0.2 * (progress - 0.5)) * (1 + (rng(v.id * 7 + ii * 3 + di) - 0.5) * 0.08)
         )
-        vendorDetailPlan.push({ submissionId, itemId, qty, date })
+        vendorDetailPlan.push({
+          submissionId,
+          itemId,
+          qty,
+          date,
+          // A slice of reports leaves stock unspoken for, so the vendor-stock
+          // report's Unallocated column is not a column of zeroes. Catching
+          // di === 0 matters — that is the report the page actually shows.
+          underAllocate: (ii + di) % 4 === 0,
+        })
       }
     }
   }
@@ -863,7 +960,6 @@ async function main() {
       submissionId: d.submissionId,
       itemId: d.itemId,
       quantity: new Prisma.Decimal(d.qty),
-      unitOfMeasure: uomByItem[d.itemId],
       createdAt: d.date,
     }))
   )
@@ -873,15 +969,19 @@ async function main() {
     )
   )
 
-  // allocate to growers authorized for this item
+  // Allocate to growers authorized for this item. Most reports are fully spoken
+  // for; the `underAllocate` slice leaves ~30% free, which is what the admin
+  // vendor-stock report's Unallocated column reports on. Either way the total
+  // stays <= the reported quantity, the invariant lib/actions/vendor.ts enforces.
   const allocationRows: Prisma.VendorAllocationCreateManyInput[] = []
   for (const d of vendorDetailPlan) {
     const detailId = detailIdByKey.get(`${d.submissionId}:${d.itemId}`)
     const eligibleGrowers = growers.filter((g) => authMap[g.id].includes(d.itemId))
     if (detailId == null || eligibleGrowers.length === 0) continue
-    const per = Math.floor(d.qty / eligibleGrowers.length)
+    const target = d.underAllocate ? Math.floor(d.qty * 0.7) : d.qty
+    const per = Math.floor(target / eligibleGrowers.length)
     for (let gi = 0; gi < eligibleGrowers.length; gi++) {
-      const amount = gi === eligibleGrowers.length - 1 ? d.qty - per * (eligibleGrowers.length - 1) : per
+      const amount = gi === eligibleGrowers.length - 1 ? target - per * (eligibleGrowers.length - 1) : per
       allocationRows.push({
         vendorSubmissionDetailId: detailId,
         growerId: eligibleGrowers[gi].id,

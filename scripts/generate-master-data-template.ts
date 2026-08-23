@@ -5,7 +5,7 @@
  *
  * The column spec lives in docs/master-data-upload.md; this file is the
  * executable half of it. Allowed values are imported from lib/constants.ts
- * rather than retyped, so a workbook can never offer a status or unit the app
+ * rather than retyped, so a workbook can never offer a status or type the app
  * would reject — if the constants change, regenerate and resend.
  *
  * Excel specifics worth knowing before editing:
@@ -20,7 +20,6 @@ import ExcelJS from "exceljs"
 import {
   ROLES,
   ENTITY_STATUS,
-  UNITS_OF_MEASURE,
   APPLICATION_METHODS,
   LOCATION_TYPES,
 } from "../lib/constants"
@@ -157,13 +156,6 @@ const SHEETS: { name: string; purpose: string; cols: Col[]; example: unknown[] }
       { key: "MaterialCategoryCode", width: 24, required: true, help: "Must exist in 4-MaterialCategories" },
       { key: "SubCategoryName", width: 26, required: true, help: "Must exist in 5-SubCategories under this row's MaterialCategoryCode" },
       { key: "CountryOfOrigin", width: 20, required: true, help: "Must exist in 2-Countries" },
-      {
-        key: "UnitOfMeasure",
-        width: 18,
-        required: true,
-        list: UNITS_OF_MEASURE,
-        help: "PERMANENT in practice: every count, order and threshold for this item inherits it. Changing it later does not convert historical quantities.",
-      },
       { key: "ApplicationMethod", width: 20, list: APPLICATION_METHODS, help: "Optional" },
       { key: "Status", width: 14, required: true, list: ITEM_STATUSES, help: "" },
       { key: "LegacyItemRef", width: 20, help: "Your existing identifier, carried through for reconciliation. Not used as a key." },
@@ -171,7 +163,7 @@ const SHEETS: { name: string; purpose: string; cols: Col[]; example: unknown[] }
     ],
     example: [
       "AP-BX-00001", "Corrugated Box 40x30", "AP", "BX", "Cardboard Boxes",
-      "USA", "Cases", "Machine", "Active", "FAM-10023", "",
+      "USA", "Machine", "Active", "FAM-10023", "",
     ],
   },
   {
@@ -324,7 +316,7 @@ const readmeLines: [string, string][] = [
   ["li", "Items added in the app later continue from your highest number, so nothing is ever reused."],
   ["", ""],
   ["h2", "Two things that are easy to get wrong"],
-  ["li", "UnitOfMeasure is effectively permanent. Every quantity ever recorded for an item is in this unit; changing it later reinterprets history rather than converting it."],
+  ["li", "MaterialCategoryCode is what an item's quantities are counted in — an item in \"Boxes\" is counted in boxes. There is no separate unit column. Renaming a category later relabels every quantity ever recorded for its items; it does not convert them."],
   ["li", "A grower with no row in 11-GrowerLocations cannot submit inventory at all. Every active grower needs at least one site."],
   ["", ""],
   ["h2", "Not needed here"],

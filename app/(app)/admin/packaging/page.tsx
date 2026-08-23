@@ -3,7 +3,6 @@ import { prisma } from "@/lib/db"
 import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { parseListParams } from "@/lib/query"
-import { UNITS_OF_MEASURE } from "@/lib/constants"
 import {
   createPackagingChain,
   updatePackagingChain,
@@ -20,7 +19,6 @@ import { ConfirmButton } from "@/components/crud/confirm-button"
 type Row = {
   id: number
   name: string
-  baseUnit: string
   materialCategoryCode: string
   materialCategory: { name: string }
   levels: { level: number; unitName: string }[]
@@ -36,7 +34,12 @@ export default async function PackagingPage({
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
 
   const where = raw.q
-    ? { OR: [{ name: { contains: raw.q } }, { baseUnit: { contains: raw.q } }] }
+    ? {
+        OR: [
+          { name: { contains: raw.q } },
+          { materialCategory: { name: { contains: raw.q } } },
+        ],
+      }
     : {}
 
   const [rows, total, categories] = await Promise.all([
@@ -63,15 +66,8 @@ export default async function PackagingPage({
       required: true,
       placeholder: "Select category",
       options: categories.map((c) => ({ label: `${c.code} — ${c.name}`, value: c.code })),
-    },
-    {
-      name: "baseUnit",
-      label: "Base unit",
-      type: "select",
-      required: true,
-      placeholder: "Bags",
-      options: UNITS_OF_MEASURE.map((u) => ({ label: u, value: u })),
-      description: "The item's own unit — a chain is only offered for items measured in this",
+      description:
+        "The chain starts from this category — it is what the item's quantities are counted in, and it labels the innermost level.",
     },
     { name: "name", label: "Name", type: "text", required: true, placeholder: "Bags → Boxes → Cases", colSpan: 2 },
     {
@@ -92,7 +88,8 @@ export default async function PackagingPage({
       cell: (r) => (
         <div>
           <span className="flex flex-wrap items-center gap-1 font-medium">
-            <Badge variant="secondary" className="font-mono text-[10px]">{r.baseUnit}</Badge>
+            {/* Level 0 is the item's own quantity, labelled by its category. */}
+            <Badge variant="secondary" className="font-mono text-[10px]">{r.materialCategory.name}</Badge>
             {r.levels.map((l) => (
               <span key={l.level} className="flex items-center gap-1">
                 <ChevronRight className="text-muted-foreground size-3" />
@@ -126,7 +123,6 @@ export default async function PackagingPage({
               id: r.id,
               materialCategoryCode: r.materialCategoryCode,
               name: r.name,
-              baseUnit: r.baseUnit,
               levels: r.levels.map((l) => l.unitName).join(", "),
             }}
             submitLabel="Save changes"

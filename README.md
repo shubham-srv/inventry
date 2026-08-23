@@ -64,8 +64,9 @@ npx tsx scripts/generate-master-data-template.ts   # -> master-data-template.xls
 ```
 app/(auth)/login        demo user picker
 app/(app)/admin         internal: master data, growers/vendors, users, authorizations,
-                        requests, conversions, reports, settings (schedulers/thresholds/
-                        audit-logs/outbox), Excel export route
+                        requests, packaging, reports (grower stock, orders, vendor
+                        stock, Power BI), settings (schedulers/thresholds/
+                        audit-logs/outbox), Excel export
 app/(app)/grower        submit, on-order, history, requests, dashboard
 app/(app)/vendor        submit (with grower allocation), history, dashboard
 app/api/cron/reminders  secret-protected scheduler endpoint

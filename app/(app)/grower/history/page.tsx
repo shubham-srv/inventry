@@ -72,7 +72,7 @@ export default async function GrowerHistoryPage({
                         <span className="font-medium">{d.item.itemName}</span>
                         <span className="text-muted-foreground ml-2 font-mono text-xs">{d.itemId}</span>
                       </TableCell>
-                      <TableCell className="tabular-nums">{Number(d.quantityOnHand)} {d.unitOfMeasure ?? ""}</TableCell>
+                      <TableCell className="tabular-nums">{Number(d.quantityOnHand)} {d.item.materialCategory?.name ?? ""}</TableCell>
                       <TableCell>
                         {d.isLowFlagged && (
                           <Badge variant="outline" className="border-transparent bg-red-500/15 text-red-700 dark:text-red-400">

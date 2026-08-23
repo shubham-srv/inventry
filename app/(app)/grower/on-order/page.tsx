@@ -44,7 +44,7 @@ export default async function GrowerOnOrderPage({
   const [orders, total] = await Promise.all([
     prisma.order.findMany({
       where,
-      include: { item: true, vendor: true },
+      include: { item: { include: { materialCategory: true } }, vendor: true },
       orderBy: [{ status: "asc" }, { orderDate: "desc" }],
       skip,
       take,
@@ -105,7 +105,7 @@ export default async function GrowerOnOrderPage({
                     </TableCell>
                     <TableCell>{o.vendor.vendorName}</TableCell>
                     <TableCell className="tabular-nums">
-                      {Number(o.quantity)} {o.unitOfMeasure ?? ""}
+                      {Number(o.quantity)} {o.item.materialCategory?.name ?? ""}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {format(o.orderDate, "MMM d, yyyy")}
@@ -143,7 +143,7 @@ export default async function GrowerOnOrderPage({
                       {isOpen && (
                         <EntityFormDialog
                           title={t("grower.orders.editDeliveryTitle")}
-                          description={`${o.vendor.vendorName} · ${Number(o.quantity)} ${o.unitOfMeasure ?? ""}`}
+                          description={`${o.vendor.vendorName} · ${Number(o.quantity)} ${o.item.materialCategory?.name ?? ""}`}
                           fields={deliveryFields}
                           action={updateOrderDelivery}
                           submitLabel={t("common.save")}

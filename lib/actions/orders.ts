@@ -7,8 +7,7 @@ import { requireRole, type SessionUser } from "@/lib/auth/session"
 import { ROLES, ORDER_STATUS } from "@/lib/constants"
 import { ok, fail, type ActionState } from "@/lib/actions/types"
 import { parseForm } from "@/lib/actions/_shared"
-import { resolveItemUnit } from "@/lib/items/uom"
-import { resolvePack, type PackResolution } from "@/lib/packaging/resolve"
+import { describePack, type PackLine } from "@/lib/packaging/resolve"
 import { getT } from "@/lib/i18n/server"
 import { notifyOrderPlaced } from "@/lib/email/notify"
 
@@ -34,16 +33,19 @@ const parseDeliveryDate = (s: string): Date | null => {
 }
 
 /**
- * Look up the vendor's packaging setup for an item and resolve a quantity
- * through it. Falls back to a single base-unit line when the mapping has no
- * chain, which is the pre-packaging behaviour.
+ * Look up the vendor's packaging setup for an item and describe a quantity
+ * through it. Falls back to a single line when the mapping has no chain, which
+ * is the pre-packaging behaviour.
+ *
+ * The result is descriptive: it says what the ordered quantity occupies, and
+ * never alters the quantity itself.
  */
 async function resolveOrderPack(
   itemId: string,
   vendorId: number,
   quantity: number,
-  unitOfMeasure: string | null
-): Promise<PackResolution> {
+  categoryName: string | null
+): Promise<PackLine[]> {
   const mapping = await prisma.itemVendor.findUnique({
     where: { vendorId_itemId: { vendorId, itemId } },
     include: {
@@ -51,17 +53,16 @@ async function resolveOrderPack(
       packRatios: { orderBy: { level: "asc" } },
     },
   })
-  return resolvePack({
+  return describePack({
     requested: quantity,
-    baseUnit: unitOfMeasure ?? mapping?.packagingChain?.baseUnit ?? "units",
+    baseLabel: categoryName ?? "units",
     levels: mapping?.packagingChain?.levels ?? [],
     ratios: mapping?.packRatios ?? [],
-    shipsInLevel: mapping?.shipsInLevel ?? 0,
   })
 }
 
-// No unitOfMeasure here on purpose: the order is always placed in the item's
-// own unit, which the form shows read-only. Whatever the client posts is ignored.
+// No unit here on purpose: a quantity is expressed in the item's material
+// category, which the form shows. Whatever the client posts is ignored.
 const createSchema = z.object({
   itemId: z.string().trim().min(1),
   vendorId: z.coerce.number().int().positive("Select a vendor"),
@@ -97,12 +98,22 @@ export async function createOrder(_prev: ActionState, fd: FormData): Promise<Act
       )
   if (!allowed.has(data.vendorId)) return fail(t("grower.orders.actions.invalidVendor"))
 
-  const unitOfMeasure = await resolveItemUnit(data.itemId, growerId)
+  // One fetch for both the packaging label and the confirmation email — these
+  // used to be two round trips for the same row.
+  const [grower, item, vendor] = await Promise.all([
+    prisma.grower.findUnique({ where: { id: growerId }, select: { primaryEmail: true, preferredLocale: true } }),
+    prisma.item.findUnique({
+      where: { id: data.itemId },
+      select: { itemName: true, materialCategory: { select: { name: true } } },
+    }),
+    prisma.vendor.findUnique({ where: { id: data.vendorId }, select: { vendorName: true } }),
+  ])
+  const categoryName = item?.materialCategory?.name ?? null
 
-  // Resolve the vendor's packaging for this item. The per-level breakdown is
-  // snapshotted onto the order so later edits to the vendor's ratios can never
-  // rewrite what this order said at the time.
-  const pack = await resolveOrderPack(data.itemId, data.vendorId, data.quantity, unitOfMeasure)
+  // Describe the vendor's packaging for this item. The per-level breakdown is
+  // snapshotted onto the order so later edits to the vendor's ratios — or a
+  // renamed category — can never rewrite what this order said at the time.
+  const packLines = await resolveOrderPack(data.itemId, data.vendorId, data.quantity, categoryName)
 
   await prisma.order.create({
     data: {
@@ -110,15 +121,13 @@ export async function createOrder(_prev: ActionState, fd: FormData): Promise<Act
       itemId: data.itemId,
       vendorId: data.vendorId,
       quantity: data.quantity,
-      unitOfMeasure,
-      expectedQuantity: pack.deliveredQuantity,
       expectedDeliveryDate: parseDeliveryDate(data.expectedDeliveryDate),
       status: ORDER_STATUS.OPEN,
       orderDate: new Date(),
       createdBy: user.id,
       updatedBy: user.id,
       packLines: {
-        create: pack.lines.map((l) => ({
+        create: packLines.map((l) => ({
           level: l.level,
           unitName: l.unitName,
           quantity: l.quantity,
@@ -128,11 +137,6 @@ export async function createOrder(_prev: ActionState, fd: FormData): Promise<Act
   })
 
   // Confirm the order to the grower in their language.
-  const [grower, item, vendor] = await Promise.all([
-    prisma.grower.findUnique({ where: { id: growerId }, select: { primaryEmail: true, preferredLocale: true } }),
-    prisma.item.findUnique({ where: { id: data.itemId }, select: { itemName: true } }),
-    prisma.vendor.findUnique({ where: { id: data.vendorId }, select: { vendorName: true } }),
-  ])
   await notifyOrderPlaced({
     growerId,
     toEmail: grower?.primaryEmail ?? null,
@@ -140,7 +144,7 @@ export async function createOrder(_prev: ActionState, fd: FormData): Promise<Act
     itemName: item?.itemName ?? data.itemId,
     vendorName: vendor?.vendorName ?? "",
     quantity: data.quantity,
-    uom: unitOfMeasure,
+    categoryName,
   })
 
   revalidateGrower()
@@ -196,11 +200,13 @@ const receiveSchema = z.object({
 /**
  * Mark an order received, recording how much actually turned up.
  *
- * The quantity is prefilled with `expectedQuantity` in the UI, so the normal
- * path is a single confirm; editing it is the signal worth having. It exists to
- * validate the packaging config and score vendors — it deliberately writes NO
- * inventory ledger entry. On-hand stock comes from the grower's daily count, and
- * adding a receipt to the ledger would double-count it.
+ * The quantity is prefilled with what was ORDERED, so the normal path is a
+ * single confirm; editing it is the signal worth having — "we asked for 343 and
+ * 340 arrived". Packaging plays no part: containers are discarded on receipt and
+ * never changed the quantity in the first place.
+ *
+ * This deliberately writes NO inventory ledger entry. On-hand stock comes from
+ * the grower's daily count, and adding a receipt to the ledger would double-count it.
  */
 export async function receiveOrder(_prev: ActionState, fd: FormData): Promise<ActionState> {
   const { user, growerId } = await requireGrower()
@@ -212,12 +218,12 @@ export async function receiveOrder(_prev: ActionState, fd: FormData): Promise<Ac
   if (!order || order.growerId !== growerId) return fail(t("grower.orders.actions.notFound"))
   if (order.status !== ORDER_STATUS.OPEN) return fail(t("grower.orders.actions.alreadyClosed"))
 
-  const expected = order.expectedQuantity ?? order.quantity
-  const received = data.receivedQuantity === "" ? Number(expected) : Number(data.receivedQuantity)
+  const ordered = Number(order.quantity)
+  const received = data.receivedQuantity === "" ? ordered : Number(data.receivedQuantity)
   if (!Number.isFinite(received) || received < 0)
     return fail(t("grower.orders.actions.invalidReceived"))
 
-  const mismatch = received !== Number(expected)
+  const mismatch = received !== ordered
   await prisma.order.update({
     where: { id: data.id },
     data: {

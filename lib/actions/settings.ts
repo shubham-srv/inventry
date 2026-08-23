@@ -91,7 +91,8 @@ export async function runRemindersAction(): Promise<ActionState> {
 }
 
 // ---------------- Item thresholds ----------------
-// No unitOfMeasure: it is not the admin's to choose. See thresholdData.
+// No unit: a quantity is expressed in the item's material category, so a
+// threshold and the counts it is compared against can never disagree.
 const thresholdSchema = z.object({
   id: z.string().trim().optional().default(""),
   itemId: z.string().trim().min(1, "Item is required"),
@@ -100,26 +101,20 @@ const thresholdSchema = z.object({
 })
 
 /**
- * The unit is INHERITED from the item, never posted.
+ * A threshold carries no unit of its own.
  *
- * The form used to offer a free choice from UNITS_OF_MEASURE, which let a
- * threshold be recorded in Cases while the item — and therefore every count and
- * order against it — was in Bags, silently comparing two different quantities.
- * Reading it from the item here makes that unrepresentable rather than merely
- * discouraged. The column is kept because it records the unit a threshold was
- * set in, and lib/grower/data.ts still falls back to it for items with no unit.
+ * The form used to offer a free choice of unit, which let a threshold be
+ * recorded in Cases while every count and order against the item was in Bags,
+ * silently comparing two different quantities. The unit now comes from the
+ * item's material category — the same place the counts get theirs — so the two
+ * cannot diverge at all.
  */
-async function thresholdData(d: z.infer<typeof thresholdSchema>) {
-  const item = await prisma.item.findUnique({
-    where: { id: d.itemId },
-    select: { unitOfMeasure: true },
-  })
+function thresholdData(d: z.infer<typeof thresholdSchema>) {
   // "0" is the select sentinel for a global (all-growers) threshold.
   return {
     itemId: d.itemId,
     growerId: d.growerId && d.growerId !== "0" ? Number(d.growerId) : null,
     thresholdQuantity: d.thresholdQuantity,
-    unitOfMeasure: item?.unitOfMeasure ?? null,
   }
 }
 
@@ -128,7 +123,7 @@ export async function createThreshold(_p: ActionState, fd: FormData): Promise<Ac
   const { data, error } = parseForm(thresholdSchema, fd)
   if (error) return error
   try {
-    const row = await thresholdData(data)
+    const row = thresholdData(data)
     await prisma.itemThreshold.create({ data: { ...row, createdBy: user.id, updatedBy: user.id } })
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.CREATE, entityType: "ItemThreshold", entityId: data.itemId, changes: row })
     revalidatePath("/admin/settings/thresholds")
@@ -143,7 +138,7 @@ export async function updateThreshold(_p: ActionState, fd: FormData): Promise<Ac
   const { data, error } = parseForm(thresholdSchema, fd)
   if (error) return error
   try {
-    const row = await thresholdData(data)
+    const row = thresholdData(data)
     await prisma.itemThreshold.update({ where: { id: Number(data.id) }, data: { ...row, updatedBy: user.id } })
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.UPDATE, entityType: "ItemThreshold", entityId: data.id, changes: row })
     revalidatePath("/admin/settings/thresholds")

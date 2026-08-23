@@ -168,7 +168,6 @@ afterwards.
 | `MaterialCategoryCode` | ✅ | text | Must exist in **MaterialCategories** |
 | `SubCategoryName` | ✅ | text | Must exist in **SubCategories** *under this MaterialCategoryCode* |
 | `CountryOfOrigin` | ✅ | text | Must exist in **Countries** |
-| `UnitOfMeasure` | ✅ | list | `Cases`, `Pallets`, `Rolls`, `Bags`, `Boxes`, `Each`, `Bundles` |
 | `ApplicationMethod` | | list | `Machine`, `Hand`, `Machine/Hand`, `N/A` |
 | `Status` | ✅ | list | `Active`, `Inactive`, `Review` |
 | `LegacyItemRef` | | text | The client's own identifier from their previous system. Carried through for reconciliation; not used as a key |
@@ -201,11 +200,19 @@ it, and the app has no way to detect it later.
 > the next item created in the UI is `00251`, whatever its category. Numbers are
 > never reused.
 
-### `UnitOfMeasure` is permanent in practice
+### There is no unit column — the category *is* the unit
 
-The item's unit is inherited by every count a grower enters, every order raised,
-and its low-stock threshold. Changing it later does not convert historical
-quantities, so it silently reinterprets them. Get it right in the upload.
+An item's quantities are counted in its **material category**. An item in a
+category named `Boxes` is counted in boxes, everywhere: the grower's daily count,
+the vendor's report, every order, and its low-stock threshold. That is why there
+is no separate `UnitOfMeasure` column — a second, independently chosen unit could
+only ever contradict the category.
+
+**So name your categories after the thing you count.** If you count rolls of
+labels, the category should be `Rolls`, not `Labels`. Renaming a category later
+relabels every quantity ever recorded against its items — it does not convert
+them — so a rename after go-live changes what the history *reads as*, while the
+numbers stay exactly as entered.
 
 ---
 
@@ -403,9 +410,9 @@ Everything the importer checks before writing anything:
 
 Configure in the app, not the workbook:
 
-- **Thresholds** — `/admin/settings/thresholds`. The unit is inherited from the item.
+- **Thresholds** — `/admin/settings/thresholds`. A quantity only, in the item's category.
 - **Reminder schedules** — `/admin/settings/schedulers`. A Global row is created by the bootstrap.
-- **Packaging chains and pack ratios** — `/admin/packaging`, then per vendor-item on `/admin/mappings/vendors`.
+- **Packaging chains and pack ratios** — `/admin/packaging`, then per vendor-item on `/admin/mappings/vendors`. Descriptive only: it says how many containers an order occupies, and never changes the quantity ordered or received.
 - **Item messages** — `/admin/item-messages`.
 
 Reference data the bootstrap creates by itself, whether or not it appears in the

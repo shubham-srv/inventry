@@ -11,6 +11,7 @@ const MAP: Record<string, string> = {
   Active: GREEN,
   Approved: GREEN,
   Fulfilled: GREEN,
+  Received: GREEN,
   Sent: GREEN,
   Yes: GREEN,
   Pending: AMBER,
@@ -21,6 +22,7 @@ const MAP: Record<string, string> = {
   Open: AMBER,
   Mocked: AMBER,
   Inactive: GRAY,
+  Cancelled: GRAY, // same as the `?? GRAY` fallback — listed so it is not a mystery
   No: GRAY,
   Rejected: RED,
   Failed: RED,

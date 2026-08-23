@@ -113,8 +113,15 @@ Table Commodity {
   updatedAt datetime [not null]
 }
 
+// A category is also the UNIT: `name` labels every quantity recorded for its
+// items, their thresholds, and level 0 of their packaging chains. There is no
+// separate unitOfMeasure column anywhere in the schema.
+//
+// TODO: this file is hand-maintained and still predates the packaging feature —
+// PackagingChain, PackagingChainLevel, VendorPackRatio and OrderPackLine are all
+// missing, and Table Order below predates the receipt columns.
 Table MaterialCategory {
-  code varchar [pk, note: 'e.g., BX (Boxes), BG (Bags)']
+  code varchar [pk, note: 'e.g., BX (Boxes), BG (Bags) — also what its items are counted in']
   name varchar [not null]
   createdBy int
   createdAt datetime [not null, default: `now()`]
@@ -144,7 +151,6 @@ Table Item {
   materialCategoryCode varchar [ref: > MaterialCategory.code]
   subCategoryId int [ref: > SubCategory.id]
   countryOfOriginId int [ref: > Country.id, note: 'the only geography on an item - region was dropped']
-  unitOfMeasure varchar [note: 'the item unit; inherited by counts and orders']
   applicationMethod varchar [note: 'Machine, Hand, Machine/Hand, N/A']
   status varchar [not null, default: 'Active', note: 'Active, Inactive, Review']
   notes varchar
@@ -331,7 +337,6 @@ Table GrowerSubmissionDetail {
   itemId varchar [not null, ref: > Item.id]
   locationId int [not null, ref: > Location.id, note: 'denormalised from the parent submission']
   quantityOnHand decimal [not null, default: 0]
-  unitOfMeasure varchar
   isLowFlagged boolean [not null, default: false]
   createdBy int
   createdAt datetime [not null, default: `now()`]
@@ -352,7 +357,6 @@ Table Order {
   itemId varchar [not null, ref: > Item.id]
   vendorId int [not null, ref: > Vendor.id]
   quantity decimal [not null, default: 0]
-  unitOfMeasure varchar
   status varchar [not null, default: 'Open', note: 'Open, Received, Cancelled']
   orderDate datetime [not null, default: `now()`]
   expectedDeliveryDate datetime [note: 'grower-editable expected arrival date']
@@ -425,7 +429,6 @@ Table VendorSubmissionDetail {
   submissionId int [not null, ref: > VendorSubmission.id, note: 'ON DELETE CASCADE']
   itemId varchar [not null, ref: > Item.id]
   quantity decimal [not null, default: 0]
-  unitOfMeasure varchar
   createdBy int
   createdAt datetime [not null, default: `now()`]
   updatedBy int
@@ -512,7 +515,6 @@ Table ItemThreshold {
   itemId varchar [not null, ref: > Item.id]
   growerId int [ref: > Grower.id]
   thresholdQuantity decimal [not null]
-  unitOfMeasure varchar
   createdBy int
   createdAt datetime [not null, default: `now()`]
   updatedBy int
@@ -540,20 +542,6 @@ Table SchedulerSetting {
   Indexes {
     growerId
   }
-}
-
-Table UnitConversion {
-  id int [pk, increment]
-  fromUnit varchar [not null]
-  toUnit varchar [not null]
-  factor decimal [not null, note: '1 fromUnit = factor toUnit']
-  itemId varchar [ref: > Item.id]
-  commodityCode varchar [ref: > Commodity.code]
-  notes varchar
-  createdBy int
-  createdAt datetime [not null, default: `now()`]
-  updatedBy int
-  updatedAt datetime [not null]
 }
 
 

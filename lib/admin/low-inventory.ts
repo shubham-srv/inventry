@@ -7,7 +7,8 @@ export type CurrentlyLowRow = {
   growerName: string
   itemId: string
   itemName: string
-  unitOfMeasure: string | null
+  /** The item's material category — what the quantities are counted in. */
+  categoryName: string | null
   onHand: number
   threshold: number
   thresholdScope: "Grower" | "Global"
@@ -47,7 +48,7 @@ export async function getCurrentlyLow(filters: {
       growerName: string
       itemId: string
       itemName: string
-      unitOfMeasure: string | null
+      categoryName: string | null
       onHand: Prisma.Decimal
       threshold: Prisma.Decimal
       thresholdGrowerId: number | null
@@ -75,7 +76,7 @@ export async function getCurrentlyLow(filters: {
       g.[growerName],
       oh.[itemId],
       i.[itemName],
-      i.[unitOfMeasure],
+      mc.[name] AS [categoryName],
       oh.[onHand],
       th.[thresholdQuantity] AS [threshold],
       th.[growerId] AS [thresholdGrowerId],
@@ -87,6 +88,8 @@ export async function getCurrentlyLow(filters: {
     FROM onhand oh
     INNER JOIN [dbo].[Item] i ON i.[id] = oh.[itemId]
     INNER JOIN [dbo].[Grower] g ON g.[id] = oh.[growerId]
+    -- The category is the unit: an item in "Boxes" is counted in boxes.
+    LEFT JOIN [dbo].[MaterialCategory] mc ON mc.[code] = i.[materialCategoryCode]
     -- Grower-specific threshold wins over the global one.
     OUTER APPLY (
       SELECT TOP 1 t.[thresholdQuantity], t.[growerId]
@@ -113,7 +116,7 @@ export async function getCurrentlyLow(filters: {
     growerName: r.growerName,
     itemId: r.itemId,
     itemName: r.itemName,
-    unitOfMeasure: r.unitOfMeasure,
+    categoryName: r.categoryName,
     onHand: Number(r.onHand),
     threshold: Number(r.threshold),
     thresholdScope: r.thresholdGrowerId == null ? "Global" : "Grower",

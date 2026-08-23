@@ -4,7 +4,7 @@ import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { itemsWhere } from "@/lib/admin/queries"
 import { parseListParams } from "@/lib/query"
-import { ENTITY_STATUS, APPLICATION_METHODS, UNITS_OF_MEASURE } from "@/lib/constants"
+import { ENTITY_STATUS, APPLICATION_METHODS } from "@/lib/constants"
 import { createItem, updateItem, deleteItem } from "@/lib/actions/items"
 import { peekNextSequence, padSequence } from "@/lib/items/item-id"
 import { PageHeader } from "@/components/page-header"
@@ -107,15 +107,6 @@ export default async function ItemsPage({
       options: countries.map((c) => ({ label: c.name, value: String(c.id) })),
     },
     {
-      name: "unitOfMeasure",
-      label: "Unit of measure",
-      type: "select",
-      required: true,
-      placeholder: "Select unit",
-      description: "Used for every count and order of this item.",
-      options: UNITS_OF_MEASURE.map((u) => ({ label: u, value: u })),
-    },
-    {
       name: "applicationMethod",
       label: "Application",
       type: "select",
@@ -173,7 +164,6 @@ export default async function ItemsPage({
     { key: "commodity", header: "Commodity", cell: (r) => r.commodity?.name ?? "—" },
     { key: "category", header: "Category", cell: (r) => r.materialCategory?.name ?? "—" },
     { key: "coo", header: "Origin", cell: (r) => r.countryOfOrigin?.name ?? "—" },
-    { key: "uom", header: "Unit", cell: (r) => r.unitOfMeasure ?? "—" },
     { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
     {
       key: "actions",
@@ -194,7 +184,6 @@ export default async function ItemsPage({
               materialCategoryCode: r.materialCategoryCode ?? "",
               subCategoryId: r.subCategoryId ?? "",
               countryOfOriginId: r.countryOfOriginId ?? "",
-              unitOfMeasure: r.unitOfMeasure ?? "",
               applicationMethod: r.applicationMethod ?? "",
               status: r.status,
               growerIds: r.authorizations.map((a) => String(a.growerId)).join(","),

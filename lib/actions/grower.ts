@@ -8,7 +8,6 @@ import { requireRole, type SessionUser } from "@/lib/auth/session"
 import { ROLES, SUBMISSION_STATUS } from "@/lib/constants"
 import { ok, fail, type ActionState } from "@/lib/actions/types"
 import { parseForm, revalidateNavBadges } from "@/lib/actions/_shared"
-import { resolveItemUnits } from "@/lib/items/uom"
 import { getT } from "@/lib/i18n/server"
 import {
   notifySubmissionReceived,
@@ -44,12 +43,11 @@ function revalidateGrower() {
 //    ledger is rebuilt from all of its details, low flags sync, notification
 //    fires, progress updates. Other locations are untouched — that is the whole
 //    reason the location sits on the submission rather than only on the detail.
-// `uom` is accepted for backwards compatibility but ignored — the unit stored
-// on the detail row always comes from the item (see lib/items/uom.ts).
+// A count carries no unit: the quantity is expressed in the item's material
+// category, which the form shows and nobody types.
 const submitItemSchema = z.object({
   itemId: z.string(),
   quantityOnHand: z.coerce.number().nonnegative(),
-  uom: z.string().nullish(),
   low: z.boolean().optional().default(false),
 })
 const payloadSchema = z.array(submitItemSchema)
@@ -98,10 +96,6 @@ export async function submitInventory(
     ? SUBMISSION_STATUS.DRAFT
     : SUBMISSION_STATUS.APPROVED
   let submittedCount = valid.length
-  const units = await resolveItemUnits(
-    valid.map((i) => i.itemId),
-    growerId
-  )
 
   await prisma.$transaction(async (tx) => {
     let sub = await tx.growerSubmission.findFirst({
@@ -137,7 +131,6 @@ export async function submitInventory(
     for (const it of valid) {
       const data = {
         quantityOnHand: it.quantityOnHand,
-        unitOfMeasure: units.get(it.itemId) ?? null,
         isLowFlagged: !!it.low,
         updatedBy: user.id,
       }

@@ -143,7 +143,6 @@ export function GrowerSubmitForm({
           .map((r) => ({
             itemId: r.itemId,
             quantityOnHand: Number(values[r.itemId].qty),
-            uom: r.uom,
             low: values[r.itemId].low,
           }))
       ),
@@ -346,7 +345,7 @@ export function GrowerSubmitForm({
                           {t("grower.form.belowThreshold")}
                         </Badge>
                       )}
-                      <WeekChangeBadge delta={r.weekDelta} uom={r.uom} />
+                      <WeekChangeBadge delta={r.weekDelta} category={r.categoryName} />
                       {v.low && (
                         <Badge
                           variant="outline"
@@ -361,12 +360,13 @@ export function GrowerSubmitForm({
                       {r.itemId}
                     </p>
                     <p className="text-xs text-muted-foreground">
+                      {/* The category doubles as the unit — named once here, and
+                          again on the quantity label. Not repeated after `prev`. */}
                       {r.commodityName ?? "—"} · {r.categoryName ?? "—"}
                       {r.previousQty != null && (
                         <>
                           {" "}
-                          · {t("grower.form.prev")}: {r.previousQty}{" "}
-                          {r.uom ?? ""}
+                          · {t("grower.form.prev")}: {r.previousQty}
                         </>
                       )}
                       {r.thresholdQty != null && (
@@ -382,7 +382,7 @@ export function GrowerSubmitForm({
                     <div className="w-24">
                       <Label htmlFor={`qty-${r.itemId}`} className="text-xs">
                         {t("grower.form.onHand")}
-                        {r.uom ? ` (${r.uom})` : ""}
+                        {r.categoryName ? ` (${r.categoryName})` : ""}
                       </Label>
                       <Input
                         id={`qty-${r.itemId}`}
@@ -465,7 +465,7 @@ function OrderRow({ order }: { order: OrderView }) {
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-muted/40 px-2.5 py-1.5 text-sm">
       <span className="font-medium">{order.vendorName}</span>
       <span className="tabular-nums">
-        {order.quantity} {order.uom ?? ""}
+        {order.quantity} {order.categoryName ?? ""}
       </span>
       {isOpen ? (
         <Badge
@@ -562,19 +562,16 @@ function AddOrderButton({ item }: { item: SubmitRow }) {
       })),
     },
     {
+      // The category is the unit, so it rides on the label rather than taking a
+      // read-only field of its own next to it.
       name: "quantity",
-      label: t("grower.orders.quantity"),
+      label: item.categoryName
+        ? `${t("grower.orders.quantity")} (${item.categoryName})`
+        : t("grower.orders.quantity"),
       type: "number",
       required: true,
       step: "any",
-    },
-    {
-      // The item's own unit: displayed for context, never chosen here. The
-      // server re-reads it from the item, so this field is purely informational.
-      name: "unitOfMeasure",
-      label: t("grower.orders.unit"),
-      type: "text",
-      readOnly: true,
+      colSpan: 2,
     },
     {
       name: "expectedDeliveryDate",
@@ -590,7 +587,7 @@ function AddOrderButton({ item }: { item: SubmitRow }) {
       fields={fields}
       action={createOrder}
       submitLabel={t("grower.orders.add")}
-      values={{ vendorId: "", quantity: "", unitOfMeasure: item.uom ?? "—", expectedDeliveryDate: "" }}
+      values={{ vendorId: "", quantity: "", expectedDeliveryDate: "" }}
       trigger={
         <Button type="button" variant="outline" size="xs">
           <Plus className="size-3.5" /> {t("grower.orders.add")}
@@ -608,30 +605,22 @@ function toDateInput(iso: string | null): string {
 /**
  * Confirm receipt, recording how much actually arrived.
  *
- * The quantity is prefilled with the expected amount (what the vendor's pack
- * maths said would ship, which may exceed what was ordered), so the everyday
- * path is one tap. Editing it is the discrepancy signal — that is the number
- * worth having, and it validates the packaging config against reality.
+ * Prefilled with what was ORDERED, so the everyday path is one tap. Editing it
+ * is the discrepancy signal — "we asked for 343 and 340 turned up" — which is
+ * the number worth having. Packaging plays no part: the containers are
+ * discarded on receipt and never changed the quantity.
  */
 function ReceiveOrderButton({ order }: { order: OrderView }) {
   const t = useT()
-  const expected = order.expectedQuantity ?? order.quantity
   const fields: Field[] = [
     {
       name: "receivedQuantity",
-      label: t("grower.orders.receivedQty", { uom: order.uom ?? "" }),
+      label: t("grower.orders.receivedQty", { category: order.categoryName ?? "" }),
       type: "number",
       min: "0",
       step: "any",
       colSpan: 2,
-      description:
-        expected !== order.quantity
-          ? t("grower.orders.receivedHintRounded", {
-              ordered: order.quantity,
-              expected,
-              uom: order.uom ?? "",
-            })
-          : t("grower.orders.receivedHint"),
+      description: t("grower.orders.receivedHint"),
     },
     {
       name: "receiptNote",
@@ -650,11 +639,11 @@ function ReceiveOrderButton({ order }: { order: OrderView }) {
   return (
     <EntityFormDialog
       title={t("grower.orders.receiveTitle")}
-      description={`${order.vendorName} · ${order.packSummary ?? `${expected} ${order.uom ?? ""}`}`}
+      description={`${order.vendorName} · ${order.packSummary ?? `${order.quantity} ${order.categoryName ?? ""}`}`}
       fields={fields}
       action={receiveOrder}
       submitLabel={t("grower.orders.receive")}
-      values={{ id: order.id, receivedQuantity: expected, receiptNote: "" }}
+      values={{ id: order.id, receivedQuantity: order.quantity, receiptNote: "" }}
       trigger={
         <Button type="button" variant="outline" size="xs">
           <PackageCheck className="size-3.5" /> {t("grower.orders.receive")}
@@ -672,7 +661,13 @@ function ReceiveOrderButton({ order }: { order: OrderView }) {
  * the same as one with no history at all. Nothing shows only when there genuinely
  * is no count from a week back.
  */
-function WeekChangeBadge({ delta, uom }: { delta: number | null; uom: string | null }) {
+function WeekChangeBadge({
+  delta,
+  category,
+}: {
+  delta: number | null
+  category: string | null
+}) {
   const t = useT()
   if (delta == null) return null
   const tone =
@@ -690,7 +685,7 @@ function WeekChangeBadge({ delta, uom }: { delta: number | null; uom: string | n
     >
       <Icon className="mr-1 size-3" />
       {delta > 0 ? "+" : ""}
-      {delta} {uom ?? ""}
+      {delta} {category ?? ""}
     </Badge>
   )
 }
@@ -708,7 +703,7 @@ function EditDeliveryButton({ order }: { order: OrderView }) {
   return (
     <EntityFormDialog
       title={t("grower.orders.editDeliveryTitle")}
-      description={`${order.vendorName} · ${order.quantity} ${order.uom ?? ""}`}
+      description={`${order.vendorName} · ${order.quantity} ${order.categoryName ?? ""}`}
       fields={fields}
       action={updateOrderDelivery}
       submitLabel={t("common.save")}

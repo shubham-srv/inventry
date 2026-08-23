@@ -68,7 +68,7 @@ Pages: `/admin/items`, `/commodities`, `/categories`, `/sub-categories`, `/locat
 
 ## P5 — Settings, tools & integrations (log in as admin@demo.local)
 - [ ] **Conversions** (`/admin/conversions`): CRUD a unit conversion; optionally scope to a commodity/item; editor can also access this.
-- [ ] **Reports** (`/admin/reports`): placeholder Power BI panels + a live trend chart from the ledger.
+- [ ] **Reports** (`/admin/reports`): four tabs — Grower stock, Orders, Vendor stock, Power BI. Lands on Grower stock; the Power BI tab has the placeholder panels + a live trend chart from the ledger.
 - [ ] **Settings → Thresholds**: add/edit a threshold; grower-scoped overrides global (verify it changes the "Below threshold" highlight on that grower's submit page).
 - [ ] **Settings → Schedulers**: edit the global cadence / add a per-grower schedule; click **Run reminder check now** → toast with counts; overdue growers get a reminder in the **Outbox** (Brigo/PDG are seeded overdue). Re-running same day does not duplicate.
 - [ ] **Settings → Audit logs**: filter by action/entity; confirm your earlier CRUD + exports + reminder runs are recorded.
@@ -230,7 +230,9 @@ the trigger in a client-created `<span className="contents">` (layout-inert).
 - [ ] On an open order (submit page), the **pencil** opens "Expected delivery date" →
       change/clear it → toast "Expected delivery date updated"; the ETA updates.
 - [ ] `/grower/on-order` has an **Expected delivery** column and a per-row **pencil**
-      (open orders only) to edit it; seeded open orders show future ETAs.
+      (open orders only) to edit it. Seeded ETAs come from each vendor's own
+      quoted lead time, so roughly half the open orders are already past theirs
+      (see R13) — expect a mix of future and past dates, not all future.
 - [ ] Isolation: editing another grower's order id is rejected server-side.
 - [ ] Spanish: switch to Español → "Fecha de entrega prevista", "Entrega <date>".
 
@@ -653,14 +655,17 @@ Grown from 3 growers / 3 vendors / 12 items / ~2 weeks to:
 | Grower submissions | 221 |
 | Submission details · ledger rows | 1,755 · 1,755 |
 | Orders · pack lines | 68 · 132 |
-| Vendor submissions · details · allocations | 65 · 286 · 585 |
+| Vendor submissions · details · allocations | 61 · 257 · 545 |
 
 - [ ] Ledger spans ~91 days (check `/admin/reports` — the 14-day chart is now a
       window onto real history rather than the whole dataset).
-- [ ] Quantities move as smooth trend + weekly cycle + light noise. **No dramatic
-      events are seeded** (per your call): no stockouts, no spikes, and receipts
-      match what the pack maths predicted, so vendor discrepancy views start
-      clean. Edit a receipt by hand to exercise the mismatch path.
+- [ ] Quantities move as smooth trend + weekly cycle + light noise — no stockouts
+      and no spikes. **Order receipts and vendor cadence are no longer uniform**,
+      though: since R13 a minority of receipts are short/damaged/over, roughly
+      half the open orders are past their ETA, and the five vendors report on
+      different schedules. That is deliberate — the admin Orders and Vendor stock
+      reports exist to surface exactly those, and a uniform seed left their
+      headline columns empty.
 
 ### P12.2 — Cadence varies per grower
 Each grower counts on different weekdays, which is what makes the reminder
@@ -1145,6 +1150,269 @@ was needed so the new search box could not fire off a half-finished report.
       `/vendor/submit`: nothing submits.
 - [ ] The **Submit report** button still works, is still disabled until at least
       one quantity is entered, and allocations still post with it.
+
+## Round 12 — no more units, packaging is descriptive, inventory snapshot (August 2026)
+
+> **Requires two migrations.**
+>
+> ```bash
+> npm run db:migrate:deploy   # 20260821090000_drop_unit_of_measure
+>                             # 20260821090100_packaging_informational
+> npm run db:seed
+> ```
+>
+> Both were replayed on a scratch database against pre-migration fixtures (an
+> item counted in "Rolls" inside a category named "Stickers"; an order of 343
+> rounded up to an expected 360 and received at 360). Every dropped column is
+> gone, every quantity survived byte-for-byte, old pack lines kept the level-0
+> figure recorded at the time, and `prisma migrate diff` reports no drift. The
+> seed was then run **twice** in a row against a populated database.
+
+### ⚠️ Read this before testing: quantities are RELABELLED, not converted
+There is no unit of measure any more. A quantity is counted in the item's
+**material category** — an item in a category named "Boxes" is counted in boxes.
+Where a category's name differs from the unit its items used to carry, the label
+on screen changes. On the demo seed:
+
+| Code | Category name | Used to read | Now reads |
+|---|---|---|---|
+| `BX` | Boxes | Cases | **Boxes** |
+| `LB` | Labels | Rolls | **Labels** |
+| `ST` | Stickers | Rolls | **Stickers** |
+| `BG` | Bags | Bags | Bags ✓ |
+| `PL` | Pallets | Pallets | Pallets ✓ |
+
+**The numbers are untouched and always were right.** Only the word beside them
+changes. This is expected — do not raise it as a bug.
+
+### What changed at the schema level
+| Change | Notes |
+|---|---|
+| `Item.unitOfMeasure` | **dropped** — the only one anybody ever authored |
+| `GrowerSubmissionDetail` / `VendorSubmissionDetail` / `Order` / `ItemThreshold` `.unitOfMeasure` | **dropped** — all four were copies of the item's unit, written from it every time |
+| `PackagingChain.baseUnit` | **dropped** — a chain already belongs to a material category; this was a second hand-typed label for the same thing |
+| `Order.expectedQuantity` | **dropped** — with no rounding it always equalled `quantity` |
+| `ItemVendor.shipsInLevel` | **dropped** — existed only to pick the rounding level |
+| `Order.receivedQuantity` / `receiptNote` | **kept** — now compared against what was ordered |
+| `OrderPackLine` | **kept** — now purely descriptive; level 0 equals `Order.quantity` |
+
+### R12.1 — Units are gone (admin@demo.local)
+- [ ] `/admin/items`: **no Unit column and no Unit field** in add/edit. Creating an
+      item still works with one fewer required field.
+- [ ] `/admin/settings/thresholds`: the read-only field reads **"Counted in"** and
+      shows the item's category; the list shows e.g. `29 Boxes`.
+- [ ] `/admin/export?entity=items` (.xlsx): one **Category** column, **no** "Unit of
+      measure" column.
+- [ ] `/admin/low-inventory/current`: still the same rows, now labelled with the
+      category.
+- [ ] `/admin/packaging`: the add/edit dialog has **no Base unit field**. Each row's
+      first badge is the category name. Search still works (it now matches the
+      chain name or its category).
+- [ ] Try to add a level named exactly the category ("Boxes" on a BX chain) → refused.
+- [ ] `/admin/mappings/vendors`: the chain dropdown offers **every chain in the
+      item's category**, no longer narrowed by a unit. The item column's sub-line
+      shows the category.
+
+### R12.2 — Grower & vendor views
+- [ ] `/grower/submit` (james@agribar.local): the quantity label reads
+      **`On hand (Boxes)`** for `AP-BX-00001`. The week-change badge reads
+      e.g. `+5 Boxes`.
+- [ ] ⚠️ The category appears **once** in the meta line and once on the quantity
+      label — it must not be repeated a third time after `prev:`.
+- [ ] Add-order dialog: quantity label reads **`Quantity (Boxes)`**; the separate
+      read-only Unit box is gone.
+- [ ] `/vendor/submit` (sam@packright.local): quantity label carries the category;
+      the greyed-out Unit box beside it is gone. Submitting still works.
+- [ ] `/grower/history`, `/vendor/history`, `/grower/on-order`: quantities carry the
+      category, no blanks.
+- [ ] Order-placed email in `/admin/settings/outbox`: the quantity line reads e.g.
+      `111 Boxes`.
+- [ ] Spanish (Brigo, diago@brigo.local): the receipt dialog reads
+      **"Cantidad recibida (…)"** and the hint mentions *lo que pediste*.
+
+### R12.3 — Packaging no longer changes a quantity ⚠️ (the main one)
+- [ ] Order `AP-BG-00002` from PackRight, qty **343** → the order row reads
+      **`343 Bags · 35 Boxes · 7 Cases`**. **NOT 350.** Before this round it
+      inflated the count to fill whole boxes.
+- [ ] Open **Receive** on it → the quantity is prefilled with **343**, and the
+      "this vendor ships whole containers, so 350 is expected" hint is **gone**.
+- [ ] Confirm at 343 → no receipt note is stored. Change it to 340 → the
+      Short/Damaged/Over reason is stored. A mismatch now means a real short
+      delivery, not a packaging artefact.
+- [ ] Receiving still writes **no ledger row** — on-hand on `/grower/submit` and
+      `/grower/history` is unchanged by it.
+- [ ] `/admin/mappings/vendors` packaging dialog has **no "Ships in" select**;
+      saving ratios still works, and the row still shows the ×ratio chain.
+- [ ] `CG-PL-00006` (pallets, no chain) still orders in plain units with no pack
+      summary.
+
+### R12.4 — Reports is now two tabs
+> **Superseded by R13.1** — four tabs now, `/admin/reports` lands on Grower stock,
+> and the sidebar links to the index route. Skip this section; run R13.1 instead.
+- [ ] `/admin/reports` redirects to `/admin/reports/power-bi`; the trend chart and
+      the Power BI placeholder cards are exactly as before.
+- [ ] ⚠️ **Exactly one tab is highlighted on each route** — check both. (A tab
+      living at `/admin/reports` itself would light up on both, which is why they
+      are sibling paths.)
+- [ ] The sidebar **Reports** link goes to the Power BI tab.
+
+### R12.5 — Inventory snapshot (`/admin/reports/inventory`)
+> **Moved by R13.1** to `/admin/reports/grower-stock` and relabelled "Grower
+> stock". Every check below still applies — read the new URL throughout.
+- [ ] Rows are **grower × item**, on-hand summed across that grower's locations.
+      Cross-check one row against `/admin/low-inventory/current` — the two must
+      agree, they share the same latest-per-location maths.
+- [ ] ⚠️ Pairs a grower is authorized for but has **never counted** appear, marked
+      **Uncounted** with an em-dash under Last counted. Verify by authorizing a new
+      item for a grower on `/admin/items` and reloading.
+- [ ] Each of the five filters (grower, location, commodity, category, stock)
+      narrows independently, survives paging, and resets to page 1 when changed.
+- [ ] **Location filter**: pick a site → on-hand is that site's only, and growers
+      who do not count there disappear entirely. An item counted only at another
+      site correctly reads Uncounted here.
+- [ ] **Stock filter**: the four counts (Uncounted + Zero + Below threshold + OK)
+      **add up to the unfiltered total**.
+- [ ] Page 2 differs from page 1 and the total is stable across pages.
+- [ ] **Export** honours the filters currently on screen and its row count matches
+      the on-screen total. On-hand is **blank**, not 0, for uncounted pairs.
+- [ ] `/admin/export?entity=full` does **not** contain an Inventory snapshot sheet.
+
+### R12.6 — Access ⚠️
+- [ ] As **editor@demo.local**: no Reports link in the sidebar (it used to show and
+      then bounce), 403 on `/admin/reports/grower-stock`, **and 403 on
+      `/admin/export?entity=inventory-snapshot`**. That last one was a real hole —
+      the export route fell back to `MANAGE_MASTER_DATA`, which an Editor has.
+- [ ] As a grower or vendor: 403 on both.
+
+### R12.7 — Seed re-runnability (fixed in passing)
+`clearAll()` deleted `Country` before `Location` and `Vendor`, both of which point
+at it, and never deleted `VendorLocation` at all. A second `npm run db:seed`
+against a populated database therefore always failed on a FK constraint. Only
+`db:reset` (which force-resets first) avoided it.
+- [ ] `npm run db:seed` twice in a row succeeds.
+
+### Superseded by this round
+These earlier sections are now wrong; kept for history rather than rewritten:
+- **P11.2–P11.5** (lines ~494-547) — base-unit gating, the `shipsInLevel` table, and
+  especially **"You ordered 343 and receive 350"**, which is now precisely what must
+  *not* happen.
+- **Round 9 "item unit"** (~344-367) and **P10.2 "Every item has a unit"** (~426-438).
+- **R10.3 "Threshold unit inherited from the item"** (~1035).
+- **P12.5 reports** (~705) — the page is now two tabs.
+
+## Round 13 — admin report tabs: Orders + Vendor stock (August 2026)
+
+> **No migration. Re-seed required:** `npm run db:seed`.
+>
+> The seed was enriched on purpose (see R13.5). Without it three of the four new
+> headline columns render one repeated value or an empty set, because the old
+> seed had zero receipt discrepancies, every open ETA in the future, 100% of
+> vendor stock allocated, and one shared reporting schedule for all five vendors.
+
+`/admin/reports` now has four tabs. Two of them are new surfaces entirely —
+before this round there was **no admin view of orders or of vendor submissions
+anywhere in the app**; both were visible only inside the grower/vendor portals.
+
+### ⚠️ The three reports do not reconcile with each other
+Read this before checking numbers across tabs:
+
+- **Receiving an order writes no ledger row.** Deliberate, and verified back in
+  R11 — on-hand comes from the daily count, so adding a receipt would double it.
+  A Received order for 343 does **not** move Grower stock by 343.
+- **A vendor allocation is an intention.** Earmarking 100 for Agribar transfers
+  nothing and touches no ledger.
+- **The three are keyed differently** (grower×item, order, vendor×item), so no
+  row-level cross-check between any two of them is even possible.
+
+### R13.1 — Tabs
+- [ ] Four tabs, in order: **Grower stock · Orders · Vendor stock · Power BI**.
+- [ ] `/admin/reports` redirects to **Grower stock**.
+- [ ] ⚠️ **Exactly one tab highlighted on each of the four routes** — check all
+      four, not a sample.
+- [ ] ⚠️ The sidebar **Reports** entry stays highlighted on **all four** routes.
+      It did not before: nav pointed at a leaf and the sidebar matches on
+      `startsWith`, so it went dark on every tab but Power BI.
+- [ ] Grower stock is the old Inventory snapshot, unchanged — same rows, same
+      five filters, same export. Its URL moved to `/admin/reports/grower-stock`;
+      the export entity key is still `inventory-snapshot` (it is written to
+      `AuditLog.entityType`, so renaming it would orphan existing audit rows).
+
+### R13.2 — Orders (`/admin/reports/orders`)
+- [ ] Unfiltered row count is **68**, and Open 10 + Received 57 + Cancelled 1
+      sums to it.
+- [ ] ⚠️ **Both** an overdue open order ("N days overdue", red) and a not-yet-due
+      one ("Due in Nd") are present. Seeded: 5 of each.
+- [ ] ⚠️ A **Cancelled** order shows `—` under Lead time, **not** a computed
+      delivery. Its `closedAt` is set — it is the cancellation date, not a
+      delivery — and treating it as one is the easiest bug here to ship.
+- [ ] ⚠️ At least one Received order shows a variance **with no Reason**. The
+      reason is optional in the receive dialog, so a report that detects
+      discrepancies via `receiptNote IS NOT NULL` would miss it; this one derives
+      them from `receivedQuantity <> quantity`. Seeded: 4 such rows.
+- [ ] Short, Damaged and Over each appear at least once under Reason.
+- [ ] Lead time reads "4d vs 5d SLA" and the SLA differs between vendors.
+- [ ] An order with its ETA cleared (edit one on `/grower/submit`) shows `—`
+      under Delivery, **not** "on time".
+- [ ] Note the `Delivery` and `Receipt` filter counts do **not** sum to the total
+      — by design. `Delivery` says nothing about Cancelled orders and `Receipt`
+      covers Received only. Only the `Status` counts add up.
+- [ ] Filters narrow independently, survive paging, reset to page 1 on change.
+      Page 2 differs from page 1; the total is stable across pages.
+
+### R13.3 — Vendor stock (`/admin/reports/vendor-stock`)
+- [ ] **22 rows** unfiltered — one per active vendor↔item mapping, regardless of
+      whether anything has been reported against it.
+- [ ] ⚠️ All four statuses are represented, and their counts **add up to 22**.
+      Seeded: Fresh 12 · Ageing 5 · Stale 4 · Never reported 1.
+- [ ] ⚠️ **StickerPro shows Fresh, Stale *and* Never reported on different items
+      of the same vendor.** This is what proves the report is keyed on
+      (vendor, item) rather than just vendor.
+- [ ] ⚠️ A **Never reported** row shows `—` for Reported, Allocated, Unallocated
+      **and** Growers — none of them `0`. "Nothing to allocate" and "nothing
+      allocated" must not render alike.
+- [ ] At least one row has **Unallocated > 0** (amber). Cross-check it by hand
+      against that vendor's `/vendor/history`.
+- [ ] The **Held for** filter narrows to items that grower has a share of on the
+      vendor's *latest* report — never-reported rows correctly disappear, and so
+      do allocations that existed historically but not now. The empty-state
+      message says so.
+
+### R13.4 — Exports and access
+- [ ] Both new tabs export; each honours the filters on screen and the row count
+      matches the on-screen total.
+- [ ] Blanks are **blank, not 0**, for unrecorded receipts and never-reported
+      stock.
+- [ ] `/admin/export?entity=full` contains **neither** an Orders nor a Vendor
+      stock sheet (computed reports are registered separately from master data).
+- [ ] ⚠️ As **editor@demo.local**: no Reports link, 403 on both new pages, **and
+      403 on `/admin/export?entity=orders` and `?entity=vendor-stock`**. Missing
+      either from the per-entity capability map silently hands an Editor the full
+      report by URL — the same hole R12.6 closed for the snapshot.
+- [ ] As a grower or vendor: 403 on all four tabs.
+
+### R13.5 — Seed enrichment
+- [ ] `npm run db:seed` twice in a row still succeeds.
+- [ ] Order ETAs now come from each vendor's quoted `leadTimeDays` rather than a
+      flat +4 days, which is what produces the overdue/not-due mix and a real
+      promised-vs-actual spread.
+- [ ] `Orders · pack lines` is still **68 · 132** — unchanged, because the
+      never-reported row was made by skipping an existing mapping rather than
+      adding one (adding one would have shifted the order vendor rotation).
+- [ ] Vendor counts are now **61 · 257 · 545** (were 65 · 286 · 585): fewer
+      because the five vendors report on different anchors and two StickerPro
+      items are skipped.
+- [ ] `/grower/on-order`, `/grower/submit`, `/vendor/submit` and
+      `/vendor/history` are all still coherent, and Agribar still has an order
+      closed today visible on `/grower/on-order` with yesterday's dropped off.
+
+### Superseded by this round
+- **R12.4** — "Reports is now two tabs", including its "the sidebar Reports link
+  goes to the Power BI tab" checkbox. It is four tabs and the link goes to the
+  index route.
+- **R12.5** — still correct, but the page now lives at
+  `/admin/reports/grower-stock`.
+- **P12.1's** "no dramatic events are seeded … receipts match" bullet, rewritten
+  in place above.
 
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.

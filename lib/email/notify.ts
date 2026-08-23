@@ -334,12 +334,15 @@ export async function notifyOrderPlaced(opts: {
   itemName: string
   vendorName: string
   quantity: number
-  uom?: string | null
+  /** The item's material category — what the quantity is counted in. */
+  categoryName?: string | null
 }): Promise<void> {
   if (!opts.toEmail) return
   const locale = toLocale(opts.locale)
   const t = makeT(locale)
-  const qty = opts.uom ? `${opts.quantity} ${opts.uom}` : String(opts.quantity)
+  const qty = opts.categoryName
+    ? `${opts.quantity} ${opts.categoryName}`
+    : String(opts.quantity)
   const { html, text } = await renderNotification(t, locale, {
     preview: t("email.orderPlaced.heading"),
     heading: t("email.orderPlaced.heading"),

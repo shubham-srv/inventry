@@ -74,12 +74,12 @@ async function effectiveThresholds(growerId: number, itemIds: string[]) {
   const rows = await prisma.itemThreshold.findMany({
     where: { itemId: { in: itemIds }, OR: [{ growerId }, { growerId: null }] },
   })
-  const map = new Map<string, { qty: number; uom: string | null }>()
+  const map = new Map<string, number>()
   // apply globals first, then override with grower-specific
   for (const r of rows.filter((r) => r.growerId === null))
-    map.set(r.itemId, { qty: num(r.thresholdQuantity), uom: r.unitOfMeasure })
+    map.set(r.itemId, num(r.thresholdQuantity))
   for (const r of rows.filter((r) => r.growerId === growerId))
-    map.set(r.itemId, { qty: num(r.thresholdQuantity), uom: r.unitOfMeasure })
+    map.set(r.itemId, num(r.thresholdQuantity))
   return map
 }
 
@@ -87,16 +87,17 @@ export type OrderView = {
   id: number
   vendorName: string
   quantity: number
-  uom: string | null
+  /** The item's material category — what the quantity is counted in. */
+  categoryName: string | null
   status: string // Open, Received, Cancelled
   orderDate: string // ISO
   expectedDeliveryDate: string | null // ISO; grower-editable
   closedAt: string | null // ISO; set when Received/Cancelled
-  /** What the pack maths says will arrive; >= quantity when it rounded up. */
-  expectedQuantity: number | null
   /** What actually arrived, once the grower confirms receipt. */
   receivedQuantity: number | null
-  /** "350 Bags · 35 Boxes · 7 Cases" — snapshot taken when the order was raised. */
+  /** "343 Bags · 35 Boxes · 7 Cases" — what the order occupies in shipping
+   *  containers. Descriptive only: the packaging is discarded on receipt and
+   *  never changes the quantity. Snapshotted when the order was raised. */
   packSummary: string | null
 }
 
@@ -111,8 +112,8 @@ export type SubmitRow = {
   itemId: string
   itemName: string
   commodityName: string | null
+  /** The item's material category — also what its quantities are counted in. */
   categoryName: string | null
-  uom: string | null
   previousQty: number | null
   /** On-hand a week ago, and the change since — null when there's no history yet. */
   weekAgoQty: number | null
@@ -262,6 +263,12 @@ export async function getGrowerSubmitData(growerId: number, locationId: number) 
   const todayStatus = todaySub?.status ?? null
   const isSubmittedToday = todayStatus === SUBMISSION_STATUS.APPROVED
 
+  // Orders are only ever raised for an authorized item, so the category comes
+  // off `auths` rather than a second include on the order query.
+  const categoryByItem = new Map(
+    auths.map((a) => [a.itemId, a.item.materialCategory?.name ?? null])
+  )
+
   // Orders grouped by item (Open first, then most recent), and the per-item
   // vendor choices — mapped vendors, falling back to all active vendors.
   const ordersByItem = new Map<string, OrderView[]>()
@@ -271,14 +278,13 @@ export async function getGrowerSubmitData(growerId: number, locationId: number) 
       id: o.id,
       vendorName: o.vendor.vendorName,
       quantity: num(o.quantity),
-      uom: o.unitOfMeasure,
+      categoryName: categoryByItem.get(o.itemId) ?? null,
       status: o.status,
       orderDate: o.orderDate.toISOString(),
       expectedDeliveryDate: o.expectedDeliveryDate ? o.expectedDeliveryDate.toISOString() : null,
       closedAt: o.closedAt ? o.closedAt.toISOString() : null,
-      expectedQuantity: o.expectedQuantity == null ? null : num(o.expectedQuantity),
       receivedQuantity: o.receivedQuantity == null ? null : num(o.receivedQuantity),
-      // Only worth showing once there is packaging beyond the base unit.
+      // Only worth showing once there is packaging beyond the item itself.
       packSummary:
         o.packLines.length > 1
           ? o.packLines.map((l) => `${num(l.quantity)} ${l.unitName}`).join(" · ")
@@ -312,21 +318,17 @@ export async function getGrowerSubmitData(growerId: number, locationId: number) 
     const prev = prevByItem.has(a.itemId) ? prevByItem.get(a.itemId)! : null
     const weekAgo = weekAgoByItem.has(a.itemId) ? weekAgoByItem.get(a.itemId)! : null
     const detail = todayDetail.get(a.itemId)
-    // The item's own unit wins: it is what every count and order is recorded in.
-    // Older items without one fall back to the unit on their threshold.
-    const uom = a.item.unitOfMeasure ?? t?.uom ?? detail?.unitOfMeasure ?? null
     return {
       itemId: a.itemId,
       itemName: a.item.itemName,
       commodityName: a.item.commodity?.name ?? null,
       categoryName: a.item.materialCategory?.name ?? null,
-      uom,
       previousQty: prev,
       weekAgoQty: weekAgo,
       // Compared against the last recorded count, not today's half-typed entry.
       weekDelta: prev != null && weekAgo != null ? prev - weekAgo : null,
-      thresholdQty: t?.qty ?? null,
-      belowThreshold: t != null && prev != null && prev < t.qty,
+      thresholdQty: t ?? null,
+      belowThreshold: t != null && prev != null && prev < t,
       todayQty: detail ? num(detail.quantityOnHand) : null,
       recordedToday: !!detail,
       submittedToday: !!detail && isSubmittedToday,
@@ -360,7 +362,7 @@ export async function getGrowerHistory(growerId: number, skip = 0, take = 10) {
       include: {
         submitter: true,
         location: { select: { locationName: true } },
-        details: { include: { item: true } },
+        details: { include: { item: { include: { materialCategory: true } } } },
         _count: { select: { details: true } },
       },
       // Same-day rows from different sites sort together, newest day first.
