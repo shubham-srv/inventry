@@ -20,6 +20,7 @@ import {
   DEFAULT_SUBMIT_SORT,
   type SubmitSort,
 } from "@/components/submit/submit-list-controls"
+import { itemCardClass } from "@/components/submit/card-tone"
 import { cn } from "@/lib/utils"
 
 type RowState = {
@@ -75,6 +76,21 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
     return rows.filter((r) => !visible.has(r.itemId) && values[r.itemId]?.qty.trim() !== "").length
   }, [rows, view, values, query])
 
+  // The server rejects the WHOLE report if any item allocates more than it
+  // reported (lib/actions/vendor.ts), so a single bad row used to lose every
+  // number on the page with only a small red badge as warning. Block submit
+  // instead, and say how many rows are at fault.
+  const overRows = useMemo(
+    () =>
+      rows.filter((r) => {
+        const v = values[r.itemId]
+        if (!v) return false
+        const allocated = r.growers.reduce((s, g) => s + Number(v.allocations[g.growerId] || 0), 0)
+        return allocated > Number(v.qty || 0) + 1e-6
+      }).length,
+    [rows, values]
+  )
+
   const payload = useMemo(
     () =>
       JSON.stringify(
@@ -95,18 +111,39 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
     setValues((v) => ({ ...v, [itemId]: { ...v[itemId], ...patch } }))
   }
 
-  // Prefill every quantity with the vendor's last reported value so they only
-  // edit what moved. Mirrors the grower form: explicit, never automatic, so
-  // nobody submits last week's numbers without looking. Allocations are left
-  // alone — they are a breakdown of *this* report's quantity.
-  const hasPrev = useMemo(() => rows.some((r) => r.previousQty != null), [rows])
+  // Prefill every quantity — and its per-grower split — with the vendor's last
+  // report, so they only edit what moved. Mirrors the grower form: explicit,
+  // never automatic, so nobody submits last week's numbers without looking.
+  //
+  // The allocations used to be skipped here on the theory that a split belongs
+  // to *this* report. In practice that meant an item with grower boxes filled
+  // its quantity and nothing else, and submitting then wiped the split outright
+  // (lib/actions/vendor.ts replaces allocations per detail), dropping the item
+  // out of the admin grower-filtered vendor-stock view. Quantity and split come
+  // from the same past report, so the sum can't exceed the quantity.
+  const hasPrev = useMemo(
+    () =>
+      rows.some(
+        (r) => r.previousQty != null || Object.keys(r.previousAllocations).length > 0
+      ),
+    [rows]
+  )
   function loadPrevious() {
     setValues((v) => {
       const next = { ...v }
       for (const r of rows) {
-        if (r.previousQty != null) {
-          next[r.itemId] = { ...next[r.itemId], qty: String(r.previousQty) }
+        const prevAlloc = Object.entries(r.previousAllocations)
+        if (r.previousQty == null && prevAlloc.length === 0) continue
+        const row = { ...next[r.itemId] }
+        if (r.previousQty != null) row.qty = String(r.previousQty)
+        if (prevAlloc.length > 0) {
+          row.allocations = { ...row.allocations }
+          for (const [growerId, qty] of prevAlloc) row.allocations[Number(growerId)] = String(qty)
+          // Open the panel so the vendor sees what was filled in rather than
+          // discovering it after submitting.
+          row.open = true
         }
+        next[r.itemId] = row
       }
       return next
     })
@@ -142,11 +179,16 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
           <Button
             type="submit"
             form="vendor-submit-form"
-            disabled={pending || entered === 0}
+            disabled={pending || entered === 0 || overRows > 0}
           >
             {pending ? t("common.saving") : t("vendor.form.submit")}
           </Button>
         </div>
+        {overRows > 0 && (
+          <p className="text-destructive mt-2 text-xs">
+            {t("vendor.form.overBlocked", { count: overRows })}
+          </p>
+        )}
         {rows.length > 0 && (
           <div className="mt-2">
             <SubmitListControls
@@ -185,7 +227,7 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
         </p>
       )}
 
-      <div className="grid gap-3">
+      <div className="grid gap-4">
         {view.map((r) => {
           const v = values[r.itemId]
           const done = v.qty.trim() !== ""
@@ -193,7 +235,13 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
           const qtyNum = Number(v.qty || 0)
           const over = allocated > qtyNum + 1e-6
           return (
-            <Card key={r.itemId} className={cn("py-0", done && "border-emerald-500/40")}>
+            <Card
+              key={r.itemId}
+              className={cn(
+                "py-0",
+                itemCardClass(over ? "error" : done ? "done" : "neutral")
+              )}
+            >
               <CardContent className="p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
@@ -239,13 +287,22 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
                     {v.open && (
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         {r.growers.map((g) => (
-                          <div key={g.growerId} className="flex items-center justify-between gap-2 rounded-md border px-3 py-1.5">
-                            <span className="truncate text-sm">{g.growerName}</span>
+                          <div key={g.growerId} className="bg-muted/40 flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5">
+                            <div className="min-w-0">
+                              <span className="block truncate text-sm">{g.growerName}</span>
+                              {r.previousAllocations[g.growerId] != null && (
+                                <span className="text-muted-foreground text-xs">
+                                  {t("vendor.form.prevAlloc", {
+                                    qty: r.previousAllocations[g.growerId],
+                                  })}
+                                </span>
+                              )}
+                            </div>
                             <Input
                               type="number"
                               min={0}
                               inputMode="decimal"
-                              className="h-8 w-24"
+                              className="h-8 w-24 shrink-0"
                               value={v.allocations[g.growerId] ?? ""}
                               onChange={(e) => setAlloc(r.itemId, g.growerId, e.target.value)}
                               placeholder="0"

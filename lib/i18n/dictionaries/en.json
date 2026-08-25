@@ -18,6 +18,8 @@
     "next": "Next",
     "records": "{count} record(s)",
     "pageOf": "page {page} of {pages}",
+    "showAllItems": "Show all {count} items",
+    "showFewer": "Show fewer",
     "noRecords": "No records found.",
     "select": "Select…",
     "yes": "Yes",
@@ -269,9 +271,11 @@
       "allocate": "Allocate to growers ({count})",
       "allocated": "{allocated} / {total} allocated",
       "over": "Allocated total exceeds the item quantity.",
+      "overBlocked": "{count} item(s) allocate more than they report — fix them before submitting.",
       "prev": "prev",
+      "prevAlloc": "prev: {qty}",
       "noItems": "No items are mapped to your vendor yet. Ask an admin to map items.",
-      "loadPreviousHint": "Most reports don't change week to week — start from your last reported quantities and edit what moved."
+      "loadPreviousHint": "Most reports don't change week to week — start from your last reported quantities and grower allocations, and edit what moved."
     },
     "history": {
       "title": "Report history",

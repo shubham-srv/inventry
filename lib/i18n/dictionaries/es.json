@@ -18,6 +18,8 @@
     "next": "Siguiente",
     "records": "{count} registro(s)",
     "pageOf": "página {page} de {pages}",
+    "showAllItems": "Ver los {count} artículos",
+    "showFewer": "Ver menos",
     "noRecords": "No se encontraron registros.",
     "select": "Seleccionar…",
     "yes": "Sí",
@@ -269,9 +271,11 @@
       "allocate": "Asignar a productores ({count})",
       "allocated": "{allocated} / {total} asignado",
       "over": "El total asignado supera la cantidad del artículo.",
+      "overBlocked": "{count} artículo(s) asignan más de lo que reportan — corrígelos antes de enviar.",
       "prev": "antes",
+      "prevAlloc": "antes: {qty}",
       "noItems": "Aún no hay artículos asignados a tu proveedor. Pide a un administrador que los asigne.",
-      "loadPreviousHint": "La mayoría de los reportes no cambian de una semana a otra: parte de tus últimas cantidades reportadas y edita lo que cambió."
+      "loadPreviousHint": "La mayoría de los reportes no cambian de una semana a otra: parte de tus últimas cantidades reportadas y asignaciones a productores, y edita lo que cambió."
     },
     "history": {
       "title": "Historial de informes",

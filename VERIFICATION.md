@@ -902,8 +902,8 @@ As **priya@pdg.local** (3 locations), `/grower/submit`:
 As **sam@packright.local**, `/vendor/submit`:
 - [ ] A **Load previous values** bar appears above the item list (only when
       there is history), matching the grower form.
-- [ ] Clicking it fills every quantity with the last reported value and leaves
-      per-grower allocations alone.
+- [ ] Clicking it fills every quantity with the last reported value.
+      (Superseded by R14.1 — it now fills the per-grower allocations too.)
 - [ ] The previous-value lookup is now bounded to 90 days — it used to read the
       vendor's entire submission history on every page load.
 
@@ -1413,6 +1413,93 @@ Read this before checking numbers across tabs:
   `/admin/reports/grower-stock`.
 - **P12.1's** "no dramatic events are seeded … receipts match" bullet, rewritten
   in place above.
+
+## Round 14 — vendor allocation prefill, history paging, card legibility (August 2026)
+
+> No migration and no re-seed. Three reported problems, plus two adjacent bugs
+> found while tracing them.
+
+### R14.1 — "Load previous values" now restores the grower split
+The prefill only ever read each item's previous *quantity*. `VendorSubmitRow`
+had no previous-allocations field at all, so an item with per-grower boxes filled
+its quantity and left every grower box blank — and submitting from there wiped
+the split outright, because `lib/actions/vendor.ts` replaces a detail's
+allocations wholesale. The seed was never the problem: it writes a
+`VendorAllocation` for every authorized grower on every historical detail.
+
+Log in as **lena@palletpool.local** — *not* sam@packright.local, which has **no
+single-grower items** and so cannot reproduce the report. `nina@boxcraft.local`,
+`omar@labelworks.local` and `hugo@stickerpro.local` also have them.
+
+- [ ] `/vendor/submit` → **Load previous values**.
+- [ ] Items with grower boxes fill the quantity **and** every grower box, and
+      those rows are expanded so the filled values are visible, not hidden.
+- [ ] Each grower row shows `prev: N` under the grower name, matching what was
+      filled. This is the item-level `prev:` hint applied per grower.
+- [ ] A **single-grower** item fills — this is the reported bug. On PalletPool,
+      `AP-PL-00018` and `BP-PL-00011` are single-grower.
+- [ ] For every row, the grower boxes sum to ≤ the quantity: both come from the
+      same past report, so they cannot disagree.
+- [ ] Submit → `/vendor/history` top card shows the allocation badges (before
+      this round it showed `—`).
+- [ ] As admin, `/admin/reports/vendor-stock` filtered to that grower still lists
+      the item. This is what silently broke: the report filters on the *latest*
+      report's allocations, so a wiped split dropped the item out of the view.
+- [ ] A grower de-authorized from an item since the last report gets **no**
+      prefilled box — the server rejects a report that allocates to an
+      unauthorized grower, and it fails the whole payload, not just that row.
+
+### R14.2 — Over-allocation no longer loses the whole report
+The server rejects the entire payload if any one item allocates more than it
+reports, so a single bad row discarded every number on the page. Only a small
+red badge hinted at it and nothing blocked submit.
+
+- [ ] Type a grower allocation larger than the item's quantity. The item's left
+      rail turns red, submit is **disabled**, and a line under the button counts
+      the offending items.
+- [ ] Fix it → submit re-enables.
+
+### R14.3 — Vendor history paging
+The pager has been there since the P13.4 round, but each card rendered *every*
+detail row, so ten cards buried it far below the fold.
+
+- [ ] Record count and page indicator now appear **above** the list as well as
+      below, visible without scrolling.
+- [ ] A card with more than 8 items shows 8 rows plus a **Show all N items**
+      disclosure; expanding lines up with the columns above it. It is a native
+      `<details>`, so these pages stay fully server-rendered.
+- [ ] `sam@packright.local` (13 submissions) pages 1 → 2 and back; `?page=2`
+      deep-links. `omar@labelworks.local` has exactly 10 → one page, both
+      buttons greyed.
+- [ ] No submission appears on two pages. Both history queries now tie-break on
+      `id`; ordering on `submissionDate` alone left same-day rows in arbitrary
+      order, so paging could repeat one row and skip another.
+- [ ] Same checks on `/grower/history`, which got the same treatment.
+
+### R14.4 — Item cards are distinguishable again
+`Card` draws its edge with `ring-1 ring-foreground/10` and never sets a border
+*width*, and Tailwind v4 preflight resets everything to `border: 0 solid`. So
+the `border-emerald-500/40` / `border-amber-500/40` state classes both submit
+forms carried were colour-only and **rendered nothing** — a submitted card and
+an untouched one were pixel-identical. Light mode made it worse: `--card`
+(oklch 1) sits 0.8% off `--background` (oklch 0.992).
+
+Styling lives in `components/submit/card-tone.ts` so the two forms cannot drift.
+No token or `components/ui/card.tsx` change, so admin pages are untouched.
+
+Check in **light and dark**, and at phone width:
+- [ ] `/vendor/submit`, `/grower/submit`: every card has a 4px left rail —
+      neutral until entered, emerald once submitted, amber for a grower draft,
+      red when over-allocated. The rail is always present, so the card does not
+      reflow as its state changes.
+- [ ] Clicking into a quantity input visibly lifts that card (`focus-within`).
+      On a long list this is the point.
+- [ ] `/vendor/history`, `/grower/history`: each submission's date header sits on
+      a tinted bar, so one card clearly ends and the next begins.
+- [ ] Vendor allocation sub-rows are tinted fills rather than outlined boxes, so
+      they read as *inside* the card instead of competing with its edge.
+- [ ] **No horizontal page scroll on mobile** (the standing P13 requirement) —
+      the detail tables still scroll inside their own container.
 
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.

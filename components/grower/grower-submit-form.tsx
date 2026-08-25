@@ -57,6 +57,7 @@ import {
   DEFAULT_SUBMIT_SORT,
   type SubmitSort,
 } from "@/components/submit/submit-list-controls"
+import { itemCardClass } from "@/components/submit/card-tone"
 import { cn } from "@/lib/utils"
 
 type RowState = { qty: string; low: boolean }
@@ -312,7 +313,7 @@ export function GrowerSubmitForm({
         </p>
       )}
 
-      <div className="grid gap-3">
+      <div className="grid gap-4">
         {view.map((r) => {
           const v = values[r.itemId]
           const filled = v.qty.trim() !== ""
@@ -321,8 +322,9 @@ export function GrowerSubmitForm({
               key={r.itemId}
               className={cn(
                 "py-0",
-                r.submittedToday && "border-emerald-500/40",
-                !r.submittedToday && r.recordedToday && "border-amber-500/40"
+                itemCardClass(
+                  r.submittedToday ? "done" : r.recordedToday ? "draft" : "neutral"
+                )
               )}
             >
               <CardContent className="space-y-3 p-4">

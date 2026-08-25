@@ -12,6 +12,13 @@ export type VendorSubmitRow = {
   /** The item's material category — also what its quantities are counted in. */
   categoryName: string | null
   previousQty: number | null
+  /**
+   * The per-grower split from the same past report `previousQty` came from, so
+   * "load previous" can restore a breakdown instead of blanking it. Keyed by
+   * growerId, and narrowed to growers still authorized for the item today —
+   * lib/actions/vendor.ts rejects a report that allocates to anyone else.
+   */
+  previousAllocations: Record<number, number>
   todayQty: number | null
   growers: VendorAllocTarget[]
   todayAllocations: Record<number, number>
@@ -43,13 +50,19 @@ export async function getVendorSubmitData(vendorId: number) {
     // is not a useful prefill anyway.
     prisma.vendorSubmissionDetail.findMany({
       where: {
+        itemId: { in: itemIds },
         submission: {
           vendorId,
           submissionDate: { lt: todayStart, gte: subDays(todayStart, 90) },
         },
       },
-      include: { submission: true },
-      orderBy: { submission: { submissionDate: "desc" } },
+      include: { allocations: true },
+      // The `id` tie-break matters: there is no unique on (submissionId, itemId),
+      // so date alone leaves duplicate details in arbitrary order. The admin
+      // vendor-stock report already orders `submissionDate DESC, d.id DESC`
+      // (lib/admin/vendor-stock.ts) — without this the prefill and that report
+      // can disagree about which row is "latest".
+      orderBy: [{ submission: { submissionDate: "desc" } }, { id: "desc" }],
     }),
   ])
 
@@ -61,8 +74,18 @@ export async function getVendorSubmitData(vendorId: number) {
     growersByItem.set(a.itemId, list)
   }
 
+  // Quantity and allocations both come from the FIRST detail seen for an item —
+  // i.e. the same past report — so the split can never exceed the quantity it
+  // was a breakdown of.
   const prevByItem = new Map<string, number>()
-  for (const d of prevDetails) if (!prevByItem.has(d.itemId)) prevByItem.set(d.itemId, num(d.quantity))
+  const prevAllocByItem = new Map<string, Record<number, number>>()
+  for (const d of prevDetails) {
+    if (prevByItem.has(d.itemId)) continue
+    prevByItem.set(d.itemId, num(d.quantity))
+    const alloc: Record<number, number> = {}
+    for (const a of d.allocations) alloc[a.growerId] = num(a.quantity)
+    prevAllocByItem.set(d.itemId, alloc)
+  }
 
   const todayDetail = new Map(todaySub?.details.map((d) => [d.itemId, d]) ?? [])
 
@@ -70,16 +93,25 @@ export async function getVendorSubmitData(vendorId: number) {
     const detail = todayDetail.get(iv.itemId)
     const todayAllocations: Record<number, number> = {}
     if (detail) for (const a of detail.allocations) todayAllocations[a.growerId] = num(a.quantity)
+    const growers = (growersByItem.get(iv.itemId) ?? []).sort((a, b) =>
+      a.growerName.localeCompare(b.growerName)
+    )
+    // Drop anything allocated to a grower who has since lost authorization for
+    // this item: prefilling a box the server would reject fails the whole report.
+    const prevAlloc = prevAllocByItem.get(iv.itemId) ?? {}
+    const previousAllocations: Record<number, number> = {}
+    for (const g of growers) {
+      if (prevAlloc[g.growerId] != null) previousAllocations[g.growerId] = prevAlloc[g.growerId]
+    }
     return {
       itemId: iv.itemId,
       itemName: iv.item.itemName,
       commodityName: iv.item.commodity?.name ?? null,
       categoryName: iv.item.materialCategory?.name ?? null,
       previousQty: prevByItem.has(iv.itemId) ? prevByItem.get(iv.itemId)! : null,
+      previousAllocations,
       todayQty: detail ? num(detail.quantity) : null,
-      growers: (growersByItem.get(iv.itemId) ?? []).sort((a, b) =>
-        a.growerName.localeCompare(b.growerName)
-      ),
+      growers,
       todayAllocations,
     }
   })
@@ -104,7 +136,10 @@ export async function getVendorHistory(vendorId: number, skip = 0, take = 10) {
         },
         _count: { select: { details: true } },
       },
-      orderBy: { submissionDate: "desc" },
+      // `id` breaks the tie so paging is stable: submissionDate alone leaves
+      // same-day submissions in arbitrary order, and a row can then repeat on
+      // one page and vanish from the next.
+      orderBy: [{ submissionDate: "desc" }, { id: "desc" }],
       skip,
       take,
     }),

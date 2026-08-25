@@ -366,7 +366,13 @@ export async function getGrowerHistory(growerId: number, skip = 0, take = 10) {
         _count: { select: { details: true } },
       },
       // Same-day rows from different sites sort together, newest day first.
-      orderBy: [{ submissionDate: "desc" }, { location: { locationName: "asc" } }],
+      // `id` last so paging is fully deterministic even when a grower has two
+      // submissions for the same day and site.
+      orderBy: [
+        { submissionDate: "desc" },
+        { location: { locationName: "asc" } },
+        { id: "desc" },
+      ],
       skip,
       take,
     }),

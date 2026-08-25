@@ -2,27 +2,39 @@ import Link from "next/link"
 import { buildQueryString } from "@/lib/query"
 import { getT } from "@/lib/i18n/server"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 /**
  * URL-driven pager, extracted from DataTable so card-based lists (Outbox,
  * grower history, on-order…) get the same control without being forced into a
  * table. DataTable renders this too, so there is one implementation.
+ *
+ * `position="top"` renders the same control above the list. History pages need
+ * it: each card carries a whole table, so ten of them put the bottom pager well
+ * past the fold and the list reads as unpaginated.
  */
 export async function Pager({
   page,
   pageCount,
   total,
   searchParams,
+  position = "bottom",
 }: {
   page: number
   pageCount: number
   total: number
   searchParams: Record<string, string>
+  position?: "top" | "bottom"
 }) {
   const t = await getT()
   const pages = Math.max(1, pageCount)
   return (
-    <div className="flex items-center justify-between gap-2">
+    <div
+      className={cn(
+        "flex items-center justify-between gap-2",
+        position === "top" && "border-b pb-3"
+      )}
+    >
       <p className="text-muted-foreground text-xs">
         {t("common.records", { count: total })} · {t("common.pageOf", { page, pages })}
       </p>

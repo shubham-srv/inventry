@@ -7,17 +7,13 @@ import { parseListParams } from "@/lib/query"
 import { getT } from "@/lib/i18n/server"
 import { PageHeader } from "@/components/page-header"
 import { Pager } from "@/components/pager"
+import { HistoryDetailTable } from "@/components/history/detail-table"
+import { submissionCardClass } from "@/components/submit/card-tone"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { StatusBadge } from "@/components/status-badge"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { TableCell, TableHead, TableRow } from "@/components/ui/table"
+import { cn } from "@/lib/utils"
 
 export default async function GrowerHistoryPage({
   searchParams,
@@ -34,13 +30,22 @@ export default async function GrowerHistoryPage({
   return (
     <>
       <PageHeader title={t("grower.history.title")} description={t("grower.history.description")} />
-      <div className="grid gap-4">
+      <div className="grid gap-5">
+        {submissions.length > 0 && (
+          <Pager
+            page={page}
+            pageCount={Math.ceil(total / pageSize)}
+            total={total}
+            searchParams={raw}
+            position="top"
+          />
+        )}
         {submissions.length === 0 && (
           <Card><CardContent className="text-muted-foreground p-6 text-sm">{t("grower.history.none")}</CardContent></Card>
         )}
         {submissions.map((s) => (
-          <Card key={s.id} className="gap-0 py-0">
-            <CardHeader className="flex-row items-center justify-between border-b py-3">
+          <Card key={s.id} className={cn("gap-0 py-0", submissionCardClass())}>
+            <CardHeader className="bg-muted/40 flex-row items-center justify-between border-b py-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 {format(s.submissionDate, "EEE, MMM d, yyyy")}
                 {/* A day is now one card per site, so the site has to be on it. */}
@@ -57,33 +62,38 @@ export default async function GrowerHistoryPage({
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
+              <HistoryDetailTable
+                cols={
+                  <>
+                    <col className="w-[55%]" />
+                    <col className="w-[25%]" />
+                    <col className="w-[20%]" />
+                  </>
+                }
+                head={
+                  <>
                     <TableHead>{t("grower.history.item")}</TableHead>
                     <TableHead>{t("grower.history.onHand")}</TableHead>
                     <TableHead></TableHead>
+                  </>
+                }
+                rows={s.details.map((d) => (
+                  <TableRow key={d.id}>
+                    <TableCell>
+                      <span className="font-medium">{d.item.itemName}</span>
+                      <span className="text-muted-foreground ml-2 font-mono text-xs">{d.itemId}</span>
+                    </TableCell>
+                    <TableCell className="tabular-nums">{Number(d.quantityOnHand)} {d.item.materialCategory?.name ?? ""}</TableCell>
+                    <TableCell>
+                      {d.isLowFlagged && (
+                        <Badge variant="outline" className="border-transparent bg-red-500/15 text-red-700 dark:text-red-400">
+                          <Flag className="mr-1 size-3" /> {t("grower.form.low")}
+                        </Badge>
+                      )}
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {s.details.map((d) => (
-                    <TableRow key={d.id}>
-                      <TableCell>
-                        <span className="font-medium">{d.item.itemName}</span>
-                        <span className="text-muted-foreground ml-2 font-mono text-xs">{d.itemId}</span>
-                      </TableCell>
-                      <TableCell className="tabular-nums">{Number(d.quantityOnHand)} {d.item.materialCategory?.name ?? ""}</TableCell>
-                      <TableCell>
-                        {d.isLowFlagged && (
-                          <Badge variant="outline" className="border-transparent bg-red-500/15 text-red-700 dark:text-red-400">
-                            <Flag className="mr-1 size-3" /> {t("grower.form.low")}
-                          </Badge>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                ))}
+              />
             </CardContent>
           </Card>
         ))}
