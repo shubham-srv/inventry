@@ -13,15 +13,16 @@
 # floating `:staging` tag, and the production stage resolves that tag to its
 # immutable sha256 DIGEST and deploys the digest. Same bytes, provably.
 #
-# ONE-TIME SETUP (see docs/azure-staging-setup.md §13):
-#   1. ARM service connection      -> `azureSubscription` below
-#   2. Variable group `inventory-staging-secrets` (Key Vault-linked), exposing
-#      DATABASE_URL, BOOTSTRAP_ADMIN_EMAIL/_FIRST_NAME/_LAST_NAME
-#   3. ADO Environments `inventory-staging` and `inventory-production`.
-#      Approvals are configured on the Environment in the ADO UI, NOT in this
-#      file — add a required approver on `inventory-production`.
-#   4. Branch policies on `staging` and `master` requiring the Validate stage.
-#      The `pr:` trigger alone does not block a merge; the policy does.
+# CONFIG IS DECLARED HERE, VALUES LIVE IN KEY VAULT.
+# Each deploy re-declares the app's secrets as Key Vault *references* and maps
+# env vars onto them with `secretref:`. The pipeline therefore handles secret
+# NAMES, never secret VALUES — nothing sensitive reaches the agent, the logs, or
+# the Container App's revision template. The one exception is DATABASE_URL, which
+# `prisma migrate deploy` genuinely needs on the agent; it comes from the
+# Key Vault-linked variable group.
+#
+# ONE-TIME SETUP:      docs/azure-devops-setup.md
+# PRODUCTION EXTRAS:   docs/production-checklist.md
 # ============================================================================
 
 trigger:
@@ -37,13 +38,15 @@ pr:
       - master
 
 variables:
+  # ---- shared --------------------------------------------------------------
   - name: azureSubscription
-    value: azure-staging-sc # <-- your ARM service connection name
+    value: azure-staging-sc # ARM service connection, scoped to the staging RG
   - name: imageRepo
     value: inventory-web
   # Single registry shared by both environments — that is what makes promotion a
-  # retag rather than a cross-registry copy. Move it to a shared RG later if you
-  # prefer; it is a one-line change here.
+  # retag rather than a cross-registry copy. It lives in the staging RG, so the
+  # PRODUCTION stage deliberately keeps `azureSubscription` for its ACR steps and
+  # only switches connections to deploy. See docs/production-checklist.md.
   - name: acrName
     value: acrinventorystaging
   - name: acrLoginServer
@@ -52,22 +55,67 @@ variables:
   - name: shaTag
     value: sha-$(Build.SourceVersion)
 
+  # ---- provider switches ---------------------------------------------------
+  # `local` keeps the app on the dummy cookie session and the mocked email
+  # writer. Flip to `entra` / `acs` as each integration is wired up
+  # (integration/INTEGRATION.md).
+  # NOTE: nothing in the app currently reads AUTH_PROVIDER — it is set to
+  # document intent and to be ready for the switch.
+  - name: authProvider
+    value: local
+  - name: emailProvider
+    value: acs # set to `local` to defer ACS; sends fail until the sender is real
+  - name: translationProvider
+    value: local
+  # Only read when translationProvider=azure. Region is required for regional and
+  # multi-service Translator resources, ignored for global ones. The ENDPOINT var
+  # is deliberately not set anywhere — leaving it unset uses the global endpoint,
+  # which is what you want unless the client needs a regional one.
+  # NOTE: no Azure AI Translator resource exists yet; see docs/production-checklist.md.
+  - name: translatorRegion
+    value: westeurope # TODO confirm when the Translator resource is created
+
   # ---- staging -------------------------------------------------------------
   - name: stagingResourceGroup
     value: rg-inventory-staging
   - name: stagingAcaApp
     value: ca-inventory-web-staging
+  - name: stagingKvUri
+    value: https://kv-inv-stg-xxxx.vault.azure.net/secrets # TODO real vault name
+  # Full resource id of the user-assigned identity that reads the vault:
+  #   az identity show -n id-inventory-staging -g rg-inventory-staging --query id -o tsv
+  - name: stagingUamiId
+    value: /subscriptions/TODO_SUBSCRIPTION_ID/resourceGroups/rg-inventory-staging/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-inventory-staging # TODO
+  - name: stagingAcsSender
+    value: DoNotReply@xxxxxxxx.azurecomm.net # TODO from the ACS managed domain
+  - name: stagingAadTenantId
+    value: TODO_TENANT_ID # TODO — unused while authProvider=local
+  - name: stagingAadClientId
+    value: TODO_STAGING_CLIENT_ID # TODO — app registration inventory-app-staging
 
-  # ---- production (RG not created yet) -------------------------------------
-  # Flip to true once the production RG, ACA app, Environment and variable group
-  # `inventory-production-secrets` exist. Until then the master branch runs
-  # validation only, so merging to master cannot fail on missing infrastructure.
+  # ---- production ----------------------------------------------------------
+  # Flip `productionEnabled` to true once every TODO below is filled and the
+  # production RG, ACA app, Environment and variable group exist. Until then the
+  # master branch runs validation only, so merging to master cannot fail on
+  # infrastructure that does not exist yet.
   - name: productionEnabled
     value: false
+  - name: prodAzureSubscription
+    value: azure-production-sc # TODO scoped to rg-inventory-production
   - name: prodResourceGroup
     value: rg-inventory-production # TODO confirm when created
   - name: prodAcaApp
     value: ca-inventory-web-production # TODO confirm when created
+  - name: prodKvUri
+    value: https://kv-inv-prd-xxxx.vault.azure.net/secrets # TODO
+  - name: prodUamiId
+    value: /subscriptions/TODO_SUBSCRIPTION_ID/resourceGroups/rg-inventory-production/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-inventory-production # TODO
+  - name: prodAcsSender
+    value: DoNotReply@TODO-client-domain # TODO verified custom domain, not azurecomm.net
+  - name: prodAadTenantId
+    value: TODO_TENANT_ID # TODO
+  - name: prodAadClientId
+    value: TODO_PRODUCTION_CLIENT_ID # TODO app registration inventory-app-production
 
 stages:
   # ==========================================================================
@@ -132,7 +180,7 @@ stages:
                   .
 
   # ==========================================================================
-  # 3) DEPLOY STAGING — migrate, roll the revision, smoke-check it.
+  # 3) DEPLOY STAGING — migrate, declare config, roll the revision, smoke-check.
   #    Migrations run BEFORE the new image serves traffic, so the schema is
   #    always ahead of or equal to the code reading it.
   # ==========================================================================
@@ -159,34 +207,85 @@ stages:
                     versionSpec: 20.x
                 - script: npm ci
                   displayName: npm ci
+                # Key Vault secret names cannot contain underscores, so the
+                # variable-group variables are hyphenated. These env blocks are
+                # where they map onto the underscored names the tooling expects.
                 - script: npx prisma migrate deploy
                   displayName: prisma migrate deploy
                   env:
-                    DATABASE_URL: $(DATABASE_URL)
+                    DATABASE_URL: $(database-url)
                 - script: npm run db:bootstrap
                   displayName: bootstrap roles + first admin (idempotent)
                   env:
-                    DATABASE_URL: $(DATABASE_URL)
-                    BOOTSTRAP_ADMIN_EMAIL: $(BOOTSTRAP_ADMIN_EMAIL)
-                    BOOTSTRAP_ADMIN_FIRST_NAME: $(BOOTSTRAP_ADMIN_FIRST_NAME)
-                    BOOTSTRAP_ADMIN_LAST_NAME: $(BOOTSTRAP_ADMIN_LAST_NAME)
+                    DATABASE_URL: $(database-url)
+                    BOOTSTRAP_ADMIN_EMAIL: $(bootstrap-admin-email)
+                    BOOTSTRAP_ADMIN_FIRST_NAME: $(bootstrap-admin-first-name)
+                    BOOTSTRAP_ADMIN_LAST_NAME: $(bootstrap-admin-last-name)
                 - task: AzureCLI@2
-                  displayName: roll revision + smoke check
+                  displayName: declare config + roll revision + smoke check
                   inputs:
                     azureSubscription: $(azureSubscription)
                     scriptType: bash
                     scriptLocation: inlineScript
                     inlineScript: |
                       set -euo pipefail
-                      az containerapp update \
-                        --name $(stagingAcaApp) \
-                        --resource-group $(stagingResourceGroup) \
-                        --image $(acrLoginServer)/$(imageRepo):$(shaTag)
+                      # Quoted: these are ADO macros, and an unfilled TODO value
+                      # would otherwise be re-parsed by bash.
+                      KV="$(stagingKvUri)"
+                      UAMI="$(stagingUamiId)"
 
+                      # Ingress is configured at app-create time, so the FQDN is
+                      # already known here. Deriving APP_URL and the Entra
+                      # redirect URI from it means they can never drift.
                       FQDN=$(az containerapp show \
                         --name $(stagingAcaApp) \
                         --resource-group $(stagingResourceGroup) \
                         --query properties.configuration.ingress.fqdn -o tsv)
+
+                      # App-level secrets as Key Vault REFERENCES — pointers, not
+                      # values. The platform resolves them at container start via
+                      # the user-assigned identity. This is an upsert: re-running
+                      # is safe and leaves any secret not listed here untouched.
+                      # NOTE: every secret below must already exist in the vault,
+                      # or the revision fails to start with an empty log stream.
+                      az containerapp secret set \
+                        --name $(stagingAcaApp) \
+                        --resource-group $(stagingResourceGroup) \
+                        --secrets \
+                          database-url=keyvaultref:$KV/database-url,identityref:$UAMI \
+                          session-secret=keyvaultref:$KV/session-secret,identityref:$UAMI \
+                          acs-connection-string=keyvaultref:$KV/acs-connection-string,identityref:$UAMI \
+                          cron-secret=keyvaultref:$KV/cron-secret,identityref:$UAMI \
+                          magic-link-secret=keyvaultref:$KV/magic-link-secret,identityref:$UAMI \
+                          azure-ad-client-secret=keyvaultref:$KV/azure-ad-client-secret,identityref:$UAMI \
+                          azure-translator-key=keyvaultref:$KV/azure-translator-key,identityref:$UAMI
+
+                      # One call = one revision, carrying both the new image and
+                      # the current config. --set-env-vars MERGES, so anything set
+                      # outside the pipeline survives; treat this list as the
+                      # source of truth and stop editing env vars in the Portal.
+                      az containerapp update \
+                        --name $(stagingAcaApp) \
+                        --resource-group $(stagingResourceGroup) \
+                        --image $(acrLoginServer)/$(imageRepo):$(shaTag) \
+                        --set-env-vars \
+                          DATABASE_URL=secretref:database-url \
+                          SESSION_SECRET=secretref:session-secret \
+                          ACS_CONNECTION_STRING=secretref:acs-connection-string \
+                          CRON_SECRET=secretref:cron-secret \
+                          MAGIC_LINK_SECRET=secretref:magic-link-secret \
+                          AZURE_AD_CLIENT_SECRET=secretref:azure-ad-client-secret \
+                          AZURE_TRANSLATOR_KEY=secretref:azure-translator-key \
+                          AZURE_AD_TENANT_ID="$(stagingAadTenantId)" \
+                          AZURE_AD_CLIENT_ID="$(stagingAadClientId)" \
+                          AZURE_AD_REDIRECT_URI="https://$FQDN/api/auth/callback" \
+                          APP_URL="https://$FQDN" \
+                          ACS_SENDER_ADDRESS="$(stagingAcsSender)" \
+                          AZURE_TRANSLATOR_REGION="$(translatorRegion)" \
+                          AUTH_PROVIDER="$(authProvider)" \
+                          EMAIL_PROVIDER="$(emailProvider)" \
+                          TRANSLATION_PROVIDER="$(translationProvider)" \
+                          NODE_ENV=production
 
                       # `containerapp update` returns as soon as the revision is
                       # created, not when it is healthy — so poll before calling
@@ -198,6 +297,8 @@ stages:
                         sleep 10
                       done
                       echo "##vso[task.logissue type=error]Revision did not serve 200 within 5 minutes"
+                      echo "Stuck in ProvisioningError with empty logs? A Key Vault secret is missing,"
+                      echo "or the identity lacks Key Vault Secrets User on the vault."
                       exit 1
 
   # ==========================================================================
@@ -226,8 +327,12 @@ stages:
             deploy:
               steps:
                 - checkout: self
+                # The registry lives in the STAGING resource group, so this task
+                # keeps the staging service connection. Only the deploy task at
+                # the bottom switches to the production one — do not "fix" this
+                # by widening azure-production-sc to subscription scope.
                 - task: AzureCLI@2
-                  displayName: resolve staging image digest
+                  displayName: resolve staging image digest (ACR — staging SC)
                   inputs:
                     azureSubscription: $(azureSubscription)
                     scriptType: bash
@@ -259,31 +364,64 @@ stages:
                 - script: npx prisma migrate deploy
                   displayName: prisma migrate deploy
                   env:
-                    DATABASE_URL: $(DATABASE_URL)
+                    DATABASE_URL: $(database-url)
                 - script: npm run db:bootstrap
                   displayName: bootstrap roles + first admin (idempotent)
                   env:
-                    DATABASE_URL: $(DATABASE_URL)
-                    BOOTSTRAP_ADMIN_EMAIL: $(BOOTSTRAP_ADMIN_EMAIL)
-                    BOOTSTRAP_ADMIN_FIRST_NAME: $(BOOTSTRAP_ADMIN_FIRST_NAME)
-                    BOOTSTRAP_ADMIN_LAST_NAME: $(BOOTSTRAP_ADMIN_LAST_NAME)
+                    DATABASE_URL: $(database-url)
+                    BOOTSTRAP_ADMIN_EMAIL: $(bootstrap-admin-email)
+                    BOOTSTRAP_ADMIN_FIRST_NAME: $(bootstrap-admin-first-name)
+                    BOOTSTRAP_ADMIN_LAST_NAME: $(bootstrap-admin-last-name)
                 - task: AzureCLI@2
-                  displayName: roll revision + smoke check
+                  displayName: declare config + roll revision + smoke check
                   inputs:
-                    azureSubscription: $(azureSubscription)
+                    azureSubscription: $(prodAzureSubscription)
                     scriptType: bash
                     scriptLocation: inlineScript
                     inlineScript: |
                       set -euo pipefail
-                      az containerapp update \
-                        --name $(prodAcaApp) \
-                        --resource-group $(prodResourceGroup) \
-                        --image $(acrLoginServer)/$(imageRepo)@$(imageDigest)
+                      KV="$(prodKvUri)"
+                      UAMI="$(prodUamiId)"
 
                       FQDN=$(az containerapp show \
                         --name $(prodAcaApp) \
                         --resource-group $(prodResourceGroup) \
                         --query properties.configuration.ingress.fqdn -o tsv)
+
+                      az containerapp secret set \
+                        --name $(prodAcaApp) \
+                        --resource-group $(prodResourceGroup) \
+                        --secrets \
+                          database-url=keyvaultref:$KV/database-url,identityref:$UAMI \
+                          session-secret=keyvaultref:$KV/session-secret,identityref:$UAMI \
+                          acs-connection-string=keyvaultref:$KV/acs-connection-string,identityref:$UAMI \
+                          cron-secret=keyvaultref:$KV/cron-secret,identityref:$UAMI \
+                          magic-link-secret=keyvaultref:$KV/magic-link-secret,identityref:$UAMI \
+                          azure-ad-client-secret=keyvaultref:$KV/azure-ad-client-secret,identityref:$UAMI \
+                          azure-translator-key=keyvaultref:$KV/azure-translator-key,identityref:$UAMI
+
+                      az containerapp update \
+                        --name $(prodAcaApp) \
+                        --resource-group $(prodResourceGroup) \
+                        --image $(acrLoginServer)/$(imageRepo)@$(imageDigest) \
+                        --set-env-vars \
+                          DATABASE_URL=secretref:database-url \
+                          SESSION_SECRET=secretref:session-secret \
+                          ACS_CONNECTION_STRING=secretref:acs-connection-string \
+                          CRON_SECRET=secretref:cron-secret \
+                          MAGIC_LINK_SECRET=secretref:magic-link-secret \
+                          AZURE_AD_CLIENT_SECRET=secretref:azure-ad-client-secret \
+                          AZURE_TRANSLATOR_KEY=secretref:azure-translator-key \
+                          AZURE_AD_TENANT_ID="$(prodAadTenantId)" \
+                          AZURE_AD_CLIENT_ID="$(prodAadClientId)" \
+                          AZURE_AD_REDIRECT_URI="https://$FQDN/api/auth/callback" \
+                          APP_URL="https://$FQDN" \
+                          ACS_SENDER_ADDRESS="$(prodAcsSender)" \
+                          AZURE_TRANSLATOR_REGION="$(translatorRegion)" \
+                          AUTH_PROVIDER="$(authProvider)" \
+                          EMAIL_PROVIDER="$(emailProvider)" \
+                          TRANSLATION_PROVIDER="$(translationProvider)" \
+                          NODE_ENV=production
 
                       for i in $(seq 1 30); do
                         CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$FQDN/login" || true)
