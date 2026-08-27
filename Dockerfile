@@ -5,8 +5,11 @@
 # "query engine not found / wrong binary" trap).
 
 FROM node:20-slim AS base
-# OpenSSL is required by Prisma's engine; present on debian-slim but make it explicit.
-RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
+# OpenSSL is required by Prisma's engine; ca-certificates is what lets that engine
+# VERIFY Azure SQL's certificate chain. Without it the query engine fails TLS with
+# "unable to get local issuer certificate" -- at runtime only, because nothing in
+# the build ever opens a database connection.
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # ---- deps: install node_modules from a clean lockfile ----------------------
 FROM base AS deps
