@@ -1,22 +1,19 @@
-/**
- * REFERENCE — sliding (rolling) session expiry.
- *
- * The session cookie set by lib/auth/session.ts has an ABSOLUTE 7-day life. This
- * re-issues it once it's past the halfway mark (and still valid), so ACTIVE users
- * never get logged out, while IDLE users still expire ~7 days after their last
- * visit. Applies to every session — Entra AND magic-link — because both converge
- * on the same cookie.
- *
- * Runs on the Edge runtime: uses jose only (no Prisma). Keep SESSION_COOKIE /
- * MAX_AGE / the secret IN SYNC with lib/auth/session.ts.
- *
- * Wire-up (root middleware.ts) — either use this directly:
- *   export { middleware, config } from "@/lib/auth/sliding-session"  // after copying here into lib
- * or compose into an existing middleware:
- *   const res = NextResponse.next(); await slideSession(req, res); return res
- */
-import { NextRequest, NextResponse } from "next/server"
+import { NextResponse, type NextRequest } from "next/server"
 import { SignJWT, jwtVerify } from "jose"
+
+/**
+ * Sliding (rolling) session expiry.
+ *
+ * The cookie issued by lib/auth/session.ts has an ABSOLUTE 7-day life. This
+ * re-issues it once it is past the halfway mark and still valid, so people who
+ * use the app regularly are never logged out mid-week, while idle sessions still
+ * lapse ~7 days after the last visit. Applies to Entra and magic-link sessions
+ * alike, because both converge on the same cookie.
+ *
+ * Runs in the proxy (Next 16's rename of middleware), i.e. the Edge runtime:
+ * jose only, no Prisma. SESSION_COOKIE / MAX_AGE / the secret must stay in sync
+ * with lib/auth/session.ts.
+ */
 
 const SESSION_COOKIE = "demo_session" // must match lib/auth/session.ts
 const MAX_AGE = 60 * 60 * 24 * 7 // 7 days — must match lib/auth/session.ts
@@ -56,16 +53,4 @@ export async function slideSession(
   } catch {
     // Invalid/expired cookie — leave it; requireUser() will redirect to /login.
   }
-}
-
-/** Ready-to-use standalone middleware. */
-export async function middleware(req: NextRequest): Promise<NextResponse> {
-  const res = NextResponse.next()
-  await slideSession(req, res)
-  return res
-}
-
-// Skip static assets and the auth endpoints (they manage their own cookies).
-export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/auth).*)"],
 }

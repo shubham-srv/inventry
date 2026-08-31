@@ -1,14 +1,19 @@
-// (No "server-only": this module is also run from scripts/run-reminders.ts
-// and the isolated Azure Timer Function.)
+// (No "server-only": this module is also run from scripts/run-reminders.ts,
+// headless, with no request or cookie context.)
 import { startOfDay, differenceInCalendarDays } from "date-fns"
 import { prisma } from "@/lib/db"
 import { notifyScheduledReminder } from "@/lib/email/notify"
 import { NOTIFICATION_TYPES, SUBMISSION_STATUS } from "@/lib/constants"
 
 // Shared reminder logic. Invoked by:
+//  - the daily Container Apps job, via POST /api/cron/reminders
 //  - the admin "Run reminder check now" button (server action)
 //  - `npm run reminders` (scripts/run-reminders.ts)
-//  - the isolated Azure Timer Function (integration/azure-functions)
+//
+// It only ENQUEUES: notify() writes to the NotificationLog outbox and returns,
+// and lib/email/dispatch.ts sends at the mail provider's allowed rate. So a
+// hundred overdue growers is a hundred fast inserts here, not a hundred
+// simultaneous sends that the provider would start rejecting partway through.
 
 type SettingLike = { cadenceType: string; thresholdDays: number }
 

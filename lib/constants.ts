@@ -59,6 +59,29 @@ export const NOTIFICATION_TYPES = {
   LOW_INVENTORY_REVIEWED: "LowInventoryReviewed",
   SCHEDULED_REMINDER: "ScheduledReminder",
   ORDER_PLACED: "OrderPlaced",
+  MAGIC_LINK: "MagicLink",
+} as const
+
+export const NOTIFICATION_STATUS = {
+  MOCKED: "Mocked", // EMAIL_PROVIDER=local — recorded, never sent
+  QUEUED: "Queued", // waiting for the dispatcher
+  SENDING: "Sending", // claimed by a dispatcher pass
+  SENT: "Sent",
+  FAILED: "Failed", // gave up after the retry budget, or a permanent rejection
+} as const
+export const NOTIFICATION_STATUSES = Object.values(NOTIFICATION_STATUS)
+
+/**
+ * Queue order for the email dispatcher — lower goes first.
+ *
+ * The reason this exists: the provider's per-minute allowance is small enough
+ * that a hundred queued reminders would otherwise sit in front of a grower who
+ * is staring at a "check your inbox" screen waiting for a sign-in link.
+ */
+export const EMAIL_PRIORITY = {
+  AUTH: 1, // sign-in links — someone is actively waiting
+  TRANSACTIONAL: 3, // triggered by a person's action, expected promptly
+  BULK: 7, // the scheduled reminder fan-out
 } as const
 
 export const AUDIT_ACTIONS = {

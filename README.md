@@ -12,12 +12,20 @@ Strict data isolation: growers/vendors only ever see their own data (enforced se
 
 Next.js 16 (App Router, Server Actions) · React 19 · TypeScript · Tailwind v4 · shadcn/ui · Prisma 6 · **Azure SQL / SQL Server** · zod · recharts · ExcelJS.
 
-The app runs **fully offline for the demo** via pluggable providers:
-- **Auth** — local user-picker + signed cookie (real **Entra ID** code is in `integration/`).
-- **Email** — triggers recorded to an in-app **Outbox** (real **ACS** sender at `lib/email/acs/`).
-- **Scheduler** — manual button / `npm run reminders` (real **Azure Timer Function** in `integration/`).
+Production integrations are live in the app, and each falls back to something that
+works offline so the whole thing still runs on a laptop with no Azure account:
 
-See [`integration/INTEGRATION.md`](integration/INTEGRATION.md) to switch any of these on.
+- **Auth** — **Entra ID** for internal staff, passwordless **magic link** for growers
+  and vendors, both ending at the same session cookie. A credential-free user-picker
+  is also available, but only outside production (`AUTH_PROVIDER=local`).
+- **Email** — **Azure Communication Services**. `EMAIL_PROVIDER=local` records triggers
+  to an in-app **Outbox** without sending. Messages are queued and drained at the
+  provider's allowed rate rather than sent inline.
+- **Scheduler** — **Azure Container Apps jobs** hitting `/api/cron/*`; locally, an admin
+  button or `npm run reminders`.
+
+See [`docs/auth-and-email.md`](docs/auth-and-email.md) for how these fit together, and
+[`docs/email-delivery.md`](docs/email-delivery.md) for the send-rate limits.
 
 ## Getting started
 
@@ -69,14 +77,15 @@ app/(app)/admin         internal: master data, growers/vendors, users, authoriza
                         audit-logs/outbox), Excel export
 app/(app)/grower        submit, on-order, history, requests, dashboard
 app/(app)/vendor        submit (with grower allocation), history, dashboard
-app/api/cron/reminders  secret-protected scheduler endpoint
-lib/auth                session (cookie/jose) + RBAC; entra/ is reference-only
+app/api/auth            Entra login/callback + magic-link request/consume
+app/api/cron            secret-protected scheduler + email-dispatch endpoints
+lib/auth                session (cookie/jose), entra, magic-link, sliding session
 lib/actions             server actions (per domain), validated with zod
-lib/email               notify() abstraction + acs/ sender
+lib/email               notify() enqueues; dispatch.ts paces and sends; acs/ is the wire
 lib/scheduler           shared reminder logic
 lib/admin               shared list filters + Excel export
 prisma/                 schema + seed
-integration/            Entra, ACS, Azure Function — drop-in, build-excluded
+instrumentation.ts      starts the email dispatch loop on server start
 ```
 
 ## Documentation
@@ -88,7 +97,9 @@ integration/            Entra, ACS, Azure Function — drop-in, build-excluded
 | [`docs/azure-staging-setup.md`](docs/azure-staging-setup.md) | Standing up the Azure infrastructure, click by click |
 | [`docs/azure-devops-setup.md`](docs/azure-devops-setup.md) | Wiring the CI/CD pipeline in Azure DevOps |
 | [`docs/master-data-upload.md`](docs/master-data-upload.md) | Workbook format for the client's one-time master-data load |
-| [`integration/INTEGRATION.md`](integration/INTEGRATION.md) | Swapping in Entra, ACS email, the scheduler and the production login page |
+| [`docs/auth-and-email.md`](docs/auth-and-email.md) | How Entra, magic links, the session layer and email delivery fit together |
+| [`docs/email-delivery.md`](docs/email-delivery.md) | ACS send-rate limits and how the app stays inside them |
+| [`docs/production-checklist.md`](docs/production-checklist.md) | What still has to happen before the production cutover |
 
 > **Database note:** Prisma 6 is pinned intentionally — Prisma 7 removed `url` from
 > the datasource block and requires a driver adapter. The schema avoids SQL Server

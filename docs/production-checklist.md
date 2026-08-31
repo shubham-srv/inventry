@@ -118,18 +118,22 @@ az containerapp registry set -n ca-inventory-web-production -g rg-inventory-prod
 
 ---
 
-## The cron job is not touched by the pipeline
+## The cron jobs are not touched by the pipeline
 
-`caj-reminders-production` is a separate resource the pipeline never updates —
-it runs `curlimages/curl`, not your image. Wire it by hand, once:
+There are **two**: `caj-reminders-production` (daily) and
+`caj-email-dispatch-production` (every 15 minutes). Both are separate resources
+the pipeline never updates — they run `curlimages/curl`, not your image. Wire
+each by hand, once (full steps in
+[azure-staging-setup.md §9](azure-staging-setup.md)):
 
 - Attach the **same** `id-inventory-production` UAMI (no extra role assignment
   needed — that is the main win of a user-assigned identity over a system one).
 - Add `cron-secret` as a Key Vault reference, mapped to `CRON_SECRET`.
 - **Update the curl URL to the production FQDN.** Copying the job definition
   from staging and forgetting this means production's cron silently hits
-  staging — the job still exits 0, so nothing alerts you.
-- **Run now** once and confirm the execution exits 0.
+  staging — and with `curl -f` the job would then fail on staging's secret
+  rather than succeed quietly, but check anyway.
+- **Run now** once each and confirm the execution exits 0.
 
 ---
 
@@ -153,16 +157,26 @@ it runs `curlimages/curl`, not your image. Wire it by hand, once:
 
 ## Before go-live (app-side, not infra)
 
-- [ ] Copy `integration/magic-link/login-page.tsx` over `app/(auth)/login/page.tsx`
-- [ ] Copy `magic-link-form.tsx` to `components/auth/`
-- [ ] **Delete `lib/auth/dummy.ts`** — the demo picker logs in as whoever you click
-- [ ] Add the `MagicToken` model + migration; wire the 4 auth route handlers
-- [ ] `npm i @azure/msal-node @azure/communication-email`
-- [ ] Flip `authProvider` to `entra` in the YAML
+The auth work is **done** — Entra and magic-link sign-in are wired, the demo
+picker is gated to non-production builds, and the `MagicToken` migration ships
+with the repo. What remains is email deliverability, which is not code:
 
-⚠️ Until the first three are done, **any public URL of this app is wide open** —
-the demo login page lets anyone sign in as any seeded user, including SuperAdmin.
-That applies to the staging URL you already have.
+- [ ] **Verify a custom sender domain** and connect it to ACS. Roughly 6x the
+      send-rate headroom, and — the reason to do it regardless of volume —
+      `*.azurecomm.net` mail is routinely spam-foldered, which for growers
+      receiving sign-in links means support calls. DNS work on the client's
+      domain (SPF/DKIM/DMARC), so start it early.
+- [ ] **File an ACS quota-increase request.** The limits are soft and raised via
+      an Azure support request. Free, takes days — file it before you need it.
+- [ ] **Set `EMAIL_RATE_PER_MINUTE` / `EMAIL_RATE_PER_HOUR`** in the YAML to what
+      the production sender domain actually allows. Too high just moves the
+      failure back into ACS.
+- [ ] Confirm `authProvider: entra` in the YAML (it already is) and that
+      `NODE_ENV=production` reaches the container, so the demo picker cannot render.
+- [ ] Register the post-logout redirect URI `https://<prod-fqdn>/login` on the
+      production app registration, or sign-out leaves the tenant SSO session live.
+
+See [email-delivery.md](email-delivery.md) for the reasoning behind the first three.
 
 ---
 
@@ -186,7 +200,9 @@ That applies to the staging URL you already have.
 - [ ] `inventory-production-secrets` variable group resolving (padlock + "last refreshed")
 - [ ] `inventory-production` environment has a required approver
 - [ ] `prisma migrate deploy` run once against the prod DB
-- [ ] Cron job wired: same UAMI, `cron-secret`, **production** FQDN in the curl
+- [ ] **Both** cron jobs wired: same UAMI, `cron-secret`, **production** FQDN in each curl
 - [ ] Container App on the real image, **port 3000**, managed identity auth
-- [ ] Demo login page removed, `lib/auth/dummy.ts` deleted
+- [ ] `EMAIL_RATE_*` set to the production sender domain's real limits
+- [ ] Post-logout redirect URI registered on the production app registration
+- [ ] `/login` shows the two production options and **no user list**
 - [ ] YAML TODOs filled, `productionEnabled: true`

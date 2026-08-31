@@ -108,7 +108,31 @@
     "signInSubtitle": "Inicia sesión para continuar.",
     "microsoft": "Iniciar sesión con Microsoft",
     "or": "o",
-    "accessHelp": "El acceso lo concede tu administrador. Si no puedes iniciar sesión, pídele que revise tu cuenta."
+    "accessHelp": "El acceso lo concede tu administrador. Si no puedes iniciar sesión, pídele que revise tu cuenta.",
+    "demoOnly": "Solo para desarrollo",
+    "demoDesc": "Esta lista no aparece en producción. Define AUTH_PROVIDER=entra para ocultarla localmente.",
+    "magic": {
+      "label": "¿Eres productor o proveedor? Inicia sesión con tu correo",
+      "placeholder": "tu@empresa.com",
+      "submit": "Enviarme un enlace de acceso",
+      "sending": "Enviando…",
+      "sentTitle": "Revisa tu bandeja de entrada",
+      "sentBody": "Si {email} está registrado, el enlace de acceso ya va en camino. Caduca en 15 minutos y solo se puede usar una vez.",
+      "useDifferent": "Usar otra dirección",
+      "error": "No se pudo enviar el enlace. Inténtalo de nuevo o avisa a tu administrador si el problema continúa."
+    },
+    "error": {
+      "title": "No pudimos iniciar tu sesión",
+      "config": "El inicio de sesión con Microsoft no está configurado en este entorno. Contacta a tu administrador.",
+      "entra": "Microsoft rechazó el inicio de sesión. Contacta a tu administrador si continúa.",
+      "state": "Ese intento de inicio de sesión caducó o no coincidió. Inténtalo de nuevo.",
+      "nocode": "Microsoft no devolvió un código de inicio de sesión. Inténtalo de nuevo.",
+      "noidentity": "Microsoft no devolvió una identidad que podamos reconocer. Contacta a tu administrador.",
+      "unprovisioned": "Esa cuenta no tiene acceso a esta aplicación. Pide a un administrador que te dé de alta.",
+      "nolink": "Ese enlace de acceso estaba incompleto. Solicita uno nuevo abajo.",
+      "linkexpired": "Ese enlace de acceso caducó o ya se usó. Solicita uno nuevo abajo.",
+      "mailfailed": "No pudimos enviar el correo de acceso. Inténtalo de nuevo en un momento."
+    }
   },
   "grower": {
     "dash": {
@@ -354,6 +378,13 @@
       "heading": "Pedido realizado",
       "intro": "Su pedido de \"{item}\" se ha realizado con {vendor}.",
       "cta": "Ver pedidos"
+    },
+    "magicLink": {
+      "subject": "Su enlace de acceso",
+      "heading": "Inicie sesión en Gestión de inventario",
+      "intro": "Use el botón de abajo para iniciar sesión. No necesita contraseña.",
+      "expiry": "Este enlace caduca en {minutes} minutos y solo se puede usar una vez. Si no lo solicitó, puede ignorar este correo.",
+      "cta": "Iniciar sesión"
     }
   },
   "itemMessage": {

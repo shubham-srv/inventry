@@ -17,6 +17,7 @@ const MAP: Record<string, string> = {
   Pending: AMBER,
   Draft: AMBER,
   Queued: AMBER,
+  Sending: BLUE, // in flight right now, as distinct from waiting its turn
   Review: AMBER,
   Reviewed: AMBER,
   Open: AMBER,

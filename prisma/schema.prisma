@@ -65,10 +65,27 @@ model User {
   vendorSubmissions   VendorSubmission[]   @relation("VendorSubmissionSubmittedBy")
   missingItemRequests MissingItemRequest[] @relation("RequestRequestedBy")
   auditLogs           AuditLog[]           @relation("AuditUser")
+  magicTokens         MagicToken[]
 
   @@index([roleId])
   @@index([growerId])
   @@index([vendorId])
+}
+
+/// Passwordless sign-in links for EXTERNAL users (growers & vendors); internal
+/// staff use Entra. One row per issued link. Only the SHA-256 of the JWT's nonce
+/// is stored, so a database leak yields nothing usable — see lib/auth/magic-link.ts.
+model MagicToken {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  tokenHash  String    @unique // SHA-256 of the nonce; never the raw token
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([userId])
 }
 
 // ============================================================
@@ -850,25 +867,46 @@ model AuditLog {
   @@index([createdAt])
 }
 
+/// The email OUTBOX, not just an audit trail.
+///
+/// With EMAIL_PROVIDER=acs, notify() only INSERTs here (status "Queued") and
+/// returns; lib/email/dispatch.ts is what actually talks to ACS, at a rate the
+/// provider's limits allow. That indirection is the whole reason the daily
+/// reminder burst doesn't get 429'd into oblivion — see docs/email-delivery.md.
 model NotificationLog {
-  id            Int       @id @default(autoincrement())
-  type          String // SubmissionReceived, MissingItemRequest, LowInventory, ScheduledReminder
-  toEmail       String
+  id      Int    @id @default(autoincrement())
+  type    String // SubmissionReceived, MissingItemRequest, LowInventory, ScheduledReminder, MagicLink
+  /// One or more recipients, comma-separated. Multiple only for the admin
+  /// fan-out, which groups admins by language into one message per locale.
+  toEmail String
   growerId      Int?
   vendorId      Int?
   subject       String
   body          String // plaintext (used by the Outbox list + as the email text part)
   bodyHtml      String?   @db.NVarChar(Max) // rendered React Email HTML (Outbox preview + email html part)
-  status        String    @default("Mocked") // Mocked, Sent, Failed
+  status        String    @default("Mocked") // Mocked, Queued, Sending, Sent, Failed
   relatedEntity String?
   createdAt     DateTime  @default(now())
   sentAt        DateTime?
+
+  // ---- queue bookkeeping (unused while EMAIL_PROVIDER=local) ----
+  /// Lower goes first: 1 auth, 3 transactional, 7 bulk. A grower waiting on a
+  /// sign-in link must not queue behind a hundred reminders.
+  priority      Int       @default(5)
+  attempts      Int       @default(0)
+  /// Doubles as the rate-limit window (attempts inside the last minute/hour are
+  /// what the provider counts) and the stale-lock clock for crashed dispatchers.
+  lastAttemptAt DateTime?
+  nextAttemptAt DateTime?
+  lastError     String?
 
   grower Grower? @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   vendor Vendor? @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([createdAt])
   @@index([type])
+  @@index([status, priority, createdAt]) // the dispatcher's claim query
+  @@index([lastAttemptAt]) // rolling rate-limit window counts
 }
 
 model PowerBiReport {

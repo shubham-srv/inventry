@@ -6,7 +6,13 @@ import { render } from "@react-email/render"
 import { prisma } from "@/lib/db"
 import { makeT, type TFunction } from "@/lib/i18n/translate"
 import { isLocale, DEFAULT_LOCALE, type Locale } from "@/lib/i18n/config"
-import { NOTIFICATION_TYPES, ADMIN_ROLES } from "@/lib/constants"
+import {
+  NOTIFICATION_TYPES,
+  NOTIFICATION_STATUS,
+  EMAIL_PRIORITY,
+  ADMIN_ROLES,
+} from "@/lib/constants"
+import { appUrl } from "@/lib/app-url"
 import {
   NotificationEmail,
   type NotificationEmailProps,
@@ -15,31 +21,37 @@ import {
 // ============================================================
 // Pluggable notifier.
 //
-// EMAIL_PROVIDER=local (default) records each message as a NotificationLog
-// row (status "Mocked"), visible in the in-app Outbox — so email triggers
-// are fully demoable offline. EMAIL_PROVIDER=acs delegates to the isolated
-// Azure Communication Services sender in lib/email/acs (see INTEGRATION.md).
+// EMAIL_PROVIDER=local (default) records each message as a NotificationLog row
+// (status "Mocked"), visible in the in-app Outbox — so email triggers are fully
+// demoable offline.
+//
+// EMAIL_PROVIDER=acs makes NotificationLog an OUTBOX: notify() writes a "Queued"
+// row and returns, and lib/email/dispatch.ts does the sending at a rate the
+// provider's limits allow. Nothing here talks to ACS, which is what stops the
+// daily reminder burst from being throttled into silent data loss, and what
+// stops an interactive server action from blocking on a mail round-trip.
+// See docs/email-delivery.md.
 //
 // Every helper renders a localized React Email (HTML + plaintext) using the
 // RECIPIENT's stored locale, then hands both parts to notify().
 // ============================================================
 
-// Absolute base URL for email CTA links — scheduled sends have no request to
-// derive an origin from, so it must be configured.
-const APP_URL = (
-  process.env.APP_URL ??
-  process.env.NEXT_PUBLIC_APP_URL ??
-  "http://localhost:3000"
-).replace(/\/$/, "")
-
-const appUrl = (path: string) => `${APP_URL}${path}`
+/** ACS caps recipients per message; stay well under it and under toEmail's width. */
+const MAX_RECIPIENTS_PER_MESSAGE = 20
 
 function toLocale(v: string | null | undefined): Locale {
   return isLocale(v) ? v : DEFAULT_LOCALE
 }
 
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
+  return out
+}
+
 export type NotificationInput = {
   type: string
+  /** One or more recipients, comma-separated. */
   toEmail: string
   subject: string
   body: string // plaintext (Outbox list + email text part)
@@ -47,38 +59,33 @@ export type NotificationInput = {
   growerId?: number | null
   vendorId?: number | null
   relatedEntity?: string | null
+  /** See EMAIL_PRIORITY. Defaults to TRANSACTIONAL. */
+  priority?: number
 }
 
-async function localSend(n: NotificationInput): Promise<void> {
-  await prisma.notificationLog.create({
-    data: {
-      type: n.type,
-      toEmail: n.toEmail,
-      subject: n.subject,
-      body: n.body,
-      bodyHtml: n.html ?? null,
-      growerId: n.growerId ?? null,
-      vendorId: n.vendorId ?? null,
-      relatedEntity: n.relatedEntity ?? null,
-      status: "Mocked",
-    },
-  })
-}
-
-async function acsSend(n: NotificationInput): Promise<void> {
-  // Lazy import so the local demo never loads ACS dependencies.
-  const { sendViaAcs } = await import("@/lib/email/acs/sender")
-  await sendViaAcs(n)
-}
-
-/** Low-level send. Never throws into the request path — logs failures. */
+/**
+ * Enqueue a notification. Never throws into the request path — logs failures.
+ *
+ * This does NOT send. With EMAIL_PROVIDER=acs the row is picked up by the
+ * dispatcher; with `local` it is a mock that the dispatcher ignores.
+ */
 export async function notify(n: NotificationInput): Promise<void> {
   try {
-    if (process.env.EMAIL_PROVIDER === "acs") {
-      await acsSend(n)
-    } else {
-      await localSend(n)
-    }
+    const live = process.env.EMAIL_PROVIDER === "acs"
+    await prisma.notificationLog.create({
+      data: {
+        type: n.type,
+        toEmail: n.toEmail,
+        subject: n.subject,
+        body: n.body,
+        bodyHtml: n.html ?? null,
+        growerId: n.growerId ?? null,
+        vendorId: n.vendorId ?? null,
+        relatedEntity: n.relatedEntity ?? null,
+        priority: n.priority ?? EMAIL_PRIORITY.TRANSACTIONAL,
+        status: live ? NOTIFICATION_STATUS.QUEUED : NOTIFICATION_STATUS.MOCKED,
+      },
+    })
   } catch (e) {
     console.error("notify() failed", e)
   }
@@ -95,6 +102,82 @@ async function renderNotification(
   const el = React.createElement(NotificationEmail, { t, lang: locale, ...props })
   const [html, text] = await Promise.all([render(el), render(el, { plainText: true })])
   return { html, text }
+}
+
+// ---------------- Sign-in links (the one email that does not queue) ----------
+
+/** Thrown when the sign-in link could not be handed to the mail provider. */
+export class MagicLinkSendError extends Error {}
+
+/**
+ * Emails a passwordless sign-in link — immediately, not through the queue.
+ *
+ * Two deliberate departures from every other helper here:
+ *
+ * 1. **It sends inline.** A 15-minute link delivered from a queue behind a
+ *    hundred reminders is worthless, and the person is watching a "check your
+ *    inbox" screen. lib/email/dispatch.ts reserves per-minute headroom for
+ *    exactly this. It also means a failure can be reported instead of swallowed
+ *    — hence the throw, which the route turns into a retry prompt.
+ * 2. **The body is never stored.** It contains a live credential, and the
+ *    Outbox page is readable by every admin. The log row keeps the subject,
+ *    recipient and outcome so the audit trail survives; the link does not.
+ */
+export async function notifyMagicLink(opts: {
+  toEmail: string
+  locale: string | null
+  link: string
+  expiresInMinutes: number
+}): Promise<void> {
+  const locale = toLocale(opts.locale)
+  const t = makeT(locale)
+  const { html, text } = await renderNotification(t, locale, {
+    preview: t("email.magicLink.heading"),
+    heading: t("email.magicLink.heading"),
+    intro: t("email.magicLink.intro"),
+    note: t("email.magicLink.expiry", { minutes: opts.expiresInMinutes }),
+    cta: { label: t("email.magicLink.cta"), href: opts.link },
+    variant: "info",
+  })
+  const subject = t("email.magicLink.subject")
+
+  const live = process.env.EMAIL_PROVIDER === "acs"
+  const log = await prisma.notificationLog.create({
+    data: {
+      type: NOTIFICATION_TYPES.MAGIC_LINK,
+      toEmail: opts.toEmail,
+      subject,
+      body: "[sign-in link — not stored]",
+      bodyHtml: null,
+      relatedEntity: "MagicToken",
+      priority: EMAIL_PRIORITY.AUTH,
+      status: live ? NOTIFICATION_STATUS.SENDING : NOTIFICATION_STATUS.MOCKED,
+      attempts: live ? 1 : 0,
+      // Counts against the dispatcher's rolling rate window: an inline send
+      // spends provider allowance just like a queued one.
+      lastAttemptAt: live ? new Date() : null,
+    },
+  })
+  if (!live) return
+
+  const { sendEmail } = await import("@/lib/email/acs/transport")
+  const result = await sendEmail({ to: [opts.toEmail], subject, text, html })
+
+  if (result.ok) {
+    await prisma.notificationLog.update({
+      where: { id: log.id },
+      data: { status: NOTIFICATION_STATUS.SENT, sentAt: new Date() },
+    })
+    return
+  }
+
+  // Not requeued on purpose — see the doc comment. The user asks again, which
+  // mints a fresh link and invalidates this one.
+  await prisma.notificationLog.update({
+    where: { id: log.id },
+    data: { status: NOTIFICATION_STATUS.FAILED, lastError: result.error.slice(0, 900) },
+  })
+  throw new MagicLinkSendError(result.error)
 }
 
 // ---------------- High-level helpers ----------------
@@ -212,12 +295,19 @@ export async function notifyScheduledReminder(opts: {
     body: text,
     html,
     relatedEntity: "SchedulerSetting",
+    // The one true bulk send: every overdue grower at once, once a day. It
+    // yields the queue to anything a person is waiting on.
+    priority: EMAIL_PRIORITY.BULK,
   })
 }
 
 /**
- * New item request: fan out to EVERY active admin, each in their own language.
- * (Replaces the old single-recipient-to-grower behavior.)
+ * New item request: fan out to every active admin, each in their own language.
+ *
+ * Grouped by language rather than sent per-admin. Ten admins used to mean ten
+ * sends for a single request, against a per-minute allowance measured in single
+ * digits; this makes it one send per distinct language (so, in practice, two).
+ * The wording is still each admin's own — only the addressing is shared.
  */
 export async function notifyMissingItemRequest(opts: {
   growerId: number
@@ -229,9 +319,15 @@ export async function notifyMissingItemRequest(opts: {
     where: { isActive: true, role: { roleName: { in: ADMIN_ROLES } } },
     select: { email: true, preferredLocale: true },
   })
+
+  const byLocale = new Map<Locale, string[]>()
   for (const admin of admins) {
     if (!admin.email) continue
     const locale = toLocale(admin.preferredLocale)
+    byLocale.set(locale, [...(byLocale.get(locale) ?? []), admin.email])
+  }
+
+  for (const [locale, recipients] of byLocale) {
     const t = makeT(locale)
     const { html, text } = await renderNotification(t, locale, {
       preview: t("email.missingItemRequest.heading"),
@@ -248,15 +344,17 @@ export async function notifyMissingItemRequest(opts: {
       cta: { label: t("email.missingItemRequest.cta"), href: appUrl("/admin/requests") },
       variant: "info",
     })
-    await notify({
-      type: NOTIFICATION_TYPES.MISSING_ITEM_REQUEST,
-      toEmail: admin.email,
-      growerId: opts.growerId,
-      subject: t("email.missingItemRequest.subject", { grower: opts.growerName }),
-      body: text,
-      html,
-      relatedEntity: "MissingItemRequest",
-    })
+    for (const group of chunk(recipients, MAX_RECIPIENTS_PER_MESSAGE)) {
+      await notify({
+        type: NOTIFICATION_TYPES.MISSING_ITEM_REQUEST,
+        toEmail: group.join(","),
+        growerId: opts.growerId,
+        subject: t("email.missingItemRequest.subject", { grower: opts.growerName }),
+        body: text,
+        html,
+        relatedEntity: "MissingItemRequest",
+      })
+    }
   }
 }
 

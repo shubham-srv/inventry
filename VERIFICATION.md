@@ -77,10 +77,15 @@ Pages: `/admin/items`, `/commodities`, `/categories`, `/sub-categories`, `/locat
 - [ ] `npm run reminders` from a terminal runs the same check and writes to the Outbox.
 
 ## P6 — Azure integration code (isolated, not active locally)
+> **Superseded by Round 15.** `integration/` no longer exists: Entra and magic-link
+> sign-in are wired into the app, and the Azure Functions timer is gone in favour of
+> Container Apps jobs. Only the first line below still applies. See the Round 15
+> section at the end of this file.
+
 - [ ] Cron endpoint works: `curl -X POST -H "x-cron-secret: dev-only-cron-secret" http://localhost:3000/api/cron/reminders` returns JSON.
-- [ ] `integration/` contains Entra auth routes, the Azure Timer Function, and `INTEGRATION.md`; it's excluded from the build (typecheck/lint stay green).
-- [ ] `lib/email/acs/sender.ts` is the ACS path selected by `EMAIL_PROVIDER=acs`.
-- [ ] Nothing in `integration/` is imported by the running app.
+- [ ] ~~`integration/` contains Entra auth routes, the Azure Timer Function, and `INTEGRATION.md`~~
+- [ ] ~~`lib/email/acs/sender.ts` is the ACS path selected by `EMAIL_PROVIDER=acs`~~ — now `lib/email/acs/transport.ts`, driven by `lib/email/dispatch.ts`.
+- [ ] ~~Nothing in `integration/` is imported by the running app~~
 
 ## Round 4 — fixes & new features (July 2026)
 
@@ -1500,6 +1505,124 @@ Check in **light and dark**, and at phone width:
       they read as *inside* the card instead of competing with its edge.
 - [ ] **No horizontal page scroll on mobile** (the standing P13 requirement) —
       the detail tables still scroll inside their own container.
+
+## Round 15 — Entra + magic link + email outbox (August 2026, `pre-prod`)
+
+Entra ID and passwordless magic-link sign-in are now wired into the app rather
+than sitting in `integration/` as reference code, and `NotificationLog` has
+become a real outbox that a paced dispatcher drains. Background:
+[docs/auth-and-email.md](docs/auth-and-email.md) and
+[docs/email-delivery.md](docs/email-delivery.md).
+
+**`integration/` is gone.** Its contents now live at `lib/auth/entra.ts`,
+`lib/auth/magic-link.ts`, `lib/auth/sliding-session.ts`,
+`app/(auth)/login/page.tsx` and `components/auth/magic-link-form.tsx`.
+`azure-functions/` was deleted outright — Container Apps jobs replaced it. The
+`typecheck:integration` script and `tsconfig.integration.json` are gone with it;
+this code is in the main build now, so `npm run typecheck` covers it.
+
+### 0. Migration first
+The only schema change is additive (`MagicToken`, plus queue columns and two
+indexes on `NotificationLog`), but replay it on a scratch copy with real data
+before trusting it — that is how the `sp_rename` INDEX/OBJECT bug was caught.
+
+- [ ] Restore a copy of the real database, point `DATABASE_URL` at it, then:
+      `npm run db:migrate:deploy` → `npm run db:migrate:status` reports no pending.
+- [ ] Existing `NotificationLog` rows survive with `priority=5`, `attempts=0`,
+      null retry columns — they are history, and that is what history looks like.
+
+### 1. Gates
+- [ ] `npm run typecheck` · `npm run lint` · `npm run build` all clean.
+- [ ] `npm run build` output lists `/api/auth/login`, `/api/auth/callback`,
+      `/api/auth/magic/request`, `/api/auth/magic/consume`, `/api/cron/reminders`,
+      `/api/cron/email-dispatch`.
+
+### 2. Local, no Azure account
+Set `EMAIL_PROVIDER=acs` with **`ACS_CONNECTION_STRING` left unset** — outside
+production the transport reports success without sending, so the whole queue
+path is exercisable. Keep `AUTH_PROVIDER=local`. Also set
+`MAGIC_LINK_SECRET` to any long random string.
+
+- [ ] `/login` shows the Microsoft button, the email box, **and** the demo picker
+      below a "Development only" divider.
+- [ ] Click **Sign in with Microsoft** with no `AZURE_AD_*` set → bounces back to
+      `/login?error=config` with a readable banner, not a stack trace.
+- [ ] Enter `james@agribar.local` in the email box → neutral "check your inbox"
+      message. The link is printed to the **server console**; open it → lands on
+      `/grower`.
+- [ ] Click that same link again → `/login?error=linkexpired`.
+- [ ] Request a second link, then open the **first** one → also rejected (a new
+      request invalidates outstanding links).
+- [ ] Enter an internal address (`admin@demo.local`) → same neutral response, and
+      **no** link in the console. Internal staff use Entra.
+- [ ] Enter an address that does not exist → identical neutral response. The two
+      cases must be indistinguishable from the browser.
+- [ ] **Outbox** has a `MagicLink` row: subject and recipient present, body reads
+      `[sign-in link — not stored]`, no preview button. The token must not be
+      anywhere in the Outbox — that page is readable by every admin.
+- [ ] Switch the UI to Español, request a link → the email renders in Spanish
+      (check the Outbox row's language, or the console-logged HTML).
+
+### 3. The queue and its pacing
+Set `EMAIL_RATE_PER_MINUTE=2` and `EMAIL_INTERACTIVE_RESERVE=1` to make it visible.
+
+- [ ] Settings → Schedulers → **Run reminder check now** → rows land in the
+      Outbox as **Queued**, not Sent. The toast reports counts immediately —
+      it no longer waits on any mail round-trip.
+- [ ] Within ~30s the in-app loop starts moving them: `Queued → Sending → Sent`,
+      one per pass at this rate. Container/`next dev` console logs a
+      `[email] dispatch` line for each pass that did something.
+      *This is the one piece of hand-written SQL in the app — the `WITH … UPDATE …
+      OUTPUT` batch claim in `lib/email/dispatch.ts`, which typechecking cannot
+      cover. If rows never leave `Queued`, look for an error from that query first.*
+- [ ] **Send queued email now** (Settings → Schedulers) runs one pass on demand
+      and reports what happened, including "Rate limit reached" when it is.
+- [ ] `curl -X POST -H "x-cron-secret: dev-only-cron-secret" http://localhost:3000/api/cron/email-dispatch`
+      returns JSON counts. Without the header → 401.
+- [ ] Set `EMAIL_DISPATCH_INTERVAL_MS=0`, restart → nothing drains on its own;
+      the endpoint and the button still work.
+- [ ] Priority holds: queue a batch of reminders, then request a magic link while
+      they are draining. The link arrives immediately — it is sent inline, and the
+      reserve keeps a slot free for it.
+- [ ] With `EMAIL_PROVIDER=local`, reminders are `Mocked` and the dispatcher
+      reports "nothing to send" — the offline demo is unchanged.
+
+### 4. Admin fan-out grouping
+- [ ] Give two admins different `preferredLocale` values, then raise a missing-item
+      request as a grower. The Outbox shows **one row per language**, not one per
+      admin, with the recipients comma-separated in the To line.
+
+### 5. Sessions
+- [ ] Sign in, then visit a deep link like `/admin/items` in a fresh private
+      window → bounced to `/login?returnTo=/admin/items`; after signing in you land
+      on `/admin/items`, not the dashboard.
+- [ ] Sign out from the user menu → back at `/login`, and the session cookie is gone.
+
+### 6. Demo picker gate
+- [ ] Set `AUTH_PROVIDER=entra`, restart → the picker is gone from `/login`; the
+      Microsoft button and email box remain.
+- [ ] With it gone, invoking `loginAs` directly still fails — it re-checks the gate
+      itself, because a server action is reachable whether or not a form renders it.
+      (Easiest check: flip back to `local`, submit the form with devtools open to
+      capture the action request, then flip to `entra` and replay it.)
+
+### 7. Against staging (Entra app registration + ACS managed domain)
+- [ ] The app registration's redirect URIs include
+      `https://<staging-fqdn>/api/auth/callback` — the pipeline derives this from the
+      ingress FQDN, so it must match exactly.
+- [ ] Its post-logout redirect URIs include `https://<staging-fqdn>/login`.
+- [ ] Sign in with Microsoft as a provisioned admin → lands on `/admin`;
+      `User.entraObjectId` is backfilled on that row.
+- [ ] Sign in as a tenant account with **no** `User` row → `?error=unprovisioned`.
+- [ ] Sign out → clicking "Sign in with Microsoft" again actually prompts, rather
+      than silently signing the same person back in.
+- [ ] Tamper check: hit `/api/auth/callback?code=whatever` directly → `?error=state`.
+- [ ] Both Container Apps jobs → **Run now** → exit 0, and the Outbox reflects it.
+- [ ] Real send: queue ~30 reminders and watch them drain over several minutes with
+      **no `Failed` rows**. Any `Failed` row shows its reason and attempt count.
+- [ ] `EMAIL_RATE_PER_MINUTE` / `EMAIL_RATE_PER_HOUR` on the Container App match
+      what the ACS resource actually allows — confirm the current figures in the
+      portal rather than assuming.
 
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.

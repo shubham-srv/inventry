@@ -1,5 +1,9 @@
-// Standalone reminder runner — mirrors what the Azure Timer Function does.
+// Standalone reminder runner — the same check the daily Container Apps job
+// triggers over HTTP, for when you want to run it from a shell instead.
 //   npm run reminders
+//
+// Note this only QUEUES: the messages leave via the app's dispatcher (or
+// POST /api/cron/email-dispatch), not from this process.
 async function main() {
   // Load .env into process.env (Node 20.12+) so DATABASE_URL is available.
   try {

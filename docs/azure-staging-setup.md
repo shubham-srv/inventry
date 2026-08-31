@@ -271,9 +271,17 @@ from `DoNotReply@<random>.azurecomm.net` and has modest rate limits — fine for
    → we'll put this in **Key Vault** in §8.
 
 **6f. Activate in the app**
-- `npm i @azure/communication-email` (your code lazy-imports it, so it's only needed when
-  `EMAIL_PROVIDER=acs`).
 - Env vars: `EMAIL_PROVIDER=acs`, `ACS_CONNECTION_STRING`, `ACS_SENDER_ADDRESS` (set in §8).
+  The SDK is already a dependency and is lazy-imported, so nothing is loaded while
+  `EMAIL_PROVIDER=local`.
+
+> **⚠️ Rate limits are the thing to plan around here.** The managed domain allows only a
+> handful of sends per minute, which the morning reminder run will exceed on its own. The app
+> handles that — messages queue and drain at a configured rate rather than being rejected —
+> but you must set `EMAIL_RATE_PER_MINUTE` / `EMAIL_RATE_PER_HOUR` to what your sender domain
+> actually allows, and you should start the **custom domain** verification early: it is ~6x
+> the headroom and, more importantly, `*.azurecomm.net` mail is routinely spam-foldered.
+> Read [email-delivery.md](email-delivery.md) before go-live.
 
 ---
 
@@ -382,37 +390,59 @@ add:
 | `NODE_ENV` | **Manual entry** → `production` |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | **Manual entry** → from §2 (optional, if you add the SDK) |
 
-*(Optional — only if you enable Microsoft Entra SSO, per `integration/entra`:*
-`AZURE_AD_CLIENT_ID`, `AZURE_AD_TENANT_ID`, `AZURE_AD_CLIENT_SECRET` *(as a Key Vault secret),*
-`AZURE_AD_REDIRECT_URI` *= `https://<app-url>/…` — set these once you register the Entra app.)*
+*Also set, once the Entra app registration exists (§10a):* `AZURE_AD_CLIENT_ID`,
+`AZURE_AD_TENANT_ID`, `AZURE_AD_CLIENT_SECRET` *(as a Key Vault secret),*
+`AZURE_AD_REDIRECT_URI` *= `https://<app-url>/api/auth/callback`. Until they are set,
+"Sign in with Microsoft" reports that it isn't configured and the magic-link box still works.*
+
+*And the email throughput settings — `EMAIL_RATE_PER_MINUTE`, `EMAIL_RATE_PER_HOUR`,
+`EMAIL_INTERACTIVE_RESERVE` — which must match what your sender domain actually allows.
+See [email-delivery.md](email-delivery.md).*
 
 Click **Save** — this deploys a **new revision** with all the config.
 
 ---
 
-## 9. Container App Job (daily reminder cron)
+## 9. Container App Jobs (reminder cron + email safety net)
 
 **Concept.** A **Container App Job** is a *run-to-completion* workload (not an always-on
 service) that the environment starts on a **schedule**, and you're billed only for the
-seconds it runs. Because your reminder logic is already exposed as a secure HTTP endpoint,
-the job doesn't need your app's image or the database — it just makes one authenticated
-`curl` to `POST /api/cron/reminders`, exactly like your reference Azure Function. (Once this
-works you can retire `integration/azure-functions`.)
+seconds it runs. Both of the jobs below just make one authenticated `curl` to a
+secret-protected endpoint on your app, so neither needs your app's image or the database.
 
-**Steps.**
+**There are two of them:**
+
+| Job | Cron | Endpoint | What it does |
+|---|---|---|---|
+| `caj-reminders-staging` | `0 8 * * *` | `POST /api/cron/reminders` | queues one reminder per overdue grower |
+| `caj-email-dispatch-staging` | `*/15 * * * *` | `POST /api/cron/email-dispatch` | **safety net** for the email queue |
+
+The reminder job only *queues* — the app sends separately, paced to the mail provider's
+rate limits (see [email-delivery.md](email-delivery.md)) — so it returns in milliseconds
+however many growers are overdue, and the replica timeout is never in play.
+
+The dispatch job is a backstop. The running app already drains its email queue every 30
+seconds by itself; this job exists so a restarted or scaled-to-zero app can't leave mail
+sitting. **Fifteen minutes, not one:** an every-minute job is ~1,440 container starts a day
+for work that takes seconds, which would eat most of the free vCPU-second grant that the web
+app also draws on. If you'd rather have no in-app timer at all, set
+`EMAIL_DISPATCH_INTERVAL_MS=0` and run this job every minute instead.
+
+**Steps** (repeat for both jobs, changing the name, cron and URL):
 1. Search **"Container App Jobs"** → **Create** (or Container Apps → **Jobs → Create**).
 2. **Basics**:
-   - RG `rg-staging`; **Job name** `caj-reminders-staging`; Region;
+   - RG `rg-staging`; **Job name** as above; Region;
    - **Container Apps Environment =** `cae-inventory-staging` (the same one).
-   - **Trigger type = Schedule**; **Cron expression = `0 8 * * *`** (daily 08:00 UTC — matches
-     your existing Function). Parallelism 1, replica completion count 1.
+   - **Trigger type = Schedule**; **Cron expression** as above (times are UTC).
+     Parallelism 1, replica completion count 1.
 3. **Container** tab:
    - **Image source = Docker Hub or other registries**; **Image =** `curlimages/curl:latest`
      (a tiny public image with `curl`).
    - **Command override** — set:
      - Command: `/bin/sh`
-     - Args: `-c, curl -sS -X POST -H "x-cron-secret: $CRON_SECRET" https://ca-inventory-web-staging.<region>.azurecontainerapps.io/api/cron/reminders`
-       *(use your real Application Url from §7-6)*.
+     - Args: `-c, curl -fsS -X POST -H "x-cron-secret: $CRON_SECRET" https://ca-inventory-web-staging.<region>.azurecontainerapps.io/api/cron/reminders`
+       *(use your real Application Url from §7-6; `-f` makes a non-2xx fail the run
+       instead of exiting 0 with an error page in the log)*.
 4. **Review + create → Create → Go to resource**.
 5. **Give the job the `CRON_SECRET`** (same value as the app):
    - Job → **Settings → Identity → System assigned → On → Save**.
@@ -420,30 +450,39 @@ works you can retire `integration/azure-functions`.)
    - Job → **Settings → Secrets** → add `cron-secret` as a **Key Vault reference**.
    - Job → **Containers/Environment variables** → `CRON_SECRET` → **Reference a secret** → `cron-secret`.
 6. **Test it now**: Job → **Run now** → check **Execution history** → the run should exit 0,
-   and your app's Outbox / `NotificationLog` should reflect the reminder check.
+   and your app's Outbox / `NotificationLog` should reflect it.
 
 > **Why not run `npm run reminders` in the job?** You could, but your production Docker image
-> uses Next.js *standalone* output, which won't include `tsx`/`scripts`. The `curl`-the-endpoint
-> approach avoids that entirely and matches how your Azure Function already works.
+> uses Next.js *standalone* output, which won't include `tsx`/`scripts`. The
+> `curl`-the-endpoint approach avoids that entirely.
 
-**Or create it via CLI** (reproducible equivalent; wire identity + secret as in step 5):
+**Or create them via CLI** (reproducible equivalent; wire identity + secret as in step 5):
 ```bash
-az containerapp job create \
-  --name caj-reminders-staging \
-  --resource-group rg-staging \
-  --environment cae-inventory-staging \
-  --trigger-type Schedule \
-  --cron-expression "0 8 * * *" \
-  --replica-timeout 300 --replica-retry-limit 1 \
-  --image curlimages/curl:latest --cpu 0.25 --memory 0.5Gi \
-  --command "/bin/sh" \
-  --args "-c" "curl -sS -X POST -H \"x-cron-secret: \$CRON_SECRET\" https://<app-url>/api/cron/reminders"
+KV=https://kv-inv-stg-xxxx.vault.azure.net/secrets
+APP=https://ca-inventory-web-staging.<region>.azurecontainerapps.io
 
-# then enable identity, grant it Key Vault Secrets User, and add the secret + env var:
-az containerapp job identity assign --name caj-reminders-staging -g rg-staging --system-assigned
-az containerapp job secret set --name caj-reminders-staging -g rg-staging \
-  --secrets cron-secret=keyvaultref:https://kv-inv-stg-xxxx.vault.azure.net/secrets/cron-secret,identityref:system
+for spec in "caj-reminders-staging|0 8 * * *|reminders" \
+            "caj-email-dispatch-staging|*/15 * * * *|email-dispatch"; do
+  IFS='|' read -r NAME CRON PATHNAME <<< "$spec"
+
+  az containerapp job create \
+    --name "$NAME" \
+    --resource-group rg-staging \
+    --environment cae-inventory-staging \
+    --trigger-type Schedule \
+    --cron-expression "$CRON" \
+    --replica-timeout 300 --replica-retry-limit 1 \
+    --image curlimages/curl:latest --cpu 0.25 --memory 0.5Gi \
+    --command "/bin/sh" \
+    --args "-c" "curl -fsS -X POST -H \"x-cron-secret: \$CRON_SECRET\" $APP/api/cron/$PATHNAME"
+
+  az containerapp job identity assign --name "$NAME" -g rg-staging --system-assigned
+  az containerapp job secret set --name "$NAME" -g rg-staging \
+    --secrets cron-secret=keyvaultref:$KV/cron-secret,identityref:system
+done
 ```
+Then grant each job's identity **Key Vault Secrets User** on the vault, and map the env var
+`CRON_SECRET` → `secretref:cron-secret` on each job's container.
 
 ---
 
@@ -465,7 +504,7 @@ path just ends by calling `createSession(user.id)` — so the two methods coexis
 **Concept.** The app is an OIDC *relying party* against the **client's own Entra tenant**.
 On callback it matches the Entra **object id (`oid`)** — falling back to the admin-provisioned
 email the first time — to a `User` row (reference code in
-[`integration/entra/auth-routes.ts`](../integration/entra/auth-routes.ts)), **backfills
+[`lib/auth/entra.ts`](../lib/auth/entra.ts)), **backfills
 `User.entraObjectId`** so a later email change can't lock the person out, and if active issues
 the normal session. "Reject if unprovisioned" is the built-in access gate.
 
@@ -520,26 +559,26 @@ Two viable routes:
   none of the guest governance problems. Free at this scale (~first 50k monthly active
   users). Cost: another Azure product + tenant to configure, and a second IdP to run.
 
-> The `AUTH_PROVIDER=entra` switch in `INTEGRATION.md` assumed "Entra for everyone." For this
-> **hybrid** you don't flip one provider — you keep **both** login routes live, and `/login`
-> offers "Sign in with Microsoft" *and* the email option. They partition naturally: vendors
-> have no client-tenant account; internal users have no `passwordHash`.
+> **This is a hybrid, not a switch.** Both login routes are live at once and `/login` offers
+> "Sign in with Microsoft" *and* the email option. They partition naturally: growers and
+> vendors have no client-tenant account, and internal staff are refused magic links.
+> `AUTH_PROVIDER` does not choose between them — it only controls the development-only demo
+> picker. See [auth-and-email.md](auth-and-email.md).
 
 **Identity checklist**
 - [ ] App registration in the **client's** Entra tenant (single-tenant); redirect URI set
 - [ ] Client secret stored in Key Vault as `azure-ad-client-secret`
 - [ ] `User.Read` admin-consented
+- [ ] Post-logout redirect URI `https://<app-url>/login` registered (sign-out ends the tenant SSO session)
 - [ ] (optional) Assignment required + `InventoryApp-Users` group (needs P1)
-- [ ] `@azure/msal-node` installed; 3 auth routes wired; `AZURE_AD_*` env vars set
-- [ ] External-user flow chosen (magic-link vs External ID) and built
-- [ ] (magic-link) `magic-link-secret` in Key Vault; `MAGIC_LINK_SECRET` + `APP_URL` env vars set
+- [ ] `AZURE_AD_*` env vars set on the Container App
+- [ ] `magic-link-secret` in Key Vault; `MAGIC_LINK_SECRET` + `APP_URL` env vars set
 
 ### 10c. Magic-link setup (external users) — infra side
 
-The app-dev work (routes, `MagicToken` model, sliding session) lives in
-[`integration/magic-link/`](../integration/magic-link) with activation steps in
-`integration/INTEGRATION.md` §4. On **their infra** you only add one secret and two env vars
-(ACS is already set up in §6):
+The app side is built — routes, the `MagicToken` table, the sliding session; see
+[auth-and-email.md](auth-and-email.md). On **their infra** you only add one secret and two
+env vars (ACS is already set up in §6):
 
 1. **Key Vault** → add secret `magic-link-secret` = a long random string **distinct from
    `session-secret`** (§8d).
@@ -548,11 +587,12 @@ The app-dev work (routes, `MagicToken` model, sliding session) lives in
    - `APP_URL` → `https://ca-inventory-web-staging.<region>.azurecontainerapps.io` (used to build the link)
 3. Confirm `EMAIL_PROVIDER=acs`, `ACS_CONNECTION_STRING`, `ACS_SENDER_ADDRESS` are set (§6/§8) —
    the magic-link email uses the same ACS sender.
-4. The `MagicToken` table ships as a Prisma migration (added on activation) and is applied by the
-   pipeline's `prisma migrate deploy` step (§13) — no manual DB work.
+4. The `MagicToken` table ships as a Prisma migration and is applied by the pipeline's
+   `prisma migrate deploy` step (§13) — no manual DB work.
 
-Links expire in **15 min** and are single-use; the **7-day session** they create rolls forward on
-activity if you enable the sliding-session middleware (both app-side, per INTEGRATION.md §4).
+Links expire in **15 min** and are single-use; the **7-day session** they create rolls forward
+on activity (the sliding session runs in `proxy.ts`). Only a hash of each link is stored, so
+this table is not worth stealing.
 
 ---
 

@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db"
 import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { parseListParams } from "@/lib/query"
-import { NOTIFICATION_TYPES } from "@/lib/constants"
+import { NOTIFICATION_TYPES, NOTIFICATION_STATUSES } from "@/lib/constants"
 import { getT } from "@/lib/i18n/server"
 import { PageHeader } from "@/components/page-header"
 import { Pager } from "@/components/pager"
@@ -47,14 +47,14 @@ export default async function OutboxPage({
     <>
       <PageHeader
         title="Outbox"
-        description="Email triggers. Locally these are mocked; with ACS configured they're actually sent."
+        description="Every email the app has raised. Locally these are mocked; with ACS configured they queue here and are sent in the background at the provider's allowed rate."
       />
       <div className="space-y-4">
         <DataTableToolbar
           searchPlaceholder="Search subject / recipient…"
           filters={[
             { key: "type", label: "Type", options: Object.values(NOTIFICATION_TYPES).map((t) => ({ label: t, value: t })) },
-            { key: "status", label: "Status", options: ["Mocked", "Queued", "Sent", "Failed"].map((s) => ({ label: s, value: s })) },
+            { key: "status", label: "Status", options: NOTIFICATION_STATUSES.map((s) => ({ label: s, value: s })) },
           ]}
         />
 
@@ -90,6 +90,19 @@ export default async function OutboxPage({
                       />
                     ) : (
                       <p className="mt-1 text-sm">{m.body}</p>
+                    )}
+                    {/* Why a message is still sitting here, or why it stopped
+                        trying. Without this a "Failed" badge is a dead end. */}
+                    {m.lastError && (
+                      <p className="text-destructive mt-1.5 text-xs">
+                        {m.attempts > 0 && `Attempt ${m.attempts}: `}
+                        {m.lastError}
+                      </p>
+                    )}
+                    {!m.lastError && m.nextAttemptAt && (
+                      <p className="text-muted-foreground mt-1.5 text-xs">
+                        Retrying {format(m.nextAttemptAt, "MMM d, HH:mm")}
+                      </p>
                     )}
                   </div>
                   <span className="text-muted-foreground shrink-0 text-xs">

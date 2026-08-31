@@ -14,6 +14,7 @@ import { recordAudit } from "@/lib/audit"
 import { CAPABILITIES } from "@/lib/rbac"
 import { AUDIT_ACTIONS } from "@/lib/constants"
 import { runReminderCheck } from "@/lib/scheduler/reminders"
+import { dispatchQueuedEmails } from "@/lib/email/dispatch"
 
 const CAP = CAPABILITIES.ACCESS_SETTINGS
 
@@ -88,6 +89,34 @@ export async function runRemindersAction(): Promise<ActionState> {
   revalidatePath("/admin/settings/outbox")
   revalidatePath("/admin/settings/schedulers")
   return ok(`Checked ${result.checked} grower(s); queued ${result.remindersCreated} reminder(s).`)
+}
+
+/**
+ * Drain the email outbox on demand.
+ *
+ * The app already does this on a timer, but "queued" is a state an admin can
+ * see in the Outbox and will reasonably want to push along — and when something
+ * is stuck, one click that reports back beats reading container logs.
+ * Still paced: this runs one ordinary dispatch pass, not an unthrottled flush.
+ */
+export async function flushEmailQueueAction(): Promise<ActionState> {
+  const user = await guard(CAP)
+  const result = await dispatchQueuedEmails()
+  await recordAudit({ userId: user.id, action: "FlushEmailQueue", entityType: "NotificationLog", changes: result })
+  revalidatePath("/admin/settings/outbox")
+
+  if (result.note === "not-live") {
+    return ok("Email provider is local — messages are mocked, so there is nothing to send.")
+  }
+  if (result.note === "no-budget" || result.throttled) {
+    return ok(
+      `Rate limit reached; ${result.sent} sent this pass. The rest stay queued and go out automatically.`
+    )
+  }
+  if (result.note === "empty") return ok("Nothing queued.")
+  return ok(
+    `Sent ${result.sent}; ${result.requeued} will retry; ${result.failed} failed.`
+  )
 }
 
 // ---------------- Item thresholds ----------------

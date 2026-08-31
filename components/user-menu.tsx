@@ -2,7 +2,7 @@
 
 import { useTransition } from "react"
 import { ChevronDown, LogOut } from "lucide-react"
-import { logout } from "@/lib/auth/dummy"
+import { logout } from "@/lib/auth/actions"
 import { useT } from "@/lib/i18n/client"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"

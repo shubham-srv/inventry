@@ -9,13 +9,14 @@ import { type Capability, can as roleCan } from "@/lib/rbac"
 import { LOCALE_COOKIE, isLocale } from "@/lib/i18n/config"
 
 // ============================================================
-// Local "dummy" session provider.
+// The session layer — auth-provider agnostic on purpose.
 //
-// A signed (jose) httpOnly cookie holds the impersonated user id.
-// This mirrors the shape a real Entra session would expose
-// (getCurrentUser / requireUser / requireRole), so swapping in
-// lib/auth/entra later only changes how the cookie/userId is
-// established — call sites stay identical.
+// A signed (jose) httpOnly cookie holds the user id. Entra
+// (lib/auth/entra.ts), magic link (lib/auth/magic-link.ts) and the
+// dev-only picker (lib/auth/dummy.ts) all end by calling
+// createSession(user.id); nothing downstream — roles, capabilities,
+// grower/vendor data isolation — knows or cares which door someone
+// came through.
 // ============================================================
 
 export const SESSION_COOKIE = "demo_session"
@@ -40,21 +41,46 @@ export type SessionUser = {
   vendorName: string | null
 }
 
-export async function createSession(userId: number): Promise<void> {
+export type SessionCookie = {
+  name: string
+  value: string
+  options: {
+    httpOnly?: boolean
+    sameSite: "lax"
+    secure?: boolean
+    path: string
+    maxAge: number
+  }
+}
+
+/**
+ * Builds the cookies that constitute a session, without setting them.
+ *
+ * Route handlers that finish with `NextResponse.redirect(...)` need the cookies
+ * on THAT response object, so they call this and `res.cookies.set(...)`
+ * themselves rather than relying on a `cookies()` mutation being merged into a
+ * redirect. Server actions and pages use createSession() below.
+ */
+export async function sessionCookies(userId: number): Promise<SessionCookie[]> {
   const token = await new SignJWT({ userId })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("7d")
     .sign(getSecret())
 
-  const store = await cookies()
-  store.set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: MAX_AGE,
-  })
+  const list: SessionCookie[] = [
+    {
+      name: SESSION_COOKIE,
+      value: token,
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        path: "/",
+        maxAge: MAX_AGE,
+      },
+    },
+  ]
 
   // Sync the UI language cookie to the user's saved preference, so a returning
   // user gets their language even in a fresh browser. Centralized here so every
@@ -65,11 +91,20 @@ export async function createSession(userId: number): Promise<void> {
     select: { preferredLocale: true },
   })
   if (u && isLocale(u.preferredLocale)) {
-    store.set(LOCALE_COOKIE, u.preferredLocale, {
-      path: "/",
-      maxAge: 60 * 60 * 24 * 365,
-      sameSite: "lax",
+    list.push({
+      name: LOCALE_COOKIE,
+      value: u.preferredLocale,
+      options: { path: "/", maxAge: 60 * 60 * 24 * 365, sameSite: "lax" },
     })
+  }
+
+  return list
+}
+
+export async function createSession(userId: number): Promise<void> {
+  const store = await cookies()
+  for (const c of await sessionCookies(userId)) {
+    store.set(c.name, c.value, c.options)
   }
 }
 

@@ -56,17 +56,30 @@ variables:
     value: sha-$(Build.SourceVersion)
 
   # ---- provider switches ---------------------------------------------------
-  # `local` keeps the app on the dummy cookie session and the mocked email
-  # writer. Flip to `entra` / `acs` as each integration is wired up
-  # (integration/INTEGRATION.md).
-  # NOTE: nothing in the app currently reads AUTH_PROVIDER — it is set to
-  # document intent and to be ready for the switch.
+  # Entra and magic-link sign-in are always live. `authProvider` only controls
+  # the credential-free demo user-picker, and only outside production — the
+  # Dockerfile bakes NODE_ENV=production, so a deployed image cannot show it
+  # whatever this says. It stays `entra` here so nobody has to rely on that.
   - name: authProvider
-    value: local
+    value: entra
   - name: emailProvider
     value: acs # set to `local` to defer ACS; sends fail until the sender is real
   - name: translationProvider
     value: local
+
+  # ---- email throughput ----------------------------------------------------
+  # The mail provider's send limits for the sender domain in use. Conservative
+  # Azure-managed-domain figures; a verified custom domain is roughly 6x on both.
+  # Raising throughput is a matter of changing these two numbers and redeploying
+  # — there is no code that assumes a particular rate. See docs/email-delivery.md.
+  - name: emailRatePerMinute
+    value: 5
+  - name: emailRatePerHour
+    value: 100
+  # Per-minute slots held back from the bulk queue so a sign-in link requested
+  # during the morning reminder run is not throttled behind it.
+  - name: emailInteractiveReserve
+    value: 2
   # Only read when translationProvider=azure. Region is required for regional and
   # multi-service Translator resources, ignored for global ones. The ENDPOINT var
   # is deliberately not set anywhere — leaving it unset uses the global endpoint,
@@ -285,6 +298,9 @@ stages:
                           AUTH_PROVIDER="$(authProvider)" \
                           EMAIL_PROVIDER="$(emailProvider)" \
                           TRANSLATION_PROVIDER="$(translationProvider)" \
+                          EMAIL_RATE_PER_MINUTE="$(emailRatePerMinute)" \
+                          EMAIL_RATE_PER_HOUR="$(emailRatePerHour)" \
+                          EMAIL_INTERACTIVE_RESERVE="$(emailInteractiveReserve)" \
                           NODE_ENV=production
 
                       # `containerapp update` returns as soon as the revision is
@@ -421,6 +437,9 @@ stages:
                           AUTH_PROVIDER="$(authProvider)" \
                           EMAIL_PROVIDER="$(emailProvider)" \
                           TRANSLATION_PROVIDER="$(translationProvider)" \
+                          EMAIL_RATE_PER_MINUTE="$(emailRatePerMinute)" \
+                          EMAIL_RATE_PER_HOUR="$(emailRatePerHour)" \
+                          EMAIL_INTERACTIVE_RESERVE="$(emailInteractiveReserve)" \
                           NODE_ENV=production
 
                       for i in $(seq 1 30); do

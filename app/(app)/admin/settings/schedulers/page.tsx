@@ -1,4 +1,4 @@
-import { Pencil, Plus, Trash2, Play } from "lucide-react"
+import { Pencil, Plus, Trash2, Play, Send } from "lucide-react"
 import { prisma } from "@/lib/db"
 import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
@@ -9,6 +9,7 @@ import {
   updateScheduler,
   deleteScheduler,
   runRemindersAction,
+  flushEmailQueueAction,
 } from "@/lib/actions/settings"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
@@ -75,13 +76,20 @@ export default async function SchedulersPage() {
         <ActionButton action={runRemindersAction} variant="default" size="sm">
           <Play className="size-4" /> Run reminder check now
         </ActionButton>
+        <ActionButton action={flushEmailQueueAction} variant="outline" size="sm">
+          <Send className="size-4" /> Send queued email now
+        </ActionButton>
         <EntityFormDialog title="New schedule" fields={fields} action={createScheduler} submitLabel="Create" trigger={<Button size="sm" variant="outline"><Plus className="size-4" /> Add schedule</Button>} />
       </PageHeader>
 
       <Card className="mb-4 py-0">
         <CardContent className="text-muted-foreground p-4 text-sm">
-          &ldquo;Run reminder check now&rdquo; executes the same logic the Azure Function runs on a timer. Reminders are written to the{" "}
-          <a className="text-primary hover:underline" href="/admin/settings/outbox">Outbox</a> (one per overdue grower per day).
+          &ldquo;Run reminder check now&rdquo; runs the same check the daily Container Apps job runs.
+          It <em>queues</em> reminders in the{" "}
+          <a className="text-primary hover:underline" href="/admin/settings/outbox">Outbox</a>{" "}
+          (one per overdue grower per day); they are then sent in the background at whatever rate
+          the mail provider allows, so a large batch drains over several minutes rather than being
+          rejected. &ldquo;Send queued email now&rdquo; runs one of those passes immediately.
         </CardContent>
       </Card>
 
