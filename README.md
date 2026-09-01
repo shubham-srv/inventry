@@ -1,65 +1,174 @@
 # Inventory Management & Tracking
 
-Full-stack Next.js app for inventory management across three personas:
+A full-stack web application for tracking packaging and materials inventory across a
+distributed supply network — growers who hold and consume stock, vendors who supply it,
+and the internal team that runs the master data behind both.
 
-- **Internal users** — Admins (master data, onboarding, user↔grower/vendor mapping, settings) and Editors (master data only). Items carry their own grower (who uses it) and vendor (who supplies it) mappings, editable from the item form.
-- **Growers** — submit daily on-hand counts, raise & track orders (per vendor, marked received/cancelled), flag low inventory, request missing items, view history + analytics. Mobile-first.
-- **Vendors** — report item quantities with per-grower allocation breakdowns, view history + analytics.
+The whole application runs on a laptop with no cloud account. Every external integration
+(sign-in, email, translation) has an offline fallback, so you can install it and click
+through the entire product in about ten minutes.
 
-Strict data isolation: growers/vendors only ever see their own data (enforced server-side by the session's grower/vendor mapping).
+> **Client-facing technical documentation:** [`docs/technical-documentation.md`](docs/technical-documentation.md)
+> — architecture, data model, security, deployment and operations in full.
+
+---
+
+## What it does
+
+Three audiences, one shared picture of stock:
+
+| Audience | What they do |
+|---|---|
+| **Growers** | Submit daily on-hand counts per location, raise orders against vendors and mark them received or cancelled, flag low stock, request items that don't exist yet, review history and dashboards. Mobile-first. |
+| **Vendors** | Report the quantities they hold, with a per-grower allocation breakdown. Review history and dashboards. |
+| **Internal staff** | Own the master data everyone else selects from (items, commodities, categories, locations, growers, vendors), act on shortages and requests, onboard users, configure thresholds and reminders, and report across the whole network. |
+
+Two principles run through the design:
+
+- **Each number has exactly one owner.** On-hand stock is whatever the grower counted —
+  never inferred from orders or receipts.
+- **Strict data isolation.** Growers and vendors only ever see their own data, enforced
+  server-side from the session's grower/vendor mapping. The identifier in a request is
+  never the one used to scope a query.
 
 ## Stack
 
-Next.js 16 (App Router, Server Actions) · React 19 · TypeScript · Tailwind v4 · shadcn/ui · Prisma 6 · **Azure SQL / SQL Server** · zod · recharts · ExcelJS.
+Next.js 16 (App Router, Server Actions) · React 19 · TypeScript · Tailwind v4 ·
+shadcn/ui · Prisma 6 · **Azure SQL / SQL Server** · zod · Recharts · ExcelJS
 
-Production integrations are live in the app, and each falls back to something that
-works offline so the whole thing still runs on a laptop with no Azure account:
+Production integrations are live in the app, and each falls back to something that works
+offline:
 
-- **Auth** — **Entra ID** for internal staff, passwordless **magic link** for growers
-  and vendors, both ending at the same session cookie. A credential-free user-picker
-  is also available, but only outside production (`AUTH_PROVIDER=local`).
-- **Email** — **Azure Communication Services**. `EMAIL_PROVIDER=local` records triggers
-  to an in-app **Outbox** without sending. Messages are queued and drained at the
-  provider's allowed rate rather than sent inline.
+- **Auth** — **Entra ID** for internal staff, passwordless **magic link** for growers and
+  vendors, both ending at the same session cookie. A credential-free user picker is also
+  available, but only outside production (`AUTH_PROVIDER=local`).
+- **Email** — **Azure Communication Services**. `EMAIL_PROVIDER=local` records triggers to
+  an in-app **Outbox** without sending. Messages are queued and drained at the provider's
+  allowed rate rather than sent inline.
 - **Scheduler** — **Azure Container Apps jobs** hitting `/api/cron/*`; locally, an admin
   button or `npm run reminders`.
 
-See [`docs/auth-and-email.md`](docs/auth-and-email.md) for how these fit together, and
-[`docs/email-delivery.md`](docs/email-delivery.md) for the send-rate limits.
+---
 
-## Getting started
+## Running it locally
+
+### Prerequisites
+
+| | |
+|---|---|
+| **Node.js 20 LTS or newer** | `node --version` |
+| **A SQL Server instance** | Azure SQL, SQL Server Express, LocalDB, or the Docker image below |
+| **npm** | Ships with Node |
+
+No SQL Server handy? This gets you one in a container:
 
 ```bash
-npm install
-
-# 1. Configure the database
-cp .env.example .env
-#   edit DATABASE_URL to point at your SQL Server (Azure SQL / SQL Express / etc.)
-
-# 2. Create schema + demo data
-npm run db:push
-npm run db:seed
-
-# 3. Run
-npm run dev          # http://localhost:3000
+docker run -d --name inventory-sql \
+  -e "ACCEPT_EULA=Y" -e "MSSQL_SA_PASSWORD=Your_password123" \
+  -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest
 ```
 
-Open `/login` and pick any seeded user. Reset data anytime with `npm run db:reset`.
+### 1. Install
+
+```bash
+git clone <repository-url>
+cd <repository-directory>
+npm install
+```
+
+### 2. Create the databases
+
+Create an empty `inventory` database on your instance, plus an `inventory_shadow` one.
+The shadow database is a scratch space Prisma wipes and replays migrations into; it must
+exist before `prisma migrate dev` will run, and it must never point at your real data.
+
+Using `sqlcmd` (or SSMS / Azure Data Studio — anything that runs SQL):
+
+```bash
+sqlcmd -S localhost -U sa -P 'Your_password123' -C -Q "CREATE DATABASE inventory; CREATE DATABASE inventory_shadow;"
+```
+
+With the Docker container above, run it inside the container instead:
+
+```bash
+docker exec -i inventory-sql /opt/mssql-tools18/bin/sqlcmd \
+  -S localhost -U sa -P 'Your_password123' -C \
+  -Q "CREATE DATABASE inventory; CREATE DATABASE inventory_shadow;"
+```
+
+### 3. Configure
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and set `DATABASE_URL` (and `SHADOW_DATABASE_URL`) to your instance. For the
+Docker container above, the values already in `.env.example` work as-is:
+
+```
+DATABASE_URL="sqlserver://localhost:1433;database=inventory;user=sa;password=Your_password123;encrypt=true;trustServerCertificate=true"
+```
+
+Everything else in `.env.example` is pre-set for offline use — no Azure account, no keys.
+The file documents each variable inline; [`docs/technical-documentation.md` §13](docs/technical-documentation.md#13-configuration-reference)
+has the full reference.
+
+### 4. Create the schema and load demo data
+
+```bash
+npm run db:push     # sync the Prisma schema to your database
+npm run db:seed     # load demo growers, vendors, items and history
+```
+
+### 5. Run
+
+```bash
+npm run dev         # http://localhost:3000
+```
+
+Open `/login` and pick any seeded user. Reset everything with `npm run db:reset`.
 
 ### Demo accounts
-`admin@demo.local` (admin) · `editor@demo.local` (editor) · `james@agribar.local`, `diago@brigo.local`, `priya@pdg.local` (growers) · `sam@packright.local`, `lena@palletpool.local`, `omar@labelworks.local` (vendors).
+
+| Role | Sign in as |
+|---|---|
+| Admin | `admin@demo.local` |
+| Editor | `editor@demo.local` |
+| Growers | `james@agribar.local` · `diago@brigo.local` · `priya@pdg.local` |
+| Vendors | `sam@packright.local` · `lena@palletpool.local` · `omar@labelworks.local` |
+
+No passwords — the local picker signs you in directly. To rehearse the real login page
+instead, set `AUTH_PROVIDER=entra` and fill in the Entra variables.
+
+### If something goes wrong
+
+| Symptom | Fix |
+|---|---|
+| `Cannot open database "inventory"` | The database doesn't exist yet — step 2. |
+| TLS / certificate errors connecting | Add `trustServerCertificate=true` to `DATABASE_URL` (already in the example). |
+| `Drift detected` | See [`MIGRATIONS.md`](MIGRATIONS.md). For local work, `npm run db:reset` is usually the answer. |
+| Buttons dead when opening the dev server from a phone on your LAN | Add your machine's IP to `allowedDevOrigins` in [`next.config.ts`](next.config.ts). |
+| Emails "not arriving" | Expected. With `EMAIL_PROVIDER=local` nothing is sent — read them in Admin → Settings → Outbox. |
+
+---
 
 ## Scripts
 
 | Script | Purpose |
 |---|---|
 | `npm run dev` | Start the app |
-| `npm run db:push` | Sync Prisma schema to the DB |
+| `npm run build` / `npm start` | Production build and serve |
+| `npm run db:push` | Sync Prisma schema to the DB (local only) |
 | `npm run db:seed` | Load demo data |
 | `npm run db:reset` | Force-reset schema + reseed |
+| `npm run db:studio` | Browse the data in Prisma Studio |
+| `npm run db:migrate` | Create a migration from schema changes |
+| `npm run db:migrate:deploy` | Apply migrations (what CI/CD runs) |
+| `npm run db:bootstrap` | Create roles, lookups and the first admin on an empty DB |
 | `npm run reminders` | Run the scheduled-reminder check locally |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
+| `npm run format` | Prettier |
 
 To produce the blank master-data workbook to send the client:
 
@@ -70,7 +179,7 @@ npx tsx scripts/generate-master-data-template.ts   # -> master-data-template.xls
 ## Project structure
 
 ```
-app/(auth)/login        demo user picker
+app/(auth)/login        sign-in: Microsoft, magic link, demo picker
 app/(app)/admin         internal: master data, growers/vendors, users, authorizations,
                         requests, packaging, reports (grower stock, orders, vendor
                         stock, Power BI), settings (schedulers/thresholds/
@@ -84,7 +193,8 @@ lib/actions             server actions (per domain), validated with zod
 lib/email               notify() enqueues; dispatch.ts paces and sends; acs/ is the wire
 lib/scheduler           shared reminder logic
 lib/admin               shared list filters + Excel export
-prisma/                 schema + seed
+lib/rbac.ts             the entire permission model
+prisma/                 schema + migrations + seed
 instrumentation.ts      starts the email dispatch loop on server start
 ```
 
@@ -92,16 +202,18 @@ instrumentation.ts      starts the email dispatch loop on server start
 
 | Doc | What it covers |
 |---|---|
-| [`VERIFICATION.md`](VERIFICATION.md) | Manual verification checklist, one section per round of changes |
-| [`MIGRATIONS.md`](MIGRATIONS.md) | Migration workflow, renaming tables safely, fixing "drift detected" |
-| [`docs/azure-staging-setup.md`](docs/azure-staging-setup.md) | Standing up the Azure infrastructure, click by click |
-| [`docs/azure-devops-setup.md`](docs/azure-devops-setup.md) | Wiring the CI/CD pipeline in Azure DevOps |
-| [`docs/master-data-upload.md`](docs/master-data-upload.md) | Workbook format for the client's one-time master-data load |
+| [`docs/technical-documentation.md`](docs/technical-documentation.md) | **Full technical documentation** — architecture, data model, security, deployment, operations |
 | [`docs/auth-and-email.md`](docs/auth-and-email.md) | How Entra, magic links, the session layer and email delivery fit together |
 | [`docs/email-delivery.md`](docs/email-delivery.md) | ACS send-rate limits and how the app stays inside them |
+| [`docs/master-data-upload.md`](docs/master-data-upload.md) | Workbook format for the client's one-time master-data load |
+| [`docs/azure-staging-setup.md`](docs/azure-staging-setup.md) | Standing up the Azure infrastructure, click by click |
+| [`docs/azure-devops-setup.md`](docs/azure-devops-setup.md) | Wiring the CI/CD pipeline in Azure DevOps |
 | [`docs/production-checklist.md`](docs/production-checklist.md) | What still has to happen before the production cutover |
+| [`MIGRATIONS.md`](MIGRATIONS.md) | Migration workflow, renaming tables safely, fixing "drift detected" |
+| [`VERIFICATION.md`](VERIFICATION.md) | Manual verification checklist, one section per round of changes |
+| [`schema.dbml`](schema.dbml) | ER diagram source — paste into [dbdiagram.io](https://dbdiagram.io) |
 
-> **Database note:** Prisma 6 is pinned intentionally — Prisma 7 removed `url` from
-> the datasource block and requires a driver adapter. The schema avoids SQL Server
-> incompatibilities (no native enums; status fields are strings; `NoAction` FKs to
-> avoid multiple cascade paths), so it targets Azure SQL directly.
+> **Database note:** Prisma 6 is pinned intentionally — Prisma 7 removed `url` from the
+> datasource block and requires a driver adapter. The schema avoids SQL Server
+> incompatibilities (no native enums; status fields are strings; `NoAction` FKs to avoid
+> multiple cascade paths), so it targets Azure SQL directly.
