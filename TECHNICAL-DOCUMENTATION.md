@@ -34,6 +34,13 @@ understand or take ownership of the platform.
 19. [Glossary](#19-glossary)
 20. [Related documents](#20-related-documents)
 
+**Appendices**
+
+- [A — Master-data workbook specification](#appendix-a--master-data-workbook-specification)
+  · the one-time data load: every sheet, column and validation rule
+- [B — Provisioning inventory](#appendix-b--provisioning-inventory)
+  · what must exist in Azure, the Key Vault secrets, and the pre-cutover checklist
+
 ---
 
 ## 1. System overview
@@ -83,7 +90,7 @@ they explain a lot of what follows.
 | **Submissions are scoped to a grower *and a location*.** | A grower with several sites can have one site submitted and another still a draft, and each site's history stays independently correct. |
 | **Packaging is descriptive.** Boxes, cases and pallets record what a quantity *occupies in transit*; they are never inventory and never change the quantity. | What is ordered is what is received. |
 | **Master data is deactivated, never deleted.** Status flags (`Active`/`Inactive`) replace hard deletes. | History stays readable. A three-year-old submission still resolves the item it referenced. |
-| **Email is queued, not sent inline.** | The mail provider's per-minute allowance is small; a burst of reminders sent inline would be rejected and silently lost. |
+| **Bulk email is queued and paced, not sent inline.** Sign-in links are the one exception. | The mail provider's per-minute allowance is small; a burst of reminders sent inline would be rejected and silently lost. A 15-minute sign-in link cannot wait behind that queue, so it is sent immediately against reserved capacity. |
 
 ---
 
@@ -175,8 +182,12 @@ sub-category, country of origin, application method and status — and, editable
 same form, its **grower authorisations** (who may count it) and **vendor mappings** (who
 supplies it, and at what pack ratios).
 
-Item IDs are generated, not typed, in the form `CC-MM-NNNNN` (commodity code, material
-category code, sequence).
+Item IDs take the form `CC-MM-NNNNN` — commodity code, material category code, and a
+five-digit sequence. On the one-time master-data load they are **supplied by the client
+and used verbatim** ([Appendix A](#appendix-a--master-data-workbook-specification));
+items created in the application afterwards have the ID **generated**, continuing from
+the highest sequence in use. Either way the ID is permanent: it is the primary key that
+every count, order and ledger row references.
 
 ### 3.5 Internal — configuration and oversight
 
@@ -501,29 +512,60 @@ Every message is rendered as localised HTML **and** plaintext, in the **recipien
 stored language — not the sender's, and not a browser cookie's, because most of these are
 produced by background jobs that have no browser context.
 
-### 8.2 The outbox pattern
+### 8.2 Why email is queued
 
-Application code never talks to the mail provider. It writes a `Queued` row to
-`NotificationLog` and returns. A separate dispatcher claims rows and sends them.
+The mail provider caps how fast you can send, and the cap is low. The application's worst
+burst is the daily reminder run — roughly one message per active grower, produced in one
+go. Sent inline, one after another, that burst crosses the limit within the first handful
+of growers; the provider starts rejecting, and a naive sender records those as failed and
+moves on.
 
-That indirection buys four things:
+That is not slowness. **It is silent data loss** — which is what the queue exists to
+prevent.
 
-- **The provider's rate limit is respected.** Sends are paced against configured
-  per-minute and per-hour allowances.
-- **Interactive messages are never stuck behind bulk.** Messages carry a priority —
-  sign-in links (1) before transactional mail (3) before bulk reminders (7) — and a
-  reserve of per-minute capacity is held back exclusively for interactive sends. A grower
-  staring at a "check your inbox" screen never queues behind a hundred reminders.
-- **Failures are retried** with backoff and a bounded attempt budget, and are visible in
-  the Outbox with the provider's error text rather than lost.
-- **Interactive requests never block on a mail round-trip.** A hundred overdue growers is
-  a hundred fast inserts, not a hundred simultaneous sends the provider would begin
-  rejecting partway through.
+### 8.3 The outbox
+
+Bulk and transactional mail never talks to the provider directly. It writes a `Queued`
+row to `NotificationLog` and returns. A separate dispatcher claims rows and sends them.
+
+Each dispatcher pass:
+
+1. **Reclaims** rows a crashed pass left claimed — `Sending`, untouched for five minutes.
+2. **Computes a budget** — how many sends the provider will still accept this minute and
+   this hour. Counted from *attempts*, not successes: a rejected request spends the
+   provider's allowance exactly like an accepted one.
+3. **Claims a batch atomically**, ordered by priority then age, using a single
+   `UPDATE … OUTPUT` under `ROWLOCK, UPDLOCK, READPAST`. Any number of replicas, cron
+   hits and administrator button presses can overlap without sending anything twice.
+4. **Sends**, recording each outcome.
+5. On a throttle response, requeues honouring the provider's `Retry-After`, does **not**
+   spend one of that message's retries — being throttled is not that message's fault —
+   and ends the pass rather than pushing harder.
+
+Failures retry after 1, 5, 15 and 60 minutes and stop at five attempts, with the reason
+recorded and shown in the Outbox. Permanent rejections — a malformed address — fail
+immediately rather than burning the budget four more times.
 
 Two things drain the outbox: an in-process loop started when the server boots (interval
 configurable, or disabled entirely), and a scheduled job as a safety net.
 
-### 8.3 Scheduled jobs
+### 8.4 Sign-in links bypass the queue
+
+Sign-in links are the one exception: they are sent **inline**, not queued. A link valid
+for 15 minutes that leaves the building 20 minutes later is worthless, so it cannot wait
+behind a hundred reminders.
+
+That has a consequence worth understanding, because it is what one configuration setting
+exists to manage. An inline send still spends the provider's allowance, so sign-in links
+and the dispatcher compete for the same per-minute capacity. `EMAIL_INTERACTIVE_RESERVE`
+holds back slots the bulk dispatcher will not spend, so a grower staring at a "check your
+inbox" screen during the morning reminder run is not throttled behind it. With the
+defaults, reminders drain at 3/minute and 2/minute stay free for people signing in.
+
+Queued messages also carry a priority — auth 1, transactional 3, bulk 7, lower first — so
+that ordering within the queue matches urgency.
+
+### 8.5 Scheduled jobs
 
 Two Container Apps Jobs authenticate to the application with the shared cron secret:
 
@@ -624,6 +666,10 @@ demonstrating without a network.
 | Azure Communication Services | Outbound email |
 | Azure AI Translator | Optional, for item-message notes |
 | Log Analytics + Application Insights | Logs, metrics, traces |
+
+[Appendix B](#appendix-b--provisioning-inventory) has the full provisioning inventory:
+sizing notes, the Key Vault secrets that must exist before the first deploy, the identity
+and role assignments, and a pre-cutover checklist.
 
 ### 11.3 Container image
 
@@ -733,9 +779,40 @@ Azure-managed sender domain.
 | `EMAIL_DISPATCH_BATCH` | 25 | Ceiling on messages claimed per pass |
 | `EMAIL_DISPATCH_INTERVAL_MS` | 30000 | In-process drain interval; `0` disables it |
 
-**A verified custom sender domain raises the provider's allowances roughly sixfold on
-both limits.** Taking advantage of that requires no code change — only these numbers.
-`docs/email-delivery.md` covers the arithmetic and how to request a quota increase.
+Set these to what the provider **actually allows**, not to what you wish it allowed. They
+are how the application knows when to stop; setting them too high just moves the failure
+back into the provider.
+
+#### Raising throughput
+
+The limits depend on your sender domain, and the provider has revised them more than
+once — **confirm the current figures in the Azure Communication Services resource before
+go-live** rather than trusting this table:
+
+| Sender domain | Per minute | Per hour |
+|---|---|---|
+| Azure-managed (`*.azurecomm.net`) | ~5 | ~30–100 |
+| Verified custom domain | ~30 | ~300–500 |
+
+Worked example — 100 growers on an Azure-managed domain with the defaults: 5 − 2 reserved
+= 3/minute, so the reminder run drains in about 33 minutes. The per-hour cap of ~100 is
+the binding constraint: 100 growers sits exactly at the ceiling, and anything more spills
+into the next hour — correctly, via backoff, but late.
+
+Two levers, most leverage first:
+
+1. **Verify a custom sender domain.** Roughly six times the headroom on both limits, and
+   — the part that matters more — mail from `@*.azurecomm.net` is routinely spam-foldered.
+   For growers receiving sign-in links, **deliverability is the bigger problem of the
+   two**: a link that lands in junk is a support call, whereas a rate limit is only a
+   delay. This is DNS work on your own domain (SPF, DKIM, DMARC), not a code change, and
+   it gates nothing else — so start it early and run on the managed domain meanwhile.
+2. **File a quota-increase request.** The send limits are soft and are raised through an
+   Azure support quota request. It is free and takes days, so file it early rather than
+   discovering the ceiling on go-live morning.
+
+Neither requires a code change. Once the new limits are live, raise `EMAIL_RATE_PER_*`
+to match and redeploy.
 
 ### 13.5 First-run bootstrap
 
@@ -826,13 +903,17 @@ reading one file.
 
 ### 16.1 Initial master-data load
 
-Master data is loaded once from a structured Excel workbook. A blank template with the
-exact expected sheets and columns is generated from the repository. **Sheets must be
-loaded in dependency order** — regions and countries before locations, commodities and
-categories before items, growers and vendors before their mappings.
+Master data is loaded once from a structured Excel workbook. Generate the blank template —
+which carries the same rules as column notes and dropdowns, so it can mostly be filled in
+from the file alone — with:
 
-`docs/master-data-upload.md` is the full specification: every sheet, every column,
-validation rules, the item ID format, and what each location type gates.
+```bash
+npx tsx scripts/generate-master-data-template.ts   # -> master-data-template.xlsx
+```
+
+**[Appendix A](#appendix-a--master-data-workbook-specification) is the full
+specification**: every sheet, every column, the load order, validation rules, the item ID
+format, and what each location type gates.
 
 ### 16.2 Adding a grower
 
@@ -910,10 +991,15 @@ lib/
 components/                 UI components (shadcn/ui + application components)
 prisma/                     schema, migrations, seed, production bootstrap
 scripts/                    reminder runner, master-data template generator
-docs/                       this document and the operational guides
+
+README.md                   what this is, and how to run it locally
+TECHNICAL-DOCUMENTATION.md  this document
+MIGRATIONS.md               schema-change workflow
 schema.dbml                 ER diagram source (renders at dbdiagram.io)
+.env.example                every configuration variable, documented inline
 Dockerfile                  multi-stage container build
 azure-pipelines.yml         CI/CD definition
+master-data-template.xlsx   the blank master-data workbook (Appendix A)
 ```
 
 ---
@@ -941,15 +1027,478 @@ azure-pipelines.yml         CI/CD definition
 
 ## 20. Related documents
 
+The documentation set is three files. Everything else a reviewer needs is in the code
+itself, at the paths given below.
+
 | Document | Covers |
 |---|---|
-| `README.md` | What the application is and how to run it locally |
-| `docs/auth-and-email.md` | Entra, magic links, the session layer and email delivery in depth |
-| `docs/email-delivery.md` | Provider rate limits, the queue's arithmetic, and how to raise throughput |
-| `docs/master-data-upload.md` | The master-data workbook specification, sheet by sheet |
-| `docs/azure-staging-setup.md` | Standing up the Azure infrastructure, step by step |
-| `docs/azure-devops-setup.md` | Wiring the CI/CD pipeline |
-| `docs/production-checklist.md` | What must be in place before the production cutover |
-| `MIGRATIONS.md` | Migration workflow, safe renames, resolving drift |
-| `VERIFICATION.md` | Manual verification checklist |
-| `schema.dbml` | ER diagram source |
+| `README.md` | What the application is, and how to run it locally from a clean machine |
+| **This document** | Architecture, data model, security, deployment, operations, and the appendices below |
+| `MIGRATIONS.md` | Migration workflow, safe renames on SQL Server, resolving drift |
+
+Authoritative in-repository references:
+
+| File | Is the source of truth for |
+|---|---|
+| `.env.example` | Every configuration variable, documented inline |
+| `prisma/schema.prisma` | The database schema |
+| `schema.dbml` | ER diagram source — paste into [dbdiagram.io](https://dbdiagram.io) |
+| `lib/rbac.ts` | The complete permission model |
+| `lib/constants.ts` | Every enum-like value in the system |
+| `azure-pipelines.yml` | The CI/CD definition, commented throughout |
+| `Dockerfile` | The container build |
+
+---
+
+# Appendix A — Master-data workbook specification
+
+The format for the **one-time** master-data load: items, growers, vendors, users, the
+lookups those depend on, and the mappings between them.
+
+```bash
+npx tsx scripts/generate-master-data-template.ts   # -> master-data-template.xlsx
+```
+
+The workbook carries the same rules as column notes and dropdowns, so it can mostly be
+filled in from the file alone. This appendix is the reference.
+
+**Not in scope.** Thresholds, scheduler settings, item messages, packaging chains and any
+transactional data (submissions, orders, the ledger) are configured in the application
+after go-live, not uploaded.
+
+## A.1 How to fill it in
+
+One sheet per entity, one row per record. **Row 1 is the header — do not rename, reorder
+or delete columns.** Extra columns are ignored; missing ones fail the import. Leave
+optional cells blank rather than writing "N/A" or "-", except where a literal `N/A` is a
+listed option.
+
+Sheets reference each other **by name** — grower name, location name, category code — not
+by database id. The one exception is items, referenced by their ID. Every name used in a
+mapping sheet must exist in the sheet that defines it, spelled identically. Leading and
+trailing spaces are trimmed; everything else must match exactly, **including case**.
+
+## A.2 Load order
+
+Sheets are processed in this order, because each depends on the ones above it. The whole
+load runs in a single transaction, so a failure rolls everything back — nothing is ever
+left half-loaded.
+
+```
+1  Regions
+2  Countries
+3  Commodities
+4  MaterialCategories
+5  SubCategories          -> MaterialCategories
+6  Locations              -> Regions, Countries
+7  Items                  -> Commodities, MaterialCategories, SubCategories, Countries
+8  Growers
+9  Vendors                -> Countries
+10 Users                  -> Growers, Vendors
+11 GrowerLocations        -> Growers, Locations
+12 GrowerItems            -> Growers, Items
+13 VendorItems            -> Vendors, Items
+14 VendorCategories       -> Vendors, MaterialCategories
+15 VendorSupplyCountries  -> Vendors, Countries
+16 VendorLocations        -> Vendors, Locations
+```
+
+## A.3 Sheets
+
+### 1. Regions
+
+Geographic grouping. Used by locations only.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `RegionName` | ✅ | text | Unique. e.g. `West`, `Central`, `East` |
+
+### 2. Countries
+
+Shared lookup: an item's country of origin, a location's country, a vendor's
+headquarters, and vendor supply-to lists.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `CountryName` | ✅ | text | Unique. e.g. `USA`, `Mexico` |
+| `SelectableAsRealCountry` | | `Yes` / `No` | Default `Yes`. Set `No` for placeholders like `N/A` — they stay valid as an item's origin but are hidden from location, vendor and supply-to pickers |
+
+Include an `N/A` row with `No` if any item has no meaningful origin.
+
+### 3. Commodities
+
+The crop or product family. **The code becomes the first segment of every item ID**, so
+choose carefully — item IDs are permanent.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `CommodityCode` | ✅ | text | Exactly 2 characters, A–Z uppercase. Unique. e.g. `AP` |
+| `CommodityName` | ✅ | text | e.g. `Asparagus` |
+
+### 4. MaterialCategories
+
+The packaging material family. **The code becomes the second segment of every item ID.**
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `MaterialCategoryCode` | ✅ | text | Exactly 2 characters, A–Z uppercase. Unique. e.g. `BX` |
+| `MaterialCategoryName` | ✅ | text | e.g. `Boxes` |
+
+### 5. SubCategories
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `MaterialCategoryCode` | ✅ | text | Must exist in **MaterialCategories** |
+| `SubCategoryName` | ✅ | text | Unique within its category. e.g. `Cardboard Boxes` |
+
+### 6. Locations
+
+Physical sites. **A grower cannot submit inventory without at least one location**, so
+this sheet is not optional in practice.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `LocationName` | ✅ | text | Unique |
+| `LocationType` | ✅ | list | See below |
+| `RegionName` | | text | Must exist in **Regions** |
+| `CountryName` | | text | Must exist in **Countries**, and be selectable |
+| `CommodityFocus` | | text | Free text, e.g. `Asparagus` |
+| `KeyPersonnel` | | text | Free text |
+| `Notes` | | text | |
+
+**Location types decide which side may use the site.** A grower-side type cannot be
+mapped to a vendor and vice versa.
+
+| Type | Usable by |
+|---|---|
+| `Grower Field` | growers only |
+| `Packing House` | growers only |
+| `Cold Storage` | growers only |
+| `Manufacturing Plant` | vendors only |
+| `Distribution Center` | vendors only |
+| `3PL Facility` | vendors only |
+| `Warehouse` | either |
+| `Cross-dock` | either |
+
+> ⚠️ **Confirm this list before filling in the workbook.** Adding, renaming or re-siding a
+> type is a one-line change in `LOCATION_TYPES` in `lib/constants.ts` — but only before
+> data is loaded against it.
+
+### 7. Items
+
+**Item IDs are supplied by the client and used verbatim.** They are the primary key,
+referenced by every count, order and ledger row, and can never be changed afterwards.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `ItemID` | ✅ | text | Format `CC-MM-NNNNN` — see below |
+| `ItemName` | ✅ | text | e.g. `Corrugated Box 40x30` |
+| `CommodityCode` | ✅ | text | Must exist in **Commodities** |
+| `MaterialCategoryCode` | ✅ | text | Must exist in **MaterialCategories** |
+| `SubCategoryName` | ✅ | text | Must exist in **SubCategories** *under this MaterialCategoryCode* |
+| `CountryOfOrigin` | ✅ | text | Must exist in **Countries** |
+| `ApplicationMethod` | | list | `Machine`, `Hand`, `Machine/Hand`, `N/A` |
+| `Status` | ✅ | list | `Active`, `Inactive`, `Review` |
+| `LegacyItemRef` | | text | Your own identifier from the previous system. Carried through for reconciliation; not used as a key |
+| `Notes` | | text | |
+
+#### The ItemID format
+
+```
+AP  -  BX  -  00001
+│      │      │
+│      │      └─ 5-digit sequence, zero-padded, 00001–99999
+│      └──────── MaterialCategoryCode, must match this row's column
+└─────────────── CommodityCode, must match this row's column
+```
+
+The importer enforces:
+
+1. Matches `^[A-Z]{2}-[A-Z]{2}-\d{5}$` exactly.
+2. The first segment equals this row's `CommodityCode`.
+3. The second equals this row's `MaterialCategoryCode`.
+4. The full ID is unique across the sheet.
+
+Rules 2 and 3 exist because the ID would otherwise lie about the item — an ID reading
+`AP-BX-` on a row whose category is `BG` misleads every human who reads it, and the
+application has no way to detect it later.
+
+> **The sequence need not be contiguous**, and gaps are fine. Items created in the
+> application afterwards continue from the highest number in use, across all
+> commodity/category combinations — so importing up to `AP-BX-00250` means the next item
+> created in the UI is `00251`, whatever its category. Numbers are never reused.
+
+#### There is no unit column — the category *is* the unit
+
+An item's quantities are counted in its **material category**. An item in a category
+named `Boxes` is counted in boxes everywhere: the grower's daily count, the vendor's
+report, every order, and its low-stock threshold. That is why there is no
+`UnitOfMeasure` column — a second, independently chosen unit could only ever contradict
+the category.
+
+**So name categories after the thing you count.** If you count rolls of labels, the
+category should be `Rolls`, not `Labels`. Renaming a category later relabels every
+quantity ever recorded against its items — it does not convert them — so a rename after
+go-live changes what the history *reads as*, while the numbers stay exactly as entered.
+
+### 8. Growers
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `GrowerName` | ✅ | text | Unique. Used as the key in mapping sheets |
+| `PrimaryEmail` | | email | Where submission and reminder emails go |
+| `Status` | ✅ | list | `Active`, `Inactive`, `Pending` |
+| `PreferredLocale` | ✅ | list | `en` or `es` — language for emails to `PrimaryEmail` |
+
+### 9. Vendors
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `VendorName` | ✅ | text | Unique. Used as the key in mapping sheets |
+| `VendorType` | | list | `Manufacturer`, `Pallet Pooling`, `3PL`, `Distributor` |
+| `HeadquartersCountry` | | text | Must exist in **Countries**. Where the vendor is *based* — can differ from the country of the sites they ship from |
+| `PrimaryContact` | | text | |
+| `ContactEmail` | | email | Where vendor notifications go |
+| `ContactPhone` | | text | |
+| `LeadTimeDays` | | whole number | ≥ 0. Days from order to delivery |
+| `PaymentTermsDays` | | whole number | ≥ 0. "Net N days" — the number only |
+| `PTAccountNumber` | | text | |
+| `Status` | ✅ | list | `Active`, `Inactive` |
+| `PreferredLocale` | ✅ | list | `en` or `es` |
+| `Notes` | | text | |
+
+A vendor's sites live in **VendorLocations**, not here — a vendor can operate several.
+
+### 10. Users
+
+People who sign in. **No passwords** — internal staff authenticate through Microsoft
+(Entra), growers and vendors through an emailed sign-in link. The email is therefore the
+identity and must be exact.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `FirstName` | ✅ | text | |
+| `LastName` | ✅ | text | |
+| `Email` | ✅ | email | **Unique across the whole sheet.** For internal staff this must be their Microsoft sign-in address (UPN) |
+| `Role` | ✅ | list | `SuperAdmin`, `InternalAdmin`, `Editor`, `GrowerUser`, `VendorUser` |
+| `GrowerName` | conditional | text | **Required** when Role is `GrowerUser`; must be blank otherwise |
+| `VendorName` | conditional | text | **Required** when Role is `VendorUser`; must be blank otherwise |
+| `IsActive` | ✅ | `Yes` / `No` | |
+| `PreferredLocale` | ✅ | list | `en` or `es` — this person's UI and email language |
+
+> A `GrowerUser` sees **only** the grower named in `GrowerName` — that is the
+> data-isolation boundary ([§7.4](#74-data-isolation)). Two people at the same grower get
+> two rows with the same `GrowerName`. Someone who genuinely covers two growers needs two
+> accounts with different email addresses; one row cannot span both.
+
+### 11. GrowerLocations
+
+Which sites each grower counts inventory at. **A grower with no row here cannot submit
+anything**, so every active grower needs at least one.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `GrowerName` | ✅ | text | Must exist in **Growers** |
+| `LocationName` | ✅ | text | Must exist in **Locations** and be a **grower-usable type** |
+
+One row per pair. Repeat the grower name for each of its sites.
+
+### 12. GrowerItems
+
+Which items each grower is authorised to count. A grower only ever sees items listed
+here.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `GrowerName` | ✅ | text | Must exist in **Growers** |
+| `ItemID` | ✅ | text | Must exist in **Items** |
+
+### 13. VendorItems
+
+Which items each vendor can supply. Drives what a vendor reports on, and which vendors a
+grower can order an item from.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `VendorName` | ✅ | text | Must exist in **Vendors** |
+| `ItemID` | ✅ | text | Must exist in **Items** |
+
+### 14. VendorCategories
+
+Which material categories each vendor supplies. Narrows the item list when an
+administrator edits a vendor.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `VendorName` | ✅ | text | Must exist in **Vendors** |
+| `MaterialCategoryCode` | ✅ | text | Must exist in **MaterialCategories** |
+
+> Keep this consistent with **VendorItems** — if a vendor supplies item `AP-BX-00001` its
+> categories should include `BX`. The importer warns on a mismatch rather than failing,
+> because the two are edited separately later.
+
+### 15. VendorSupplyCountries
+
+Which countries each vendor can ship **to**. Distinct from `HeadquartersCountry`, which
+is where they are based.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `VendorName` | ✅ | text | Must exist in **Vendors** |
+| `CountryName` | ✅ | text | Must exist in **Countries**, and be selectable |
+
+### 16. VendorLocations
+
+Which sites each vendor operates from. A vendor's **region(s)** are read from here; there
+is no region column on the vendor sheet.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `VendorName` | ✅ | text | Must exist in **Vendors** |
+| `LocationName` | ✅ | text | Must exist in **Locations** and be a **vendor-usable type** |
+
+> Unlike **GrowerLocations**, a vendor with no row here still works — they simply show no
+> location and no region. Vendors report one figure per item per day regardless of how
+> many sites they run.
+
+## A.4 Validation summary
+
+Everything the importer checks before writing anything:
+
+**Structural**
+- every expected sheet present, header row unchanged
+- no blank rows in the middle of a block
+- required cells non-empty
+
+**Format**
+- `ItemID` matches `CC-MM-NNNNN`, segments agree with the row's own codes
+- commodity and category codes are exactly 2 uppercase letters
+- emails are well-formed
+- day counts are non-negative whole numbers
+- list columns hold one of the documented values (case-sensitive)
+
+**Uniqueness**
+- `ItemID`, `Email`, `GrowerName`, `VendorName`, `LocationName`, `RegionName`,
+  `CountryName`, `CommodityCode`, `MaterialCategoryCode`
+- `SubCategoryName` within its category
+- each mapping pair appears at most once
+
+**Referential**
+- every cross-sheet name resolves
+- `SubCategoryName` belongs to the row's `MaterialCategoryCode`
+- a user's `GrowerName`/`VendorName` matches their role
+- location types satisfy the grower/vendor gate
+
+**Advisory** (warn, do not fail)
+- an active grower with no `GrowerLocations` row — they cannot submit
+- an active grower with no `GrowerItems` rows — they will see an empty form
+- a vendor supplying items outside its declared categories
+- an item no grower is authorised for
+
+## A.5 After the upload
+
+Configured in the application, not the workbook:
+
+| What | Where |
+|---|---|
+| **Thresholds** | `/admin/settings/thresholds` — a quantity only, in the item's category |
+| **Reminder schedules** | `/admin/settings/schedulers` — a Global row is created by the bootstrap |
+| **Packaging chains and pack ratios** | `/admin/packaging`, then per vendor-item on `/admin/mappings/vendors` |
+| **Item messages** | `/admin/item-messages` |
+
+Reference data the bootstrap creates by itself, whether or not it appears in the
+workbook: the five **roles**, and the first administrator from `BOOTSTRAP_ADMIN_EMAIL`
+(see `prisma/bootstrap.ts`).
+
+---
+
+# Appendix B — Provisioning inventory
+
+What has to exist in Azure before the application can be deployed, and what each piece is
+for. This is the contract between the infrastructure and the application; the
+click-by-click for any one resource is standard Azure documentation.
+
+## B.1 Resources, per environment
+
+Staging and production are separate resource groups with the same shape, with one
+deliberate exception noted below.
+
+| Resource | Sizing note |
+|---|---|
+| **Container Apps Environment** | One per environment; hosts the web app and both jobs |
+| **Container App** (web) | External HTTPS ingress, target port 3000. Min 1 replica in production |
+| **Container Apps Job** — reminders | Scheduled daily, at the hour the client wants growers nudged |
+| **Container Apps Job** — email dispatch | Scheduled frequently; a safety net for the in-process loop |
+| **Azure SQL Database** | Basic tier is adequate for staging; size production to the grower count |
+| **Key Vault** | Holds every secret in B.2 |
+| **Azure Communication Services** + Email Communication Service | With a sender domain — see B.4 |
+| **Log Analytics workspace** + **Application Insights** | Shared by both jobs and the app |
+| **Azure AI Translator** | Only if `TRANSLATION_PROVIDER=azure` |
+
+**The Container Registry is deliberately shared** between staging and production, in the
+staging resource group. That is what makes promotion a retag rather than a cross-registry
+copy, and it is what lets production deploy the exact image digest staging tested
+([§11.4](#114-cicd)).
+
+## B.2 Key Vault secrets
+
+Every one of these must exist before the first deploy, because the Container App declares
+them as Key Vault references at deploy time and a missing reference fails the revision.
+
+| Secret | Notes |
+|---|---|
+| `DATABASE-URL` | Also needed by the pipeline agent, for `prisma migrate deploy` |
+| `SESSION-SECRET` | Long random string |
+| `MAGIC-LINK-SECRET` | Long random string, **different from the session secret** |
+| `CRON-SECRET` | Shared with both Container Apps Jobs |
+| `AZURE-AD-TENANT-ID` | |
+| `AZURE-AD-CLIENT-ID` | |
+| `AZURE-AD-CLIENT-SECRET` | **Has an expiry — calendar it** |
+| `ACS-CONNECTION-STRING` | |
+| `ACS-SENDER-ADDRESS` | |
+| `AZURE-TRANSLATOR-KEY` | Only if translation is enabled |
+
+Generate the two signing secrets with a CSPRNG, not by hand:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+```
+
+## B.3 Identity and access
+
+- The **Container App** needs a system-assigned managed identity with **Key Vault Secrets
+  User** on the vault. This is what lets it resolve secret references without any secret
+  value passing through the pipeline.
+- The **deployment service principal** needs rights to update the Container App and its
+  jobs, and to read from the registry. Note that Contributor alone is not sufficient if
+  the pipeline also assigns roles — that requires User Access Administrator or an
+  equivalent.
+- The **SQL firewall** must admit the Container Apps environment's outbound IPs and the
+  build agent (for migrations).
+
+## B.4 Email sender domain
+
+The application will run against an Azure-managed domain (`*.azurecomm.net`) out of the
+box, which is the right way to start. Before external users depend on it, verify a custom
+domain on the client's own DNS — see [§13.4](#134-email-throughput) for why
+deliverability, not the rate limit, is the reason that matters.
+
+## B.5 Pre-cutover checklist
+
+Before production traffic:
+
+- [ ] All ten secrets present in the production Key Vault
+- [ ] `APP_URL` set to the real public origin — email links and logos resolve against it,
+      so a stale value sends recipients to the wrong host
+- [ ] `AUTH_PROVIDER` **not** `local` (the demo picker is also blocked by the production
+      build, but do not rely on two things when one is free)
+- [ ] `EMAIL_PROVIDER=acs`, with the sender address verified and a test message received
+- [ ] Entra app registration's redirect URI matches the production origin exactly
+- [ ] Both Container Apps Jobs created, scheduled, and carrying the same `CRON_SECRET` as
+      the app — **the pipeline does not create or update the jobs**
+- [ ] `EMAIL_RATE_PER_MINUTE` / `_HOUR` set to what the provider actually allows
+- [ ] Azure SQL backup retention and geo-redundancy set to the client's RPO/RTO
+- [ ] First administrator bootstrapped and able to sign in via Entra
+- [ ] Master data loaded ([Appendix A](#appendix-a--master-data-workbook-specification))
+- [ ] Alerts configured per [§14.2](#142-monitoring)
+- [ ] Entra client secret expiry recorded in a calendar

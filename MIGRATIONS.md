@@ -2,10 +2,13 @@
 
 Target DB: **Azure SQL / SQL Server**. ORM: **Prisma 6**.
 
-This project now has a **migration history** under `prisma/migrations/`. That is the
-source of truth for the database schema going forward — every schema change ships
-as a reviewed SQL migration, so production changes are deliberate and reversible
-in planning (no surprise `DROP TABLE`s).
+The **migration history** under `prisma/migrations/` is the source of truth for the
+database schema — every schema change ships as a reviewed SQL migration, so production
+changes are deliberate and reversible in planning (no surprise `DROP TABLE`s).
+
+> This is the working reference for anyone changing the schema. For where migrations sit
+> in the deployment pipeline, and the expand/contract rule that governs them, see
+> [`TECHNICAL-DOCUMENTATION.md` §12](TECHNICAL-DOCUMENTATION.md#12-database-change-management).
 
 ## Two workflows — don't mix them
 
@@ -102,10 +105,11 @@ npm run db:migrate:status
 
 ## Renaming a table (or column) without dropping it
 
-This is the case that bit us: Prisma's schema is **declarative**, so a rename looks
-identical to "drop old + create new". `db push` and *auto-generated* migrations
-therefore emit `DROP`/`CREATE` and lose data. The fix is to **generate the
-migration without applying it, then hand-edit the SQL** into a real rename.
+This is the case that most reliably destroys data, so it is worth reading before you
+need it. Prisma's schema is **declarative**, so a rename looks identical to "drop old +
+create new". `db push` and *auto-generated* migrations therefore emit `DROP`/`CREATE`
+and lose every row. The fix is to **generate the migration without applying it, then
+hand-edit the SQL** into a real rename.
 
 Worked example — renaming `Foo` → `Bar`:
 

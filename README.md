@@ -8,7 +8,7 @@ The whole application runs on a laptop with no cloud account. Every external int
 (sign-in, email, translation) has an offline fallback, so you can install it and click
 through the entire product in about ten minutes.
 
-> **Client-facing technical documentation:** [`docs/technical-documentation.md`](docs/technical-documentation.md)
+> **Client-facing technical documentation:** [`TECHNICAL-DOCUMENTATION.md`](TECHNICAL-DOCUMENTATION.md)
 > — architecture, data model, security, deployment and operations in full.
 
 ---
@@ -110,7 +110,7 @@ DATABASE_URL="sqlserver://localhost:1433;database=inventory;user=sa;password=You
 ```
 
 Everything else in `.env.example` is pre-set for offline use — no Azure account, no keys.
-The file documents each variable inline; [`docs/technical-documentation.md` §13](docs/technical-documentation.md#13-configuration-reference)
+The file documents each variable inline; [`TECHNICAL-DOCUMENTATION.md` §13](TECHNICAL-DOCUMENTATION.md#13-configuration-reference)
 has the full reference.
 
 ### 4. Create the schema and load demo data
@@ -202,16 +202,19 @@ instrumentation.ts      starts the email dispatch loop on server start
 
 | Doc | What it covers |
 |---|---|
-| [`docs/technical-documentation.md`](docs/technical-documentation.md) | **Full technical documentation** — architecture, data model, security, deployment, operations |
-| [`docs/auth-and-email.md`](docs/auth-and-email.md) | How Entra, magic links, the session layer and email delivery fit together |
-| [`docs/email-delivery.md`](docs/email-delivery.md) | ACS send-rate limits and how the app stays inside them |
-| [`docs/master-data-upload.md`](docs/master-data-upload.md) | Workbook format for the client's one-time master-data load |
-| [`docs/azure-staging-setup.md`](docs/azure-staging-setup.md) | Standing up the Azure infrastructure, click by click |
-| [`docs/azure-devops-setup.md`](docs/azure-devops-setup.md) | Wiring the CI/CD pipeline in Azure DevOps |
-| [`docs/production-checklist.md`](docs/production-checklist.md) | What still has to happen before the production cutover |
-| [`MIGRATIONS.md`](MIGRATIONS.md) | Migration workflow, renaming tables safely, fixing "drift detected" |
-| [`VERIFICATION.md`](VERIFICATION.md) | Manual verification checklist, one section per round of changes |
+| [`TECHNICAL-DOCUMENTATION.md`](TECHNICAL-DOCUMENTATION.md) | **Full technical documentation** — architecture, data model, security model, notifications, deployment, configuration and operations. Includes **Appendix A**, the master-data workbook specification, and **Appendix B**, the Azure provisioning inventory and pre-cutover checklist |
+| [`MIGRATIONS.md`](MIGRATIONS.md) | Migration workflow, renaming tables safely on SQL Server, fixing "drift detected" |
+
+Where the code is the reference:
+
+| File | Is the source of truth for |
+|---|---|
+| [`.env.example`](.env.example) | Every configuration variable, documented inline |
+| [`prisma/schema.prisma`](prisma/schema.prisma) | The database schema |
 | [`schema.dbml`](schema.dbml) | ER diagram source — paste into [dbdiagram.io](https://dbdiagram.io) |
+| [`lib/rbac.ts`](lib/rbac.ts) | The complete permission model |
+| [`lib/constants.ts`](lib/constants.ts) | Every enum-like value in the system |
+| [`azure-pipelines.yml`](azure-pipelines.yml) | The CI/CD definition, commented throughout |
 
 > **Database note:** Prisma 6 is pinned intentionally — Prisma 7 removed `url` from the
 > datasource block and requires a driver adapter. The schema avoids SQL Server
