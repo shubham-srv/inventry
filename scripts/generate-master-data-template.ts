@@ -22,6 +22,7 @@ import {
   ENTITY_STATUS,
   APPLICATION_METHODS,
   LOCATION_TYPES,
+  CADENCE_TYPES,
 } from "../lib/constants"
 
 const OUT = process.argv[2] ?? "master-data-template.xlsx"
@@ -282,6 +283,124 @@ const SHEETS: { name: string; purpose: string; cols: Col[]; example: unknown[] }
     ],
     example: ["PackRight Manufacturing", "PackRight Plant"],
   },
+
+  // ---- 17-20: optional setup -------------------------------------------
+  // Everything below can also be entered in the app after go-live, and an empty
+  // sheet blocks nothing. They are here so a client who already knows these
+  // values can supply them once instead of re-keying them through the UI.
+  //
+  // Two columns take a comma-separated list rather than one row per level:
+  // Levels on 17 and Ratios on 18. That is not a shortcut — it is the shape the
+  // app itself uses (lib/actions/packaging.ts, lib/actions/mappings.ts), where
+  // both are single text fields, and a chain is rarely more than three deep.
+  // Keeping the workbook the same shape means what a client types here is what
+  // they will later see on screen.
+  {
+    name: "17-PackagingChains",
+    purpose:
+      "How a category is packed for shipping — STRUCTURE ONLY, no quantities. Those are per vendor, on 18-VendorPackaging.",
+    cols: [
+      {
+        key: "ChainName",
+        width: 30,
+        required: true,
+        help: "Unique. How the chain reads, e.g. Bags → Boxes → Cases. 18-VendorPackaging refers to a chain by this name, so keep it distinct.",
+      },
+      {
+        key: "MaterialCategoryCode",
+        width: 24,
+        required: true,
+        help: "Must exist in 4-MaterialCategories. Where the chain STARTS: its innermost level is the category itself, and only items in this category can use the chain.",
+      },
+      {
+        key: "Levels",
+        width: 34,
+        required: true,
+        help: "The containers ABOVE the item itself, innermost first, comma-separated. e.g. Boxes, Cases. Do not repeat the category name — a BG chain starts from Bags already. Rarely more than three.",
+      },
+      { key: "IsActive", width: 12, list: YES_NO, help: "Default Yes." },
+    ],
+    example: ["Bags → Boxes → Cases", "BG", "Boxes, Cases", "Yes"],
+  },
+  {
+    name: "18-VendorPackaging",
+    purpose:
+      "One vendor's packing quantities for one item. DESCRIPTIVE ONLY — it says how many containers an order occupies, and never changes the quantity ordered or received.",
+    cols: [
+      { key: "VendorName", width: 30, required: true, help: "Must exist in 9-Vendors" },
+      {
+        key: "ItemID",
+        width: 18,
+        required: true,
+        help: "Must exist in 7-Items. This vendor/item pair must also appear in 13-VendorItems — packaging hangs off that mapping.",
+      },
+      {
+        key: "ChainName",
+        width: 30,
+        required: true,
+        help: "Must exist in 17-PackagingChains, and its MaterialCategoryCode must match this item's.",
+      },
+      {
+        key: "Ratios",
+        width: 20,
+        required: true,
+        help: "How many of each level fit in ONE of the next level up, innermost first, comma-separated. One whole number (1 or more) per level in the chain. 10, 5 = 10 Bags per Box, 5 Boxes per Case.",
+      },
+    ],
+    example: ["PackRight Manufacturing", "AP-BG-00002", "Bags → Boxes → Cases", "10, 5"],
+  },
+  {
+    name: "19-ItemThresholds",
+    purpose:
+      "The stock level below which an item is flagged low. One row per item, plus optional per-grower overrides.",
+    cols: [
+      { key: "ItemID", width: 18, required: true, help: "Must exist in 7-Items" },
+      {
+        key: "GrowerName",
+        width: 30,
+        help: "Leave BLANK for the item's default, which applies to every grower. Fill in to override it for one grower — must exist in 8-Growers. At most one row per item per grower.",
+      },
+      {
+        key: "ThresholdQuantity",
+        width: 22,
+        required: true,
+        help: "A number, 0 or more. In the item's material category — the same terms its counts are recorded in. There is no unit column.",
+      },
+    ],
+    example: ["AP-BX-00001", "", 500],
+  },
+  {
+    name: "20-ReminderSchedules",
+    purpose:
+      "When a grower who has not submitted gets chased by email. One global row, plus optional per-grower overrides.",
+    cols: [
+      {
+        key: "GrowerName",
+        width: 30,
+        help: "Leave BLANK for the global setting — fill in at most one such row. Otherwise a grower from 8-Growers. A grower row REPLACES the global one for them, so fill in every column on it.",
+      },
+      {
+        key: "CadenceType",
+        width: 18,
+        required: true,
+        list: CADENCE_TYPES,
+        help: "Daily / Weekly / Monthly = how often the grower is expected to submit. AfterNDays = chase once this many days have passed with nothing submitted.",
+      },
+      {
+        key: "ThresholdDays",
+        width: 18,
+        help: "Whole days, 1 or more. Only read when CadenceType is AfterNDays — leave blank for the other three.",
+      },
+      {
+        key: "IsEnabled",
+        width: 14,
+        required: true,
+        list: YES_NO,
+        help: "No = send no reminders for this scope. An overdue grower gets at most one reminder a day regardless.",
+      },
+    ],
+    example: ["", "AfterNDays", 3, "Yes"],
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -319,8 +438,14 @@ const readmeLines: [string, string][] = [
   ["li", "MaterialCategoryCode is what an item's quantities are counted in — an item in \"Boxes\" is counted in boxes. There is no separate unit column. Renaming a category later relabels every quantity ever recorded for its items; it does not convert them."],
   ["li", "A grower with no row in 11-GrowerLocations cannot submit inventory at all. Every active grower needs at least one site."],
   ["", ""],
+  ["h2", "Sheets 17–20 are optional"],
+  ["p", "Packaging, thresholds and reminder schedules can all be set up in the application after go-live. Fill these in only if you already know the values — leaving any of them empty is fine and holds nothing up."],
+  ["li", "Two cells take a comma-separated list, innermost container first: Levels on 17-PackagingChains (\"Boxes, Cases\") and Ratios on 18-VendorPackaging (\"10, 5\"). They must line up — one ratio per level in that row's chain."],
+  ["li", "Packaging is DESCRIPTIVE. It works out how many boxes, cases or pallets an ordered quantity occupies in transit; those containers are discarded on arrival and are never stock. What a grower orders is what a grower receives."],
+  ["li", "On 19-ItemThresholds and 20-ReminderSchedules, a blank GrowerName means the default that applies to everyone. Name a grower to override it for them."],
+  ["", ""],
   ["h2", "Not needed here"],
-  ["p", "Thresholds, reminder schedules, packaging setup and item messages are configured in the application after go-live. So is anything transactional — counts, orders, history."],
+  ["p", "Item messages are configured in the application after go-live. So is anything transactional — counts, orders, history."],
 ]
 
 for (const [kind, text] of readmeLines) {

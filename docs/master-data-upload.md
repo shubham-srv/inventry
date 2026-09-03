@@ -55,7 +55,16 @@ transaction, so a failure rolls the whole thing back and nothing is half-loaded.
 14 VendorCategories     -> Vendors, MaterialCategories
 15 VendorSupplyCountries-> Vendors, Countries
 16 VendorLocations      -> Vendors, Locations
+17 PackagingChains      -> MaterialCategories
+18 VendorPackaging      -> Vendors, Items, VendorItems, PackagingChains
+19 ItemThresholds       -> Items, Growers
+20 ReminderSchedules    -> Growers
 ```
+
+Sheets **17–20 are optional**. Everything in them can also be set up in the app
+after go-live, and an empty sheet holds nothing up. They exist so a client who
+already knows these values supplies them once rather than re-keying them through
+the UI. Sheets 1–16 are the master data proper and are not optional.
 
 ---
 
@@ -370,6 +379,111 @@ One row per pair. Repeat the vendor name for each of its sites.
 
 ---
 
+## 17. PackagingChains
+
+How a material category is packed for shipping: `Bags → Boxes → Cases`. This
+sheet is **structure only and carries no numbers** — the quantities are per
+vendor and live on **VendorPackaging**, because two vendors can use the same
+chain with different counts.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `ChainName` | ✅ | text | Unique. **VendorPackaging** refers to a chain by this name |
+| `MaterialCategoryCode` | ✅ | text | Must exist in **MaterialCategories** |
+| `Levels` | ✅ | text | Container names above the item, innermost first, comma-separated |
+| `IsActive` | | Yes/No | Default `Yes` |
+
+A chain **starts from its material category**: the innermost level is the
+category itself, so a `BG` chain already begins at Bags and `Levels` lists only
+what sits above that — `Boxes, Cases`. A level may not repeat the category name,
+or the chain reads "Boxes → Boxes". The category is also what makes a chain
+selectable: only items in that category can use it.
+
+> `ChainName` has no uniqueness constraint in the database — chains are keyed by
+> id there, and the app lets you name two the same. For the workbook it **must**
+> be unique, because it is the only thing VendorPackaging has to point with.
+
+### Why Levels is one comma-separated cell
+
+Because that is the shape the app itself uses — `/admin/packaging` takes the
+levels as a single comma-separated field, and chains are rarely more than three
+deep. One row per level would triple the row count and put the burden of keeping
+level numbers contiguous on whoever fills the sheet. What is typed here is what
+will later appear on screen.
+
+---
+
+## 18. VendorPackaging
+
+One vendor's packing quantities for one item — the numeric half of the chain.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `VendorName` | ✅ | text | Must exist in **Vendors** |
+| `ItemID` | ✅ | text | Must exist in **Items**; the pair must also be in **VendorItems** |
+| `ChainName` | ✅ | text | Must exist in **PackagingChains**, category must match the item's |
+| `Ratios` | ✅ | text | Whole numbers ≥ 1, innermost first, comma-separated — **one per level** |
+
+`Ratios` reads "how many of this level fit in **one** of the next level up", so
+`10, 5` against `Boxes, Cases` means 10 Bags per Box and 5 Boxes per Case. The
+count of numbers must equal the count of levels in the named chain; a mismatch is
+the single most likely error on this sheet.
+
+One row per vendor-item pair, at most. A pair in **VendorItems** with no row here
+simply has no packaging breakdown, which is fine — orders for it show a quantity
+and nothing else.
+
+> **Packaging never changes a quantity.** It works out how many containers an
+> ordered quantity occupies in transit. Those outer boxes, cases and pallets are
+> discarded on arrival and were never stock. What a grower orders is what a
+> grower receives.
+
+---
+
+## 19. ItemThresholds
+
+The stock level below which an item is flagged low for a grower.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `ItemID` | ✅ | text | Must exist in **Items** |
+| `GrowerName` | | text | Blank = the item's default for every grower; else must exist in **Growers** |
+| `ThresholdQuantity` | ✅ | number | 0 or more |
+
+Leave `GrowerName` blank for the item's default and add a second row naming a
+grower to override it for them. At most one row per item per grower, and at most
+one blank-grower row per item.
+
+There is **no unit column**: the threshold is in the item's material category,
+the same terms the counts it is compared against are recorded in. See
+[There is no unit column](#there-is-no-unit-column--the-category-is-the-unit).
+
+---
+
+## 20. ReminderSchedules
+
+When a grower who has not submitted gets chased by email.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `GrowerName` | | text | Blank = the global setting (**at most one such row**); else must exist in **Growers** |
+| `CadenceType` | ✅ | list | `Daily`, `Weekly`, `Monthly`, `AfterNDays` |
+| `ThresholdDays` | | number | Whole days ≥ 1. Read **only** when `CadenceType` is `AfterNDays` |
+| `IsEnabled` | ✅ | Yes/No | `No` = send no reminders for this scope |
+
+`Daily` / `Weekly` / `Monthly` state how often the grower is expected to submit,
+and each implies its own tolerance before chasing. `AfterNDays` instead chases
+once `ThresholdDays` days have passed with nothing submitted.
+
+> A grower row **replaces** the global row for that grower wholesale — there is
+> no field-level merge, so every column on it must be filled in, not just the one
+> being changed.
+
+There is no re-nag frequency to set. An overdue grower receives at most one
+reminder per day regardless of cadence.
+
+---
+
 ## Validation summary
 
 Everything the importer checks before writing anything:
@@ -385,24 +499,33 @@ Everything the importer checks before writing anything:
 - emails are well-formed
 - day counts are non-negative whole numbers
 - list columns hold one of the documented values (case-sensitive)
+- `Levels` is a non-empty comma-separated list; no level repeats its category name
+- `Ratios` are whole numbers ≥ 1, and there are exactly as many as the chain has levels
+- `ThresholdQuantity` is a number ≥ 0; `ThresholdDays` is a whole number ≥ 1
 
 **Uniqueness**
 - `ItemID`, `Email`, `GrowerName`, `VendorName`, `LocationName`, `RegionName`,
-  `CountryName`, `CommodityCode`, `MaterialCategoryCode`
+  `CountryName`, `CommodityCode`, `MaterialCategoryCode`, `ChainName`
 - `SubCategoryName` within its category
 - each mapping pair appears at most once
+- one **ItemThresholds** row per item per grower, and one blank-grower row per item
+- at most one blank-grower row on **ReminderSchedules**
 
 **Referential**
 - every cross-sheet name resolves
 - `SubCategoryName` belongs to the row's `MaterialCategoryCode`
 - a user's `GrowerName`/`VendorName` matches their role
 - location types satisfy the grower/vendor gate
+- a **VendorPackaging** row's chain is for the item's own material category
+- its vendor/item pair also appears in **VendorItems**
 
 **Advisory (warn, don't fail)**
 - an active grower with no `GrowerLocations` row — they cannot submit
 - an active grower with no `GrowerItems` rows — they will see an empty form
 - a vendor supplying items outside its declared categories
 - an item no grower is authorized for
+- a **PackagingChains** row no **VendorPackaging** row uses — defined but never applied
+- no global (blank-grower) **ReminderSchedules** row, so nobody is chased by default
 
 ---
 
@@ -410,10 +533,14 @@ Everything the importer checks before writing anything:
 
 Configure in the app, not the workbook:
 
-- **Thresholds** — `/admin/settings/thresholds`. A quantity only, in the item's category.
-- **Reminder schedules** — `/admin/settings/schedulers`. A Global row is created by the bootstrap.
-- **Packaging chains and pack ratios** — `/admin/packaging`, then per vendor-item on `/admin/mappings/vendors`. Descriptive only: it says how many containers an order occupies, and never changes the quantity ordered or received.
 - **Item messages** — `/admin/item-messages`.
+
+The optional sheets map to these screens, which stay the place to maintain them
+after go-live whether or not the workbook supplied a starting point:
+
+- **17/18 Packaging** — `/admin/packaging` for the chains, then per vendor-item on `/admin/mappings/vendors` for the ratios.
+- **19 ItemThresholds** — `/admin/settings/thresholds`.
+- **20 ReminderSchedules** — `/admin/settings/schedulers`. The bootstrap creates a Global row, so leaving sheet 20 empty still gives you working defaults.
 
 Reference data the bootstrap creates by itself, whether or not it appears in the
 workbook: the five **roles**, and the first admin **user** from
