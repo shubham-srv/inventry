@@ -54,7 +54,8 @@ export async function slideSession(
       })
     }
   } catch {
-    // Invalid/expired cookie — leave it; requireUser() will redirect to /login.
+    // Invalid/expired cookie — leave it. proxy.ts verifies the token on every
+    // request and deletes it there; do NOT re-mint or clear it from here.
   }
 }
 

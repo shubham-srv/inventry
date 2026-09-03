@@ -1501,5 +1501,72 @@ Check in **light and dark**, and at phone width:
 - [ ] **No horizontal page scroll on mobile** (the standing P13 requirement) —
       the detail tables still scroll inside their own container.
 
+## Round 15 — session redirect loop (September 2026)
+
+`proxy.ts` gated on the *presence* of the `demo_session` cookie while the actual
+signature check lived in `getCurrentUser()`, and nothing ever deleted a cookie
+that failed. So any unusable-but-present cookie deadlocked the app:
+
+```
+GET /grower  → proxy sees a cookie, allows it
+             → requireUser() cannot verify it → /login
+GET /login   → proxy sees a cookie, "you're logged in" → /
+GET /        → requireUser() cannot verify it → /login   ← loop
+```
+
+`ERR_TOO_MANY_REDIRECTS`, and **no way out from the browser** — the logout button
+lives in the app shell, which never rendered. Clearing site data was the only fix.
+
+Three triggers, all of which now recover on their own:
+
+1. **Expired token** — the cookie has a hard 7-day life.
+2. **`SESSION_SECRET` changed** — rotation, or a deploy where the Key Vault
+   secret ref fails to resolve and `lib/auth/session.ts` falls back to
+   `dev-only-insecure-secret`. Locks out every user at once.
+3. **User row gone or `isActive: false`** — including **`npm run db:seed`**, which
+   recreates users with new ids. Any cookie minted before a re-seed hits this.
+
+### What changed
+- `proxy.ts` now runs `jwtVerify` (jose is Edge-safe) instead of `cookies.has()`,
+  and **deletes** a cookie that fails, so the next request is cleanly logged out.
+- Triggers 1–2 are settled there. Trigger 3 is invisible to the proxy — no DB on
+  the Edge runtime, and the token verifies fine — so `requireUser()` redirects to
+  the new `GET /api/auth/signout`, which clears the cookie and returns to
+  `/login`. It has to be a route handler: Server Components cannot write cookies.
+- The proxy matcher already excludes `/api`, so that route is always reachable.
+
+### R15.1 — Expired / wrongly-signed token (triggers 1 and 2)
+Simulating this needs a bad cookie. Easiest is to change the secret:
+- [ ] Log in as anyone. Confirm you land on your home page.
+- [ ] Add `SESSION_SECRET=something-else-entirely` to `.env`, restart `npm run dev`.
+- [ ] Reload any page. You should land on **`/login`, once, with no loop** — not
+      an `ERR_TOO_MANY_REDIRECTS` page.
+- [ ] DevTools → Application → Cookies: `demo_session` is **gone**, not stale.
+- [ ] Log in again from that same page. Works, no extra reload needed.
+- [ ] Remove the `SESSION_SECRET` line again and restart for the rest of testing.
+
+Alternative without touching `.env`: DevTools → Application → Cookies → edit
+`demo_session`, mangle a few characters in the middle, reload. Same expected result.
+
+### R15.2 — Re-seed while logged in (trigger 3) ⚠️ the one the old fix misses
+This is the case a signature check alone cannot catch — the token is valid.
+- [ ] Log in as `james@agribar.local`, stay on `/grower`.
+- [ ] In another terminal: `npm run db:seed`.
+- [ ] Back in the browser, reload. Expect a **single** bounce through
+      `/api/auth/signout` to `/login` — check the Network tab shows
+      `/api/auth/signout` → 307 → `/login` → 200, and no repeats.
+- [ ] `demo_session` is cleared. Logging in as the re-seeded `james@agribar.local`
+      works immediately.
+
+### R15.3 — Nothing else regressed
+- [ ] Logged out, visiting `/admin` still redirects to `/login`.
+- [ ] Logged in, visiting `/login` still redirects to your role's home page
+      (`/admin`, `/grower`, `/vendor`) — this rule is intact, it just no longer
+      fires for cookies that do not verify.
+- [ ] The user-menu **Log out** button still works normally.
+- [ ] `/api/cron/reminders` is unaffected (the proxy never ran on `/api`).
+- [ ] Deactivating a user in `/admin/users` while they have a live session logs
+      them out on their next request instead of looping them.
+
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.

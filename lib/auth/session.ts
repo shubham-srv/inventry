@@ -21,6 +21,12 @@ import { LOCALE_COOKIE, isLocale } from "@/lib/i18n/config"
 export const SESSION_COOKIE = "demo_session"
 const MAX_AGE = 60 * 60 * 24 * 7 // 7 days
 
+/**
+ * Where an unusable session is sent to be cleared. A route handler rather than
+ * /login directly, because only a handler can delete the cookie — see below.
+ */
+export const SIGN_OUT_PATH = "/api/auth/signout"
+
 function getSecret(): Uint8Array {
   return new TextEncoder().encode(
     process.env.SESSION_SECRET || "dev-only-insecure-secret"
@@ -115,9 +121,20 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   }
 })
 
+/**
+ * The session user, or a bail-out to a cleanly logged-out state.
+ *
+ * The redirect goes via SIGN_OUT_PATH rather than straight to /login because the
+ * cookie can be perfectly well-formed — correct signature, unexpired — while the
+ * user behind it is gone: deactivated, deleted, or replaced by a re-seed with
+ * fresh ids. proxy.ts cannot see any of that (no DB on the Edge runtime), so it
+ * waves the cookie through; if this then sent the user to /login, the proxy would
+ * bounce /login back to / and the two would ping-pong forever. Server Components
+ * cannot delete cookies, so the deletion happens in the route handler instead.
+ */
 export async function requireUser(): Promise<SessionUser> {
   const user = await getCurrentUser()
-  if (!user) redirect("/login")
+  if (!user) redirect(SIGN_OUT_PATH)
   return user
 }
 
