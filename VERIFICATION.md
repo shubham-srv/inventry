@@ -1624,5 +1624,60 @@ Set `EMAIL_RATE_PER_MINUTE=2` and `EMAIL_INTERACTIVE_RESERVE=1` to make it visib
       what the ACS resource actually allows — confirm the current figures in the
       portal rather than assuming.
 
+## Round 16 — session redirect loop + fail-closed SESSION_SECRET (September 2026)
+
+Two fixes. The loop: `proxy.ts` gated on the session cookie being *present*, and
+nothing on any rejection path ever deleted it, so a cookie that could not be
+verified bounced between `/` and `/login` until the browser gave up with
+`ERR_TOO_MANY_REDIRECTS` — with the login page unreachable. The proxy now gates
+on the verified payload and deletes a dead cookie; `requireUser()` routes through
+`/api/auth/session-ended` for the case the proxy cannot see (valid JWT, no active
+user). Plain 7-day expiry never looped and still does not — the cookie `maxAge`
+and the JWT `exp` lapse together — which is exactly why this hid for so long.
+
+### 1. The loop is gone (any signed-in user)
+- [ ] Sign in. DevTools → Application → Cookies → change one character of
+      `demo_session` → reload any page.
+- [ ] You land on `/login` **once**, with "Your session ended. Please sign in again."
+- [ ] `demo_session` is gone from the cookie jar — not merely ignored.
+- [ ] Sign in again from that same page; no cookie clearing by hand.
+- [ ] Before the fix this was `ERR_TOO_MANY_REDIRECTS` and `/login` never rendered.
+
+### 2. Deactivated user mid-session (the case the proxy cannot catch)
+- [ ] Sign in as `james@agribar.local` in one browser.
+- [ ] As `admin@demo.local` in another, edit that user → uncheck Active → save.
+- [ ] Back in the first browser, click any nav link → one redirect to `/login`
+      with "That account does not have access to this app."
+- [ ] `demo_session` is cleared. Re-activate the user and confirm they can sign in.
+
+### 3. Secret rotation does not wedge everyone
+- [ ] Sign in, then change `SESSION_SECRET` in `.env` and restart.
+- [ ] Reload → single redirect to `/login`, cookie cleared, no loop. This is the
+      one that would otherwise have hit *every* signed-in user at once on deploy.
+
+### 4. Nothing that used to work regressed
+- [ ] Unauthenticated deep link `/admin/items` → `/login?returnTo=/admin/items`,
+      no `error` param (there was no session to end).
+- [ ] Sign in → you land back on `/admin/items`, not the dashboard.
+- [ ] Signed in, visit `/login` directly → redirected to `/`.
+- [ ] Entra and magic-link sign-in both still work end to end.
+- [ ] Sign out from the user menu → `/login`, cookie gone, no error banner.
+- [ ] Sliding expiry still re-mints: `npx tsx scripts/dev-mint-session.ts` with the
+      script's `setIssuedAt()` backdated past 3.5 days, paste as `demo_session`,
+      load a page → the cookie value changes. (Unchanged behaviour, but the
+      re-mint moved into the proxy's verify path.)
+
+### 5. SESSION_SECRET fails closed
+- [ ] `NODE_ENV=production SESSION_SECRET= npm start` → refuses to boot with
+      `[startup] SESSION_SECRET is not set`. Previously it started and signed every
+      session with `dev-only-insecure-secret`, a constant published in this repo.
+- [ ] Same with `SESSION_SECRET=dev-only-insecure-secret` → refuses, same shape.
+- [ ] A real secret boots normally.
+- [ ] Dev is unaffected: `npm run dev` with no `SESSION_SECRET` still works.
+- [ ] `npm run build` still succeeds **without** `SESSION_SECRET` in the
+      environment — the check is skipped during `phase-production-build` because
+      the pipeline injects the secret at deploy time, not at image build time.
+      Worth confirming in CI, not just locally.
+
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.

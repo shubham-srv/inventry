@@ -4,6 +4,7 @@ import { cache } from "react"
 import { redirect } from "next/navigation"
 import { SignJWT, jwtVerify } from "jose"
 import { prisma } from "@/lib/db"
+import { sessionSecret } from "@/lib/auth/secret"
 import { type RoleName } from "@/lib/constants"
 import { type Capability, can as roleCan } from "@/lib/rbac"
 import { LOCALE_COOKIE, isLocale } from "@/lib/i18n/config"
@@ -21,12 +22,6 @@ import { LOCALE_COOKIE, isLocale } from "@/lib/i18n/config"
 
 export const SESSION_COOKIE = "demo_session"
 const MAX_AGE = 60 * 60 * 24 * 7 // 7 days
-
-function getSecret(): Uint8Array {
-  return new TextEncoder().encode(
-    process.env.SESSION_SECRET || "dev-only-insecure-secret"
-  )
-}
 
 export type SessionUser = {
   id: number
@@ -66,7 +61,7 @@ export async function sessionCookies(userId: number): Promise<SessionCookie[]> {
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("7d")
-    .sign(getSecret())
+    .sign(sessionSecret())
 
   const list: SessionCookie[] = [
     {
@@ -117,8 +112,11 @@ async function readUserId(): Promise<number | null> {
   const store = await cookies()
   const token = store.get(SESSION_COOKIE)?.value
   if (!token) return null
+  // Outside the try on purpose: a missing SESSION_SECRET is a deployment fault,
+  // not a bad cookie, and must not be swallowed as "not signed in".
+  const key = sessionSecret()
   try {
-    const { payload } = await jwtVerify(token, getSecret())
+    const { payload } = await jwtVerify(token, key)
     return typeof payload.userId === "number" ? payload.userId : null
   } catch {
     return null
@@ -150,9 +148,18 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   }
 })
 
+/**
+ * Reaching here with no user means the cookie verified but the account behind
+ * it did not: deactivated, or deleted. Redirecting straight to /login would
+ * leave that still-valid cookie in place, and the proxy would read it as a
+ * session and send them back — the loop this route exists to break. The route
+ * handler can delete cookies; a Server Component cannot.
+ */
+const SESSION_ENDED = "/api/auth/session-ended?error=unprovisioned"
+
 export async function requireUser(): Promise<SessionUser> {
   const user = await getCurrentUser()
-  if (!user) redirect("/login")
+  if (!user) redirect(SESSION_ENDED)
   return user
 }
 

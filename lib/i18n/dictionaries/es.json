@@ -131,7 +131,8 @@
       "unprovisioned": "Esa cuenta no tiene acceso a esta aplicación. Pide a un administrador que te dé de alta.",
       "nolink": "Ese enlace de acceso estaba incompleto. Solicita uno nuevo abajo.",
       "linkexpired": "Ese enlace de acceso caducó o ya se usó. Solicita uno nuevo abajo.",
-      "mailfailed": "No pudimos enviar el correo de acceso. Inténtalo de nuevo en un momento."
+      "mailfailed": "No pudimos enviar el correo de acceso. Inténtalo de nuevo en un momento.",
+      "sessionexpired": "Tu sesión finalizó. Vuelve a iniciar sesión."
     }
   },
   "grower": {

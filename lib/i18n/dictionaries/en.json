@@ -131,7 +131,8 @@
       "unprovisioned": "That account does not have access to this app. Ask an administrator to add you.",
       "nolink": "That sign-in link was incomplete. Request a new one below.",
       "linkexpired": "That sign-in link has expired or was already used. Request a new one below.",
-      "mailfailed": "We could not send the sign-in email. Please try again in a moment."
+      "mailfailed": "We could not send the sign-in email. Please try again in a moment.",
+      "sessionexpired": "Your session ended. Please sign in again."
     }
   },
   "grower": {

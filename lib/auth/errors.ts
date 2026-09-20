@@ -17,6 +17,7 @@ export const LOGIN_ERRORS = [
   "nolink", // magic-link consume with no token
   "linkexpired", // link expired, already used, or superseded
   "mailfailed", // we couldn't hand the sign-in link to the mail provider
+  "sessionexpired", // the session cookie stopped verifying; it has been cleared
 ] as const
 
 export type LoginError = (typeof LOGIN_ERRORS)[number]

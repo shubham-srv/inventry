@@ -5,6 +5,7 @@ import type { ConfidentialClientApplication } from "@azure/msal-node"
 import { SignJWT, jwtVerify } from "jose"
 import { prisma } from "@/lib/db"
 import { sessionCookies } from "@/lib/auth/session"
+import { sessionSecret } from "@/lib/auth/secret"
 import { homePathForRole } from "@/lib/rbac"
 import { appUrl } from "@/lib/app-url"
 import { type RoleName } from "@/lib/constants"
@@ -25,12 +26,6 @@ const SCOPES = ["user.read"]
 const TX_COOKIE = "entra_tx"
 const TX_TTL_SECONDS = 60 * 10
 const TX_PURPOSE = "entra-tx"
-
-function txSecret(): Uint8Array {
-  return new TextEncoder().encode(
-    process.env.SESSION_SECRET || "dev-only-insecure-secret"
-  )
-}
 
 function redirectUri(): string {
   return process.env.AZURE_AD_REDIRECT_URI || appUrl("/api/auth/callback")
@@ -109,7 +104,7 @@ export async function login(req: NextRequest): Promise<NextResponse> {
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(`${TX_TTL_SECONDS}s`)
-    .sign(txSecret())
+    .sign(sessionSecret())
 
   const res = NextResponse.redirect(url)
   res.cookies.set(TX_COOKIE, tx, {
@@ -148,8 +143,11 @@ export async function callback(req: NextRequest): Promise<NextResponse> {
   let state: string
   let verifier: string
   let returnTo: string
+  // Outside the try: a missing SESSION_SECRET is a deployment fault, not a
+  // forged callback, and should not be reported to the user as one.
+  const txKey = sessionSecret()
   try {
-    const { payload } = await jwtVerify(txCookie, txSecret())
+    const { payload } = await jwtVerify(txCookie, txKey)
     if (
       payload.purpose !== TX_PURPOSE ||
       typeof payload.state !== "string" ||
