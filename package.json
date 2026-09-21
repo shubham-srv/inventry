@@ -20,7 +20,8 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:reset": "prisma migrate reset",
     "db:migrate:status": "prisma migrate status",
-    "reminders": "tsx scripts/run-reminders.ts"
+    "reminders": "tsx scripts/run-reminders.ts",
+    "docs:guide": "tsx scripts/generate-user-guide.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -28,6 +29,7 @@
   "dependencies": {
     "@azure/communication-email": "^1.1.0",
     "@azure/msal-node": "^5.6.0",
+    "@azure/storage-blob": "^12.32.0",
     "@hookform/resolvers": "^5.4.0",
     "@prisma/client": "^6.16.0",
     "@react-email/components": "^1.0.12",
@@ -41,6 +43,7 @@
     "lucide-react": "^1.21.0",
     "next": "16.2.6",
     "next-themes": "^0.4.6",
+    "powerbi-client": "^2.24.1",
     "radix-ui": "^1.6.0",
     "react": "19.2.4",
     "react-day-picker": "^10.0.1",
@@ -58,6 +61,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "docx": "^9.7.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "prettier": "^3.8.3",

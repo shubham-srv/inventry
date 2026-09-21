@@ -14,6 +14,7 @@ import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
 import { EntityFormDialog, type Field } from "@/components/crud/entity-form-dialog"
 import { ConfirmButton } from "@/components/crud/confirm-button"
 import { StatusBadge } from "@/components/status-badge"
+import { ItemImage } from "@/components/item-image"
 
 type ItemRow = Awaited<ReturnType<typeof getItems>>["rows"][number]
 
@@ -69,6 +70,14 @@ export default async function ItemsPage({
   // and immutable afterwards, so only the edit dialog shows it (read-only).
   const fields: Field[] = [
     { name: "itemName", label: "Name", type: "text", required: true, colSpan: 2 },
+    {
+      name: "image",
+      label: "Photo",
+      type: "image",
+      colSpan: 2,
+      description:
+        "Optional. Shown in the items list and to the growers and vendors who work with this item.",
+    },
     {
       name: "commodityCode",
       label: "Commodity",
@@ -159,6 +168,13 @@ export default async function ItemsPage({
   ]
 
   const columns: Column<ItemRow>[] = [
+    {
+      key: "image",
+      header: "",
+      headClassName: "w-0",
+      className: "w-0",
+      cell: (r) => <ItemImage itemId={r.id} hasImage={!!r.imageKey} alt={r.itemName} />,
+    },
     { key: "id", header: "Item ID", className: "font-mono text-xs", cell: (r) => r.id },
     { key: "itemName", header: "Name", cell: (r) => <span className="font-medium">{r.itemName}</span> },
     { key: "commodity", header: "Commodity", cell: (r) => r.commodity?.name ?? "—" },
@@ -180,6 +196,8 @@ export default async function ItemsPage({
             values={{
               id: r.id,
               itemName: r.itemName,
+              // The URL, not the key — the browser never sees storage paths.
+              image: r.imageKey ? `/items/${encodeURIComponent(r.id)}/image` : "",
               commodityCode: r.commodityCode ?? "",
               materialCategoryCode: r.materialCategoryCode ?? "",
               subCategoryId: r.subCategoryId ?? "",

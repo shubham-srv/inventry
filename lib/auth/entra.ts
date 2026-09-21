@@ -1,10 +1,11 @@
 import "server-only"
 import { NextResponse, type NextRequest } from "next/server"
 import { createHash, randomBytes } from "node:crypto"
-import type { ConfidentialClientApplication } from "@azure/msal-node"
+import type { ConfidentialClientApplication, ICachePlugin } from "@azure/msal-node"
 import { SignJWT, jwtVerify } from "jose"
 import { prisma } from "@/lib/db"
 import { sessionCookies } from "@/lib/auth/session"
+import { saveTokenCache, userCachePlugin } from "@/lib/auth/token-cache"
 import { sessionSecret } from "@/lib/auth/secret"
 import { homePathForRole } from "@/lib/rbac"
 import { appUrl } from "@/lib/app-url"
@@ -20,7 +21,15 @@ import { type RoleName } from "@/lib/constants"
  * other auth path issues.
  */
 
-const SCOPES = ["user.read"]
+// Identity only. `offline_access` is what makes Entra return a REFRESH token,
+// without which the Power BI token below could be minted once at login and never
+// again — reports would break an hour into every session.
+//
+// The Power BI scope is deliberately NOT here: an Entra access token has a single
+// audience, so one token cannot cover both Microsoft Graph and Power BI. The
+// Power BI token is acquired separately, from the same refresh token, in
+// lib/powerbi/token.ts.
+const SCOPES = ["user.read", "offline_access"]
 
 /** Short-lived cookie carrying the state + PKCE verifier across the round-trip. */
 const TX_COOKIE = "entra_tx"
@@ -58,6 +67,25 @@ async function client(): Promise<ConfidentialClientApplication> {
     })
   }
   return cachedClient
+}
+
+/**
+ * A client with its OWN token cache, for operations whose cache we intend to
+ * store. Shares the shared client's configuration and nothing else — see the
+ * note in lib/auth/token-cache.ts about why caches must not be mixed.
+ */
+export async function freshClient(
+  cachePlugin: ICachePlugin
+): Promise<ConfidentialClientApplication> {
+  const { ConfidentialClientApplication } = await import("@azure/msal-node")
+  return new ConfidentialClientApplication({
+    auth: {
+      clientId: process.env.AZURE_AD_CLIENT_ID!,
+      authority: `https://login.microsoftonline.com/${process.env.AZURE_AD_TENANT_ID}`,
+      clientSecret: process.env.AZURE_AD_CLIENT_SECRET!,
+    },
+    cache: { cachePlugin },
+  })
 }
 
 const b64url = (b: Buffer): string => b.toString("base64url")
@@ -164,9 +192,13 @@ export async function callback(req: NextRequest): Promise<NextResponse> {
 
   if (params.get("state") !== state) return clearTx(loginRedirect("state"))
 
+  // A FRESH client with an empty cache, not the shared one: MSAL's cache holds
+  // every account a client has seen, so serializing the shared instance would
+  // write other people's tokens onto this user's row.
+  const { plugin, updated } = userCachePlugin(null)
   let result
   try {
-    result = await (await client()).acquireTokenByCode({
+    result = await (await freshClient(plugin)).acquireTokenByCode({
       code,
       scopes: SCOPES,
       redirectUri: redirectUri(),
@@ -202,6 +234,15 @@ export async function callback(req: NextRequest): Promise<NextResponse> {
   // The provisioning gate: authenticating against the tenant is not the same as
   // having access. Admins decide who exists here.
   if (!user || !user.isActive) return clearTx(loginRedirect("unprovisioned"))
+
+  // Store the token cache now that the user is known and accepted. Best-effort:
+  // saveTokenCache swallows its own failures, because a session that works is
+  // worth more than a Power BI token, and the only cost of losing it is that the
+  // reports page asks this person to sign in again.
+  const cache = updated()
+  if (cache) {
+    await saveTokenCache(user.id, cache, result.account?.homeAccountId ?? null)
+  }
 
   const role = await prisma.role.findUnique({ where: { id: user.roleId } })
   const home = role ? homePathForRole(role.roleName as RoleName) : "/"

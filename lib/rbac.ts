@@ -13,9 +13,15 @@ export const CAPABILITIES = {
 export type Capability = (typeof CAPABILITIES)[keyof typeof CAPABILITIES]
 
 const ADMIN_CAPS: Capability[] = Object.values(CAPABILITIES)
-// Reports are admin-only: the page embeds Power BI via a server-generated embed
-// token, so widening it widens who can trigger that. Editors keep master data
-// and packaging.
+// Reports are admin-only because they aggregate ACROSS partners — one grower's
+// stock next to another's, every vendor's reported quantities, and an Excel
+// export of the same. That cuts straight through the isolation the rest of the
+// app maintains, so it stays with admins. Editors keep master data and
+// packaging.
+//
+// (This previously said the restriction was about Power BI embed tokens. There
+// are none: the reports page frames a URL held in PowerBiReport. See
+// components/reports/power-bi-embed.tsx.)
 const EDITOR_CAPS: Capability[] = [
   CAPABILITIES.MANAGE_MASTER_DATA,
   CAPABILITIES.MANAGE_CONVERSIONS,

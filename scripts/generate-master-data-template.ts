@@ -160,10 +160,18 @@ const SHEETS: { name: string; purpose: string; cols: Col[]; example: unknown[] }
       { key: "Status", width: 14, required: true, list: ITEM_STATUSES, help: "" },
       { key: "LegacyItemRef", width: 20, help: "Your existing identifier, carried through for reconciliation. Not used as a key." },
       { key: "Notes", width: 40, help: "" },
+      // Appended after Notes rather than slotted beside it, for the same reason
+      // 16-VendorLocations is appended: a client already filling this in should
+      // never have to move columns. See the README's "Item photos" section.
+      {
+        key: "ImageFile",
+        width: 28,
+        help: "Optional. The file name of this item's photo in the images folder you send alongside this workbook — e.g. AP-BX-00001.jpg. JPG, PNG or WebP, up to 10 MB each. Leave blank if the item has no photo.",
+      },
     ],
     example: [
       "AP-BX-00001", "Corrugated Box 40x30", "AP", "BX", "Cardboard Boxes",
-      "USA", "Machine", "Active", "FAM-10023", "",
+      "USA", "Machine", "Active", "FAM-10023", "", "AP-BX-00001.jpg",
     ],
   },
   {
@@ -318,6 +326,13 @@ const readmeLines: [string, string][] = [
   ["h2", "Two things that are easy to get wrong"],
   ["li", "MaterialCategoryCode is what an item's quantities are counted in — an item in \"Boxes\" is counted in boxes. There is no separate unit column. Renaming a category later relabels every quantity ever recorded for its items; it does not convert them."],
   ["li", "A grower with no row in 11-GrowerLocations cannot submit inventory at all. Every active grower needs at least one site."],
+  ["", ""],
+  ["h2", "Item photos"],
+  ["p", "Photos are optional, one per item. Send them as a plain folder (or zip) next to this workbook — do not paste pictures into the cells; a workbook with images embedded quickly becomes too large to open or email."],
+  ["li", "Put the file name in the ImageFile column of 7-Items, e.g. AP-BX-00001.jpg"],
+  ["li", "Names must match the files exactly, including capitalisation and extension."],
+  ["li", "JPG, PNG or WebP, up to 10 MB each. They are resized on import, so there is no need to shrink them first."],
+  ["li", "An item with no photo is fine — leave the cell blank. A name with no matching file is reported as a warning and the item loads without a photo."],
   ["", ""],
   ["h2", "Not needed here"],
   ["p", "Thresholds, reminder schedules, packaging setup and item messages are configured in the application after go-live. So is anything transactional — counts, orders, history."],

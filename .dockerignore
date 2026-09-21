@@ -23,6 +23,9 @@ docs
 integration
 *.md
 
+# local dev uploads (production uses blob storage)
+.uploads
+
 # logs
 npm-debug.log*
 yarn-error.log*

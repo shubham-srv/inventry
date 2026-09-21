@@ -172,6 +172,7 @@ afterwards.
 | `Status` | ✅ | list | `Active`, `Inactive`, `Review` |
 | `LegacyItemRef` | | text | The client's own identifier from their previous system. Carried through for reconciliation; not used as a key |
 | `Notes` | | text | |
+| `ImageFile` | | text | File name of the item's photo in the accompanying images folder — see [Item photos](#item-photos) |
 
 ### The ItemID format
 
@@ -213,6 +214,34 @@ labels, the category should be `Rolls`, not `Labels`. Renaming a category later
 relabels every quantity ever recorded against its items — it does not convert
 them — so a rename after go-live changes what the history *reads as*, while the
 numbers stay exactly as entered.
+
+### Item photos
+
+One optional photo per item. The photos travel as a **plain folder (or zip)
+alongside the workbook**, and `ImageFile` names the file for that row:
+
+```
+master-data.xlsx
+item-photos/
+  AP-BX-00001.jpg
+  AP-BX-00002.png
+```
+
+- Names must match exactly, including case and extension.
+- `JPG`, `PNG` or `WebP`, up to 10 MB each. The importer resizes and converts
+  them, so there is no need to shrink them first.
+- A blank cell means "no photo" and is perfectly normal.
+- A name with **no matching file** is a warning, not a failure: the item loads
+  without a photo and the report lists it, so a missing file never blocks a load.
+
+> **Do not paste images into the spreadsheet cells.** Excel stores them at full
+> resolution, so a few hundred photos produce a workbook too large to open or
+> email — and images pasted as floating objects drift away from their rows as
+> soon as anyone inserts a row, which silently misfiles them against the wrong
+> items. The separate folder is both smaller and unambiguous.
+
+Photos can also be added and replaced per item in the app afterwards, on
+`/admin/items` — the workbook is only the bulk path for the initial load.
 
 ---
 
@@ -398,7 +427,14 @@ Everything the importer checks before writing anything:
 - a user's `GrowerName`/`VendorName` matches their role
 - location types satisfy the grower/vendor gate
 
+**Images**
+- `ImageFile`, when given, resolves to a file in the images folder
+- the file is a real JPG/PNG/WebP (checked by content, not by extension)
+- the file is within the size limit
+
 **Advisory (warn, don't fail)**
+- an `ImageFile` naming a file that is not in the folder — the item loads without it
+- an image file in the folder that no row references
 - an active grower with no `GrowerLocations` row — they cannot submit
 - an active grower with no `GrowerItems` rows — they will see an empty form
 - a vendor supplying items outside its declared categories

@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { MultiSelect } from "@/components/ui/multi-select"
+import { ImageField } from "@/components/crud/image-field"
 import { type ActionState, initialActionState } from "@/lib/actions/types"
 import { useT } from "@/lib/i18n/client"
 
@@ -39,6 +40,7 @@ export type FieldType =
   | "switch"
   | "hidden"
   | "preview" // read-only, not posted: shows `pattern` filled from other fields
+  | "image" // one optional photo; posts the file plus `<name>Action`
 
 export type Field = {
   name: string
@@ -390,6 +392,15 @@ export function EntityFormDialog({
                       onChange={(next) => multiValue(f.name, next)}
                     />
                   </>
+                ) : f.type === "image" ? (
+                  // Uncontrolled: the field owns its own file input and posts
+                  // `<name>` (the file) and `<name>Action` (keep/replace/remove).
+                  // `values[name]` is the URL of the existing image, if any.
+                  <ImageField
+                    name={f.name}
+                    currentUrl={values?.[f.name] ? String(values[f.name]) : undefined}
+                    invalid={!!err}
+                  />
                 ) : f.type === "switch" ? (
                   <div className="flex h-9 items-center gap-2">
                     <input

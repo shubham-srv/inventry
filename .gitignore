@@ -39,3 +39,9 @@ next-env.d.ts
 
 # Generated master-data workbook for the client (scripts/generate-master-data-template.ts)
 master-data-template.xlsx
+
+# Generated client user guide (scripts/generate-user-guide.ts)
+Inventory-Management-User-Guide.docx
+
+# Item photos written by the local (dev) storage backend — lib/storage/local.ts
+.uploads

@@ -45,6 +45,7 @@ Everything below is an afternoon of clicking you control. These two are not.
 | Key Vault (RBAC mode)          | `kv-inv-prd-xxxx`                                              |
 | SQL logical server + database  | `sql-inventory-production-xxxx` / `sqldb-inventory-production` |
 | Communication Services + Email | `acs-inventory-production` (custom domain)                     |
+| Storage Account (item photos)  | `stinventoryproduction` (lowercase + digits only)              |
 | Application Insights           | `appi-inventory-production` (point at the shared workspace)    |
 | Container Apps Environment     | `cae-inventory-production`                                     |
 | Container App (web)            | `ca-inventory-web-production`                                  |
@@ -60,18 +61,19 @@ geo-redundant, and confirm the point-in-time restore window with the client.
 
 ---
 
-## Key Vault — 10 secrets, all required before the first deploy
+## Key Vault — 12 secrets, all required before the first deploy
 
-**7 declared by the pipeline as Container App references:**
+**9 declared by the pipeline as Container App references:**
 
 `database-url` · `session-secret` · `acs-connection-string` · `cron-secret` ·
-`magic-link-secret` · `azure-ad-client-secret` · `azure-translator-key`
+`magic-link-secret` · `azure-ad-client-secret` · `azure-translator-key` ·
+`storage-connection-string` · `token-cache-secret`
 
 **3 more read by the variable group** (for `db:bootstrap` on the agent):
 
 `bootstrap-admin-email` · `bootstrap-admin-first-name` · `bootstrap-admin-last-name`
 
-⚠️ **If any of the 7 is missing from the vault the revision fails to start** —
+⚠️ **If any of the 9 is missing from the vault the revision fails to start** —
 the container never runs, so its log stream is empty and the real error is in
 **Revisions → the failed revision → status**. Create every one, even with a
 placeholder value, before the first run. This also applies to staging.
@@ -194,7 +196,7 @@ See [email-delivery.md](email-delivery.md) for the reasoning behind the first th
 - [ ] Entra app registration created; client secret in prod Key Vault
 - [ ] ACS custom domain verified and connected
 - [ ] All 9 production resources created
-- [ ] All 10 secrets in the production Key Vault (7 app + 3 bootstrap)
+- [ ] All 12 secrets in the production Key Vault (9 app + 3 bootstrap)
 - [ ] 3 role assignments made; UAMI attached to the app + registry
 - [ ] `azure-production-sc` created and authorized for all pipelines
 - [ ] `inventory-production-secrets` variable group resolving (padlock + "last refreshed")

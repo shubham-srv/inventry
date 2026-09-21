@@ -53,6 +53,15 @@ model User {
   isActive        Boolean @default(true)
   preferredLocale String  @default("en") // personal UI + email language: en, es
 
+  // Power BI embedding (lib/powerbi) — set only for users who signed in via Entra.
+  // The MSAL token cache holds a REFRESH token, so it is encrypted with
+  // TOKEN_CACHE_SECRET before it is written here (lib/auth/token-cache.ts) and is
+  // useless on its own in a database backup. entraHomeAccountId is MSAL's handle
+  // for the account inside that cache. Both are cleared when the cache stops
+  // working, so a stale entry re-authenticates rather than failing forever.
+  entraHomeAccountId String?
+  entraTokenCache    String? @db.NVarChar(Max)
+
   createdBy Int?
   createdAt DateTime @default(now())
   updatedBy Int?
@@ -251,6 +260,12 @@ model Item {
   applicationMethod    String? // Machine, Hand, Machine/Hand, N/A
   status               String  @default("Active") // Active, Inactive, Review
   notes                String?
+  // Storage KEY of the item's photo (lib/storage), e.g.
+  // "items/AP-BX-00001/9f3c….webp" — deliberately not a URL, so the storage
+  // account or container can change without rewriting this column. The uuid in
+  // the key changes on every replace, which is what makes the served image
+  // safely immutable-cacheable. Null = no photo. One per item.
+  imageKey             String?
 
   createdBy Int?
   createdAt DateTime @default(now())

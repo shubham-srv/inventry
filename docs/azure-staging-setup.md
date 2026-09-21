@@ -26,7 +26,8 @@ flowchart TD
     JOB -->|POST /api/cron/reminders<br/>x-cron-secret| WEB
     WEB -->|SQL auth| SQL[(Azure SQL Database<br/>Basic 5 DTU)]
     WEB -->|send email| ACS[Azure Communication Services<br/>+ Email + managed domain]
-    WEB -->|reads secrets<br/>via managed identity| KV[Key Vault<br/>DB url, session, cron, ACS]
+    WEB -->|item photos| BLOB[(Storage Account<br/>private blob container)]
+    WEB -->|reads secrets<br/>via managed identity| KV[Key Vault<br/>DB url, session, cron,<br/>ACS, storage]
     WEB -.logs/telemetry.-> AI[App Insights + Log Analytics]
     ENV -.logs.-> AI
 ```
@@ -41,6 +42,7 @@ flowchart TD
 | **Key Vault** | Encrypted store for secrets (DB password, session key, etc.). No secrets in plain config. |
 | **Azure SQL Database** | Your Prisma database (SQL Server engine), Basic tier for staging. |
 | **Communication Services (+Email)** | Sends notification emails (your `lib/email/acs` code). |
+| **Storage Account (Blob)** | Holds item photos in a private container (your `lib/storage` code). |
 | **Container Apps Environment** | The secure boundary that hosts the web app + the cron job together. |
 | **Container App** | Your running Next.js app (with ingress, scaling, revisions). |
 | **Container App Job** | The daily reminder cron — pings the app's secure endpoint. |
@@ -57,6 +59,11 @@ flowchart TD
 7. Container Apps Environment + Container App (web)
 8. Managed identity + secret wiring
 9. Container App Job (cron)
+
+> **Storage Account** slots in between 6 and 7 — see **§6B**. It is lettered
+> rather than numbered 7 so the existing section numbers, which
+> [auth-and-email.md](auth-and-email.md) and
+> [azure-devops-setup.md](azure-devops-setup.md) link to, stay put.
 
 ---
 
@@ -83,6 +90,7 @@ Suggested names (Azure's naming-convention style):
 | SQL server (logical) | `sql-inventory-staging-xxxx` | **yes** |
 | SQL database | `sqldb-inventory-staging` | no |
 | Communication Services | `acs-inventory-staging` | **yes-ish** |
+| Storage Account | `stinventorystaging` (lowercase letters + digits only) | **yes** |
 | Email Comm. Service | `acsemail-inventory-staging` | no |
 | Container Apps Env | `cae-inventory-staging` | no |
 | Container App (web) | `ca-inventory-web-staging` | no |
@@ -285,6 +293,97 @@ from `DoNotReply@<random>.azurecomm.net` and has modest rate limits — fine for
 
 ---
 
+## 6B. Storage Account (item photos)
+
+*Lettered `6B` rather than numbered `7` so the section numbers that other docs
+link to do not shift. It belongs here in reading order: create it before the
+Container App, because §8 wires its connection string into the app's config.*
+
+**Concept.** A **Storage Account** is Azure's general-purpose storage resource. We
+use one service inside it — **Blob storage** — which holds arbitrary files
+("blobs") grouped into **containers**. One container, `item-images`, holds the
+photos admins attach to items on `/admin/items`; the code is in
+[`lib/storage/`](../lib/storage/) and the database stores only a *key* such as
+`items/AP-BX-00001/9f3c….webp`, never the bytes and never a URL.
+
+**Why not the database or the container's own disk.** Images in Azure SQL bloat
+every backup and put image reads on the most expensive tier in this deployment.
+The Container App's filesystem is worse: it is rebuilt on every revision and is
+not shared between replicas, so photos uploaded before a deploy would simply
+disappear afterwards, and two replicas would disagree about which exist.
+
+**The container is PRIVATE.** Photos reach the browser through the app's own
+`/items/<id>/image` route, which applies the same session check as every page
+(growers and vendors can see item photos, so it is gated on being signed in
+rather than on an admin capability). There is no public blob URL and no SAS
+token in circulation, which is why the anonymous-access switch below stays off.
+
+**Steps.**
+
+**6B-a. Create the Storage Account**
+1. Search **"Storage accounts"** → **Create**.
+2. **Basics**: RG `rg-staging`; **Storage account name** `stinventorystaging`
+   — **globally unique, 3–24 characters, lowercase letters and digits only**
+   (no dashes, unlike every other resource here); **Region** (same as everything
+   else); **Primary service** = *Azure Blob Storage or Azure Data Lake Storage Gen2*;
+   **Performance** = **Standard**; **Redundancy** = **LRS** (cheapest; staging
+   photos are reproducible from the client's originals).
+3. **Advanced** tab → leave **"Allow enabling anonymous access on individual
+   containers"** **UNCHECKED**. This is the account-level switch: with it off,
+   nobody can later flip the container to public by accident, which is the single
+   most common way private image stores stop being private.
+4. **Review + create → Create → Go to resource**.
+
+**6B-b. Create the container**
+The app calls `createIfNotExists` on first upload, so this step is optional — but
+doing it yourself lets you *see* the access level rather than trusting it.
+1. Storage account → **Data storage → Containers → + Container**.
+2. **Name** `item-images` (must match `AZURE_STORAGE_CONTAINER`).
+3. **Anonymous access level** = **Private (no anonymous access)**.
+4. **Create**.
+
+**6B-c. Collect the connection string**
+1. Storage account → **Security + networking → Access keys** → **Show** on
+   **key1** → copy the **Connection string**
+   (`DefaultEndpointsProtocol=https;AccountName=…;AccountKey=…`).
+2. → we'll put this in **Key Vault** in §8d as `storage-connection-string`.
+
+**6B-d. Activate in the app**
+Two env vars, both set in §8f:
+
+| Env var | Source |
+|---|---|
+| `AZURE_STORAGE_CONNECTION_STRING` | **Reference a secret** → `storage-connection-string` |
+| `AZURE_STORAGE_CONTAINER` | **Manual entry** → `item-images` |
+
+> **⚠️ The pipeline owns env vars, not the Portal.** `azure-pipelines.yml` runs
+> `az containerapp update --set-env-vars` on every deploy and its own comment says
+> to *"treat this list as the source of truth and stop editing env vars in the
+> Portal."* `--set-env-vars` merges, so a Portal-only value survives — until
+> someone assumes the pipeline lists everything. Add both lines to the
+> `--set-env-vars` block in **both** the staging and production deploy stages:
+>
+> ```yaml
+>   AZURE_STORAGE_CONNECTION_STRING=secretref:storage-connection-string \
+>   AZURE_STORAGE_CONTAINER="item-images" \
+> ```
+
+> **⚠️ No connection string in production = uploads fail, loudly.**
+> [`lib/storage/index.ts`](../lib/storage/index.ts) throws rather than falling back
+> to local disk when `NODE_ENV=production`. That is deliberate and matches how
+> `MAGIC_LINK_SECRET` and `CRON_SECRET` behave: the fallback would appear to work
+> right up until the next revision discarded every photo. Locally, with the
+> variable unset, photos go to `.uploads/` and no Azure account is needed at all.
+
+**Cost and growth.** Photos are downscaled in the browser to ~200–400 KB before
+upload, so a few thousand items sit comfortably under 1 GB — pennies per month on
+Standard LRS. The container does not grow unboundedly: replacing a photo deletes
+the one it replaced, and deleting an item deletes its photo. Orphans are only
+possible if a save crashes between the upload and the commit, and the app logs
+those. No lifecycle-management rule is needed at this volume.
+
+---
+
 ## 7. Container Apps Environment + Container App (web)
 
 **Concept — Environment.** A **Container Apps Environment** is the secure boundary (its
@@ -363,6 +462,8 @@ Vault → **Objects → Secrets → + Generate/Import**, create each:
 | `database-url` | the full Prisma `DATABASE_URL` from §5 |
 | `session-secret` | a long random string — generate with `openssl rand -base64 32` (or PowerShell: `[Convert]::ToBase64String((1..32|%{Get-Random -Max 256}))`) |
 | `acs-connection-string` | the ACS connection string from §6e |
+| `storage-connection-string` | the Storage Account connection string from §6B-c |
+| `token-cache-secret` | a long random string, **distinct from the two above** — encrypts stored Microsoft refresh tokens (§10d) |
 | `cron-secret` | another long random string (the Job in §9 reuses this) |
 | `azure-ad-client-secret` | Entra app client secret (§10a) — add when you enable internal SSO |
 | `magic-link-secret` | a long random string, **distinct from `session-secret`** — signs external magic-links (§10c) |
@@ -382,10 +483,13 @@ add:
 | `DATABASE_URL` | **Reference a secret** → `database-url` |
 | `SESSION_SECRET` | **Reference a secret** → `session-secret` |
 | `ACS_CONNECTION_STRING` | **Reference a secret** → `acs-connection-string` |
+| `AZURE_STORAGE_CONNECTION_STRING` | **Reference a secret** → `storage-connection-string` *(item photos, §6B)* |
 | `CRON_SECRET` | **Reference a secret** → `cron-secret` |
 | `MAGIC_LINK_SECRET` | **Reference a secret** → `magic-link-secret` *(external magic-link, §10c)* |
+| `TOKEN_CACHE_SECRET` | **Reference a secret** → `token-cache-secret` *(Power BI embedding, §10d)* |
 | `APP_URL` | **Manual entry** → `https://ca-inventory-web-staging.<region>.azurecontainerapps.io` *(§10c)* |
 | `ACS_SENDER_ADDRESS` | **Manual entry** → `DoNotReply@xxxxxxxx.azurecomm.net` |
+| `AZURE_STORAGE_CONTAINER` | **Manual entry** → `item-images` |
 | `EMAIL_PROVIDER` | **Manual entry** → `acs` |
 | `NODE_ENV` | **Manual entry** → `production` |
 | `APPLICATIONINSIGHTS_CONNECTION_STRING` | **Manual entry** → from §2 (optional, if you add the SDK) |
@@ -596,6 +700,131 @@ this table is not worth stealing.
 
 ---
 
+### 10d. Power BI embedding — permissions and consent
+
+`/admin/reports/power-bi` renders reports with **"embed for your organization"**
+(user-owns-data): the app acquires a Power BI token **for the signed-in admin**
+and hands it to the embed, so each viewer sees exactly the reports their own
+Power BI permissions allow.
+
+**Why not simply put the report URL in an iframe.** A secure-embed URL in a frame
+authenticates itself using Microsoft cookies **in a cross-site context**, and
+browsers are removing that: Safari blocks third-party cookies outright, Firefox
+partitions them, Chrome and Edge restrict them and enterprise policy usually
+tightens it further. The symptom is a blank panel or a sign-in prompt inside the
+frame, for someone who signed into this app with Microsoft moments earlier.
+Passing a token we obtained ourselves sidesteps the whole problem, because the
+frame is no longer responsible for authenticating anybody.
+
+**Cost.** None beyond the licences. This is the same licensing as viewing the
+report in Power BI: every viewer needs **Power BI Pro** (or the workspace on F64+
+capacity, which is not worth it for a handful of admins). It needs **no capacity
+SKU** — that is only required for *embed for your customers*, where viewers hold
+no licence at all. Reports are restricted to SuperAdmin and InternalAdmin, so the
+licence count is small and matches the people who already sign in through Entra.
+
+> **⚠️ Two different administrators, two different portals.** Steps 1–2 below are
+> done by an **Entra** administrator, step 3 by a **Power BI** administrator.
+> They are often not the same person, and step 3 is invisible from Entra — an app
+> with perfect permissions still renders nothing while that tenant setting is off.
+> Raise both early; like the app registration itself (§10a), this is a dependency
+> on somebody else's calendar rather than something you can unblock yourself.
+
+**10d-1. Add the Power BI permission to the app registration**
+
+In the **client's Entra tenant**, on the registration created in §10a:
+
+1. **Entra ID → App registrations →** select the app (match the Application ID in
+   `AZURE_AD_CLIENT_ID`).
+2. **API permissions → Add a permission**.
+3. Pick **Power BI Service** — usually under *APIs my organization uses* rather
+   than the Microsoft APIs tab.
+4. Choose **Delegated permissions**, **not** Application permissions. Delegated
+   means the app acts *on behalf of the signed-in user* and can never exceed what
+   that person could do themselves, which is the entire point: an admin with no
+   access to a report gets nothing here either. Application permissions would
+   give the app its own tenant-wide reach, which is the service-principal model
+   we are deliberately not using.
+5. Tick **`Report.Read.All`** and **`Dataset.Read.All`**. The second is needed
+   because a report reads its semantic model; embedding fails without it.
+6. Confirm **`offline_access`** is present under **Microsoft Graph**. It is what
+   yields a refresh token, and without one the app can mint a Power BI token at
+   login and never again — reports would break an hour into every session.
+7. **Add permissions.**
+
+**10d-2. Grant admin consent**
+
+Power BI Service permissions are tenant-scoped, so an administrator must consent
+**once, for everyone**. Users cannot consent for themselves. Without it, every
+admin hits `AADSTS65001` / *"Need admin approval"* and simply cannot proceed.
+
+1. **API permissions → Grant admin consent for \<tenant\>**.
+2. Check every row reads green **"Granted for \<tenant\>"**. Amber or blank means
+   it did not take.
+
+If that button is greyed out you do not hold the role — it needs **Global
+Administrator**, **Privileged Role Administrator** or **Cloud Application
+Administrator**. Rather than trading screenshots, send the tenant admin this link:
+
+```
+https://login.microsoftonline.com/<tenantId>/adminconsent?client_id=<clientId>
+```
+
+They sign in, see exactly what is requested, and approve in one click.
+
+**10d-3. Enable embedding in the Power BI tenant (a separate switch)**
+
+This is **not** in Entra and is owned by the Power BI administrator.
+
+1. **Power BI → Settings → Admin portal → Tenant settings → Developer settings**.
+2. Enable **"Embed content in apps"**, for the whole organisation or for a
+   security group containing the admins who will view reports.
+3. Give it a few minutes to propagate.
+
+**10d-4. Workspace access and licences**
+
+1. Each viewing admin needs a **Power BI Pro** licence.
+2. Each needs at least **Viewer** on the workspace holding the report. The app
+   grants nothing on its own — it only presents what that person already has.
+3. The email on their `User` row must be the **same identity** as their Power BI
+   account, which it already is: §10a matches Entra sign-in to that row.
+
+**10d-5. App wire-up**
+
+One secret and one env var (§8d–8f):
+
+| Setting | Value |
+|---|---|
+| Key Vault secret `token-cache-secret` | a long random string, **distinct from `session-secret` and `magic-link-secret`** |
+| Env `TOKEN_CACHE_SECRET` | Key Vault reference to the above |
+
+Add it to the `--set-env-vars` block in **both** deploy stages of
+`azure-pipelines.yml`, not only the Portal (§6B-d explains why):
+
+```yaml
+  TOKEN_CACHE_SECRET=secretref:token-cache-secret \
+```
+
+**What that secret protects.** Obtaining a Power BI token later in a session needs
+a **refresh token**, which must therefore be stored. It is encrypted with this key
+before it goes anywhere near the database, so a database backup on its own does
+not yield usable Microsoft credentials. It is separate from `session-secret` for
+the same reason `magic-link-secret` is: a key that decrypts refresh tokens and a
+key that signs session cookies should never be interchangeable.
+
+**With it unset**, no token is stored, the reports page says so plainly, and the
+rest of the application is unaffected. Nothing else depends on it.
+
+Finally, store each report's **secure embed URL** in `PowerBiReport.embedUrl`:
+
+1. In Power BI, open the report → **File → Embed report → Website or portal**.
+2. Copy the URL it gives you. It looks like
+   `https://app.powerbi.com/reportEmbed?reportId=…&groupId=…`.
+3. **Do not copy the address bar instead.** That gives a `/groups/…/reports/…`
+   URL, which is not an embed URL and will not render.
+
+---
+
 ## 11. Final checklist
 
 - [ ] Log Analytics workspace created
@@ -606,10 +835,23 @@ this table is not worth stealing.
 - [ ] `prisma migrate deploy` run against the new DB
 - [ ] ACS + Email + managed domain created **and connected**; sender + connection string saved
 - [ ] `@azure/communication-email` installed; `EMAIL_PROVIDER=acs`
+- [ ] Storage Account created; anonymous access **disabled at the account level**
+- [ ] `item-images` container exists and is **Private**; connection string saved
+- [ ] Upload a photo on `/admin/items` → it appears; the blob's direct URL is **not** publicly readable
 - [ ] Container Apps Environment created (wired to Log Analytics)
 - [ ] Web Container App running (quickstart image → later your ACR image, **port 3000**)
 - [ ] App **managed identity** on; granted **AcrPull** + **Key Vault Secrets User**
-- [ ] 4 secrets in Key Vault; referenced as app secrets; env vars mapped
+- [ ] Key Vault secrets created; referenced as app secrets; env vars mapped
+      (including `AZURE_STORAGE_CONNECTION_STRING` / `AZURE_STORAGE_CONTAINER`)
+- [ ] The storage env vars are in `azure-pipelines.yml`, not only in the Portal
+- [ ] Power BI: `Report.Read.All` + `Dataset.Read.All` **delegated**, admin consent
+      **granted** (green in API permissions), `offline_access` present (§10d)
+- [ ] Power BI admin portal: **"Embed content in apps"** enabled (a separate switch
+      from Entra — an app with correct permissions still renders nothing without it)
+- [ ] Viewing admins have a **Pro licence** and at least **Viewer** on the workspace
+- [ ] `token-cache-secret` in Key Vault and `TOKEN_CACHE_SECRET` in the pipeline
+- [ ] `PowerBiReport.embedUrl` holds a **`/reportEmbed?reportId=…`** URL, not an
+      address-bar `/groups/…/reports/…` one
 - [ ] Scaling: min 1 / max 3, HTTP-concurrency rule
 - [ ] Cron **Job** created, has `CRON_SECRET`, **Run now** succeeds
 
@@ -626,6 +868,7 @@ this table is not worth stealing.
 | Key Vault | ~$0 (per-operation, negligible) |
 | Log Analytics + App Insights | ~$5–15 (depends on volume/retention) |
 | Communication Services (email) | pay-per-email, pennies at staging volume |
+| Storage Account (item photos, Standard LRS) | ~$0 (well under 1 GB; pennies per GB/month) |
 | **Total** | **~$35–60/month** |
 
 ---

@@ -1679,5 +1679,193 @@ and the JWT `exp` lapse together — which is exactly why this hid for so long.
       the pipeline injects the secret at deploy time, not at image build time.
       Worth confirming in CI, not just locally.
 
+## Round 17 — item photos (September 2026)
+
+One optional photo per item. Bytes live in Azure Blob Storage (private
+container), never in SQL Server; `Item.imageKey` holds the storage key, not a
+URL. Locally, with no `AZURE_STORAGE_CONNECTION_STRING`, photos are written to
+`.uploads/` so none of this needs an Azure account.
+
+**Apply the migration first:** `npm run db:migrate` (dev) — it is a single
+additive nullable column, so nothing existing changes.
+
+### 1. Upload on create (admin@demo.local, `/admin/items`)
+- [ ] **New item** → the dialog shows a Photo field with a placeholder tile.
+- [ ] Pick a large photo (a phone photo, 3–8 MB). The button reads "Processing…"
+      briefly, then the tile shows it.
+- [ ] Save → the item appears in the table **with its thumbnail** in the first column.
+- [ ] Check `.uploads/items/<ItemID>/` — one `.webp` file, a few hundred KB, not
+      the multi-megabyte original. (That resize is why the default 1 MB server-action
+      limit is not in the way.)
+
+### 2. Replace and remove
+- [ ] Edit an item with a photo → the current photo shows in the dialog.
+- [ ] **Replace** with a different image → save → the table thumbnail changes.
+- [ ] A **new** file exists in `.uploads/items/<ItemID>/` and the old one is gone.
+- [ ] Edit → **Remove** → save → the placeholder returns and the file is deleted.
+- [ ] Edit an item **without touching the photo** — change only the name → save →
+      the photo is still there. (The keep/replace/remove field exists for exactly
+      this; a file input posts nothing when untouched.)
+- [ ] Delete an item that has a photo → its folder contents are gone.
+
+### 3. Growers and vendors can see photos
+- [ ] Sign in as `james@agribar.local` → open any page listing items → photos load.
+- [ ] Hit `/items/<ItemID>/image` directly while signed in → the image renders.
+- [ ] Sign out and hit the same URL → redirected to `/login`, no image served.
+
+### 4. Rejecting bad files
+- [ ] Rename a `.pdf` (or any non-image) to `.jpg` and pick it → rejected. The check
+      reads the file's leading bytes, so the extension and declared type do not matter.
+- [ ] The failure message appears on the field, and the rest of the form is preserved.
+
+### 5. Storage configuration
+- [ ] With `AZURE_STORAGE_CONNECTION_STRING` set against a real account (or Azurite):
+      upload a photo → it appears as a blob under `item-images/items/<ItemID>/`.
+- [ ] The container is **private** — the blob's direct URL returns
+      `ResourceNotFound`/`PublicAccessNotPermitted` in a signed-out browser, while
+      `/items/<ItemID>/image` still works in the app. If the raw blob URL renders the
+      image, the container was created public and must be fixed.
+- [ ] `NODE_ENV=production` with **no** connection string → uploading fails loudly
+      rather than writing to the container filesystem, which Container Apps discards
+      on the next revision.
+
+### 6. The client workbook
+- [ ] `npx tsx scripts/generate-master-data-template.ts` → 63 columns.
+- [ ] `7-Items` has **ImageFile** as its last column, after `Notes`, with the naming
+      rule in the cell prompt. Existing columns have not moved — a client already
+      filling the previous copy can keep their work.
+- [ ] The README tab has an "Item photos" section explaining the separate folder.
+- [ ] ⚠️ **Nothing consumes this column yet.** The importer described in
+      `docs/master-data-upload.md` has never been built — the column and its
+      documentation ship so the client can gather photos in the same pass, but the
+      bulk load itself is still outstanding work.
+
+## Round 18 — Power BI panels render a real URL (September 2026)
+
+The panels were placeholders. Each now frames whatever URL is stored against the
+report in `PowerBiReport.embedUrl`, so connecting one is a URL change with no
+deploy. The seeded `DEMO_` URLs still show the placeholder card.
+
+**Decide before pasting a URL:** a *Publish to web* URL
+(`app.powerbi.com/view?r=...`) needs no sign-in and no licence, and is **public
+to anyone with the link**. A *Secure embed* URL
+(`app.powerbi.com/reportEmbed?...`) keeps the report private but prompts the
+viewer to sign in to Power BI and requires a licence per viewer. Signing into
+this app with Microsoft does not carry across to either — see the note in
+`components/reports/power-bi-embed.tsx`.
+
+### 1. Unconfigured state (admin@demo.local, `/admin/reports/power-bi`)
+- [ ] With the seeded data, both panels show **"Not connected yet"** with the
+      stored URL beneath, and the banner reads *"2 of 2 reports are not connected yet"*.
+- [ ] No **open** link appears on an unconnected panel — it would go nowhere.
+- [ ] **Nothing but Power BI panels on the page.** The locally-drawn inventory
+      trend chart was removed in Round 20 — the page is solely for embedded
+      Power BI reports.
+
+### 2. Connecting a report
+- [ ] In the database, set one report's `embedUrl` to a real Power BI URL.
+- [ ] Reload → that panel renders the live report in a frame; the other still
+      shows the placeholder; the banner now reads *"1 of 2"*.
+- [ ] The **open** link appears on the connected panel and opens the report in a
+      new tab.
+- [ ] Set both → the banner disappears entirely.
+
+### 3. It refuses to frame anything that is not Power BI
+The URL comes from the database and renders inside an authenticated admin page,
+so an arbitrary URL there would be a convincing place to put a fake login form.
+- [ ] Set an `embedUrl` to `https://example.com` → placeholder, not a frame.
+- [ ] `http://app.powerbi.com/view?r=x` (not HTTPS) → placeholder.
+- [ ] `https://app.powerbi.com.evil.example/view?r=x` → placeholder. This is the
+      one a naive "contains app.powerbi.com" check would happily frame.
+- [ ] `javascript:alert(1)` → placeholder.
+
+### 4. Which sign-in the viewer is asked for
+- [ ] With a **Publish to web** URL, open the page in a private window signed in
+      as an admin → the report renders with **no Power BI prompt**.
+- [ ] Confirm you are comfortable with that: open the same URL in a browser with
+      no session at all. It will render. That is what "publish to web" means.
+- [ ] With a **Secure embed** URL, the frame prompts for a Microsoft sign-in
+      unless that browser already has a licensed Power BI session.
+
+## Round 19 — Power BI "embed for your organization" (September 2026)
+
+Secure-embed reports now render through the powerbi-client library with a token
+the app acquires for the signed-in admin, instead of an iframe left to
+authenticate itself. The iframe route survives for publish-to-web URLs; each
+panel picks by looking at its own URL.
+
+**Azure side first** — `docs/azure-staging-setup.md` §10d. Nothing below works
+until `Report.Read.All` + `Dataset.Read.All` are granted **with admin consent**,
+*"Embed content in apps"* is enabled in the Power BI admin portal, and
+`TOKEN_CACHE_SECRET` is set. Those are three different switches owned by up to
+three different people.
+
+**Apply the migration:** `npm run db:migrate` (two nullable columns on `User`).
+
+### 1. Token storage (already verified end-to-end against SQL Server)
+Confirmed on a real database when this shipped — re-run only if the crypto changes:
+- [ ] After an Entra sign-in, `User.entraTokenCache` is populated and
+      `User.entraHomeAccountId` holds an MSAL account id.
+- [ ] The column is **ciphertext** — searching it for any recognisable token
+      fragment finds nothing.
+- [ ] Changing `TOKEN_CACHE_SECRET` makes the stored cache unreadable, and the
+      reports page asks the user to sign in again rather than erroring.
+
+### 2. The thing this was built to fix (admin@demo.local → real Entra admin)
+- [ ] Sign in with Microsoft, open `/admin/reports/power-bi` → a secure-embed
+      report renders with **no Power BI sign-in prompt inside the panel**.
+- [ ] Repeat in **Safari**. This is the whole point: Safari blocks third-party
+      cookies, so the old iframe prompted there even for a signed-in admin.
+- [ ] Repeat in a Chrome window with third-party cookies blocked.
+- [ ] Leave the page open for over an hour, reload → still renders. The Power BI
+      token lasts about an hour and is re-minted from the stored refresh token.
+
+### 3. Each failure says something different and actionable
+- [ ] Sign in via the **demo picker** (not Entra) → banner reads *"Sign in with
+      Microsoft to view these reports"* with a working button. Not a broken frame.
+- [ ] Unset `TOKEN_CACHE_SECRET`, restart → *"Power BI embedding is not
+      configured"*, and the rest of the app is unaffected.
+- [ ] Before admin consent is granted → *"Power BI access has not been approved
+      yet"*, and it says signing in again will not help. It should **not** loop.
+- [ ] Paste an address-bar URL (`/groups/…/reports/…`) → the panel explains the
+      URL has no `reportId` and points at the Embed menu.
+- [ ] A report the signed-in admin has no Power BI access to → the panel shows
+      Power BI's own error rather than a blank box.
+
+### 4. Both URL kinds still work side by side
+- [ ] One report on a `/reportEmbed?reportId=…` URL and one on a `/view?r=…`
+      URL → the first uses the library, the second a plain iframe, both render.
+- [ ] A page with only publish-to-web panels makes **no token call at all**
+      (no Entra traffic in the logs) — nothing there needs one.
+
+### 5. Regression
+- [ ] Ordinary Microsoft sign-in still works, including for non-admins who never
+      touch reports. `offline_access` was added to the login scopes, so the
+      consent prompt may appear once more per user.
+- [ ] Magic-link sign-in for growers and vendors is untouched — they have no
+      Microsoft identity and no token cache is written for them.
+- [ ] `npm run build` clean.
+
+## Round 20 — Power BI page shows only Power BI (September 2026)
+
+The page carried a locally-drawn inventory trend chart built from
+`InventoryLedger`. It was there because the Power BI panels were placeholders and
+the page would otherwise have been empty; with the panels rendering real reports
+it only invited the question of why one panel behaves differently from the rest.
+Removed, along with the ledger query that fed it.
+
+- [ ] `/admin/reports/power-bi` shows **only** Power BI report cards — no trend
+      chart, no locally-drawn visualisation of any kind.
+- [ ] The page no longer queries `InventoryLedger`. With no reports configured it
+      touches only `PowerBiReport`.
+- [ ] Report panels, the "not connected" placeholders and the sign-in and consent
+      banners all behave exactly as in Rounds 18 and 19.
+- [ ] The other report tabs — Grower stock, Orders, Vendor stock — are unchanged.
+
+> `components/reports/inventory-trend-chart.tsx` is now unused. It was left in
+> place rather than deleted: the chart itself is a reasonable live view of ledger
+> data and may be wanted on the dashboard or another report tab. Delete it if
+> not.
+
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.

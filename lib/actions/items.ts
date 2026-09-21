@@ -15,6 +15,13 @@ import { recordAudit } from "@/lib/audit"
 import { CAPABILITIES } from "@/lib/rbac"
 import { AUDIT_ACTIONS } from "@/lib/constants"
 import { nextItemId } from "@/lib/items/item-id"
+import {
+  discardItemImage,
+  imageRejectionMessage,
+  nextImageKey,
+  putItemImage,
+  readImageIntent,
+} from "@/lib/items/image"
 
 const PATH = "/admin/items"
 
@@ -131,6 +138,12 @@ export async function createItem(
   fd: FormData
 ): Promise<ActionState> {
   const user = await guard(CAPABILITIES.MANAGE_MASTER_DATA)
+  // Before parseForm: formToObject() flattens every non-string entry to "".
+  const image = await readImageIntent(fd)
+  if (!image.ok) {
+    const message = imageRejectionMessage(image.reason)
+    return fail(message, { image: [message] })
+  }
   const { data, error } = parseForm(createSchema, fd)
   if (error) return error
   const mismatch = await subCategoryMismatch(data)
@@ -157,6 +170,22 @@ export async function createItem(
         entityId: id,
         changes: toData(data),
       })
+
+      // The photo is stored AFTER the item exists, because its key contains the
+      // generated id. A storage failure therefore cannot roll back an item that
+      // is already committed — so it is reported rather than thrown, and the
+      // admin re-uploads on the edit dialog instead of refilling the whole form.
+      if (image.intent.kind === "replace") {
+        try {
+          const key = await putItemImage(id, image.intent)
+          await prisma.item.update({ where: { id }, data: { imageKey: key } })
+        } catch (e) {
+          console.error("[items] image upload failed for", id, e)
+          revalidatePath(PATH)
+          return ok(`Item ${id} created, but its photo could not be saved. Edit the item to try again.`)
+        }
+      }
+
       revalidatePath(PATH)
       return ok(`Item ${id} created`)
     } catch (e) {
@@ -172,16 +201,46 @@ export async function updateItem(
   fd: FormData
 ): Promise<ActionState> {
   const user = await guard(CAPABILITIES.MANAGE_MASTER_DATA)
+  // Before parseForm: formToObject() flattens every non-string entry to "".
+  const image = await readImageIntent(fd)
+  if (!image.ok) {
+    const message = imageRejectionMessage(image.reason)
+    return fail(message, { image: [message] })
+  }
   const { data, error } = parseForm(updateSchema, fd)
   if (error) return error
   const mismatch = await subCategoryMismatch(data)
   if (mismatch) return mismatch
+
+  const existing = await prisma.item.findUnique({
+    where: { id: data.id },
+    select: { imageKey: true },
+  })
+  const previousKey = existing?.imageKey ?? null
+
+  // Upload before the transaction: a failed upload should leave the item
+  // untouched, not commit the other edits and lose the photo silently.
+  let uploadedKey: string | null = null
+  if (image.intent.kind === "replace") {
+    try {
+      uploadedKey = await putItemImage(data.id, image.intent)
+    } catch (e) {
+      console.error("[items] image upload failed for", data.id, e)
+      return fail("The photo could not be saved. Please try again.")
+    }
+  }
+
   try {
+    const imageKey = nextImageKey(image.intent, uploadedKey)
     // The id is never re-derived on edit — history rows point at it.
     await prisma.$transaction(async (tx) => {
       await tx.item.update({
         where: { id: data.id },
-        data: { ...toData(data), updatedBy: user.id },
+        data: {
+          ...toData(data),
+          ...(imageKey !== undefined ? { imageKey } : {}),
+          updatedBy: user.id,
+        },
       })
       await syncItemMappings(tx, data.id, parseIds(data.growerIds), parseIds(data.vendorIds), user.id)
     })
@@ -190,11 +249,18 @@ export async function updateItem(
       action: AUDIT_ACTIONS.UPDATE,
       entityType: "Item",
       entityId: data.id,
-      changes: toData(data),
+      changes: { ...toData(data), ...(imageKey !== undefined ? { imageKey } : {}) },
     })
+    // Only once the new key is committed, so a crash in between orphans a blob
+    // rather than leaving a row pointing at bytes that are gone.
+    if (imageKey !== undefined && previousKey && previousKey !== imageKey) {
+      await discardItemImage(previousKey)
+    }
     revalidatePath(PATH)
     return ok("Item updated")
   } catch (e) {
+    // The row kept the old key, so the just-uploaded object belongs to nobody.
+    await discardItemImage(uploadedKey)
     return fail(prismaErrorMessage(e))
   }
 }
@@ -202,7 +268,13 @@ export async function updateItem(
 export async function deleteItem(id: string): Promise<ActionState> {
   const user = await guard(CAPABILITIES.MANAGE_MASTER_DATA)
   try {
+    // Read the key before the row goes, so the object can be cleaned up after.
+    const existing = await prisma.item.findUnique({
+      where: { id },
+      select: { imageKey: true },
+    })
     await prisma.item.delete({ where: { id } })
+    await discardItemImage(existing?.imageKey)
     await recordAudit({
       userId: user.id,
       action: AUDIT_ACTIONS.DELETE,
