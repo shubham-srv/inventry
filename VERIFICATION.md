@@ -1867,5 +1867,47 @@ Removed, along with the ledger query that fed it.
 > data and may be wanted on the dashboard or another report tab. Delete it if
 > not.
 
+## Round 21 — Report panels are full width and can go fullscreen (September 2026)
+
+The panels sat in a two-column grid at 16:9, which halved every report. A Power
+BI report is authored for a full browser window, so labels and axes were below
+reading size. Panels are now one per row, and each carries a maximize control.
+
+Maximizing uses the **Fullscreen API on the existing node**, not a dialog:
+promoting the element in place leaves the `<iframe>` mounted, so the report keeps
+its current page, filters and (for secure embeds) its token handshake. Portalling
+an iframe into a dialog would reload it and discard all of that.
+
+- [ ] `/admin/reports/power-bi` — each report card spans the **full page width**,
+      one per row, at 16:9. No two-column layout at any breakpoint.
+- [ ] Hovering a panel shows a maximize button in its **top-right corner**; it is
+      visible-but-dimmed before hover, not invisible.
+- [ ] Clicking it fills the **whole screen** — no letterboxing, no black bars
+      from the 16:9 ratio, and the background matches the current theme rather
+      than flashing black in light mode.
+- [ ] The button becomes a *minimize* icon while fullscreen.
+- [ ] **Esc** exits, and the icon flips back — the state follows the browser, not
+      the click, so exiting via Esc or the browser's own control stays in sync.
+- [ ] **State survives maximizing.** Navigate to page 2 of a report, apply a
+      filter, then maximize → the report does **not** reload and stays exactly
+      where it was. Same on the way back out. *(This is the point of the whole
+      approach — if it reloads, the frame is being re-mounted somewhere.)*
+- [ ] Works for **both** URL kinds: a `/reportEmbed?reportId=…` secure panel and
+      a `/view?r=…` publish-to-web panel each maximize the same way.
+- [ ] A **"Not connected yet"** placeholder has *no* maximize button — there is
+      nothing to maximize.
+- [ ] An errored panel ("could not be loaded") keeps its message legible and
+      centred in both sizes.
+- [ ] Keyboard: the button is tab-reachable and its `aria-label` names the report
+      ("View \<name\> fullscreen").
+- [ ] Narrow viewport (phone width): panels are still full width, nothing
+      overflows horizontally, and the button does not cover the report's own
+      toolbar.
+
+> Safari uses the prefixed `webkit*` fullscreen API; the helpers at the bottom of
+> `components/reports/report-frame.tsx` cover it. Worth a check there if the
+> client's staff use Macs. If a browser refuses the request the panel simply
+> stays card-sized and logs a warning — no broken state.
+
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.

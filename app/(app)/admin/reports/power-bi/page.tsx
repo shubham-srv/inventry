@@ -65,7 +65,11 @@ export default async function PowerBiReportsPage() {
         </Alert>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2">
+      {/* One per row, full width. A Power BI report is authored for a full
+          browser window, so halving it shrinks every label and axis past
+          reading size — the two-column grid that used to be here made sense
+          only while these panels were placeholders. */}
+      <div className="grid gap-4">
         {reports.map((r) => {
           const kind = classifyEmbedUrl(r.embedUrl)
           const src = embedSrc(r.embedUrl)

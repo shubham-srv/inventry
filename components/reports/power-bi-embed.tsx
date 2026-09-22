@@ -1,4 +1,5 @@
 import { BarChart3 } from "lucide-react"
+import { ReportFrame } from "@/components/reports/report-frame"
 
 /**
  * Renders one Power BI report in an iframe, or a placeholder when its URL has
@@ -98,15 +99,17 @@ export function PowerBiEmbed({ name, url }: { name: string; url: string }) {
   }
 
   return (
-    <iframe
-      // No `sandbox`: Power BI needs scripts and its own origin, and the pair of
-      // attributes that would allow both is equivalent to omitting it. The host
-      // allowlist above is the control that actually does the work here.
-      src={src}
-      title={name}
-      loading="lazy"
-      allowFullScreen
-      className="aspect-video w-full rounded-lg border"
-    />
+    <ReportFrame label={name}>
+      <iframe
+        // No `sandbox`: Power BI needs scripts and its own origin, and the pair of
+        // attributes that would allow both is equivalent to omitting it. The host
+        // allowlist above is the control that actually does the work here.
+        src={src}
+        title={name}
+        loading="lazy"
+        allowFullScreen
+        className="size-full"
+      />
+    </ReportFrame>
   )
 }

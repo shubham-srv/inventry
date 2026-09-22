@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { ReportFrame } from "@/components/reports/report-frame"
 
 /**
  * One Power BI report, embedded with the powerbi-client library and a token this
@@ -94,17 +95,13 @@ export function PowerBiReport({
   }, [embedUrl, reportId, accessToken])
 
   return (
-    <div className="relative">
-      <div
-        ref={host}
-        title={name}
-        className="aspect-video w-full overflow-hidden rounded-lg border [&_iframe]:size-full [&_iframe]:border-0"
-      />
+    <ReportFrame label={name}>
+      <div ref={host} title={name} className="size-full" />
       {error && (
-        <div className="bg-background/90 absolute inset-0 flex items-center justify-center rounded-lg border p-4 text-center">
+        <div className="bg-background/90 absolute inset-0 flex items-center justify-center p-4 text-center">
           <p className="text-muted-foreground text-sm">{error}</p>
         </div>
       )}
-    </div>
+    </ReportFrame>
   )
 }
