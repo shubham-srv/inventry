@@ -105,6 +105,12 @@ variables:
     value: TODO_TENANT_ID # TODO — unused while authProvider=local
   - name: stagingAadClientId
     value: TODO_STAGING_CLIENT_ID # TODO — app registration inventory-app-staging
+  # The hostname users actually visit, once a custom domain is bound to the
+  # Container App. APP_URL and the Entra redirect URI are built from it — see the
+  # note in the deploy step for why the ingress FQDN is the wrong value for both.
+  # Leave EMPTY before the domain is bound and the FQDN is used instead.
+  - name: stagingPublicHost
+    value: staging.domain3.com # TODO confirm exact host (incl. any www)
 
   # ---- production ----------------------------------------------------------
   # Flip `productionEnabled` to true once every TODO below is filled and the
@@ -129,6 +135,8 @@ variables:
     value: TODO_TENANT_ID # TODO
   - name: prodAadClientId
     value: TODO_PRODUCTION_CLIENT_ID # TODO app registration inventory-app-production
+  - name: prodPublicHost
+    value: domain3.com # TODO confirm apex vs www — they are different origins
 
 stages:
   # ==========================================================================
@@ -246,14 +254,28 @@ stages:
                       # would otherwise be re-parsed by bash.
                       KV="$(stagingKvUri)"
                       UAMI="$(stagingUamiId)"
+                      PUBLIC_HOST="$(stagingPublicHost)"
 
-                      # Ingress is configured at app-create time, so the FQDN is
-                      # already known here. Deriving APP_URL and the Entra
-                      # redirect URI from it means they can never drift.
+                      # The ingress FQDN — the *.azurecontainerapps.io hostname.
+                      # Used to health-check the new revision directly, which
+                      # keeps "is the app up" separate from DNS and certificate
+                      # questions about the custom domain.
                       FQDN=$(az containerapp show \
                         --name $(stagingAcaApp) \
                         --resource-group $(stagingResourceGroup) \
                         --query properties.configuration.ingress.fqdn -o tsv)
+
+                      # ...but APP_URL and the Entra redirect URI must be the
+                      # host users actually visit. The redirect URI has to match
+                      # a registered one byte-for-byte, and it decides which
+                      # origin the post-login session cookie is set on: send the
+                      # FQDN and a user who signed in at the custom domain is
+                      # bounced to azurecontainerapps.io and left with no session
+                      # on the domain they started from. APP_URL also builds the
+                      # magic-links in outbound mail, which should carry the
+                      # client's domain, not ours.
+                      PUBLIC_URL="https://${PUBLIC_HOST:-$FQDN}"
+                      echo "ingress=$FQDN  public=$PUBLIC_URL"
 
                       # App-level secrets as Key Vault REFERENCES — pointers, not
                       # values. The platform resolves them at container start via
@@ -291,8 +313,8 @@ stages:
                           AZURE_TRANSLATOR_KEY=secretref:azure-translator-key \
                           AZURE_AD_TENANT_ID="$(stagingAadTenantId)" \
                           AZURE_AD_CLIENT_ID="$(stagingAadClientId)" \
-                          AZURE_AD_REDIRECT_URI="https://$FQDN/api/auth/callback" \
-                          APP_URL="https://$FQDN" \
+                          AZURE_AD_REDIRECT_URI="$PUBLIC_URL/api/auth/callback" \
+                          APP_URL="$PUBLIC_URL" \
                           ACS_SENDER_ADDRESS="$(stagingAcsSender)" \
                           AZURE_TRANSLATOR_REGION="$(translatorRegion)" \
                           AUTH_PROVIDER="$(authProvider)" \
@@ -398,11 +420,17 @@ stages:
                       set -euo pipefail
                       KV="$(prodKvUri)"
                       UAMI="$(prodUamiId)"
+                      PUBLIC_HOST="$(prodPublicHost)"
 
                       FQDN=$(az containerapp show \
                         --name $(prodAcaApp) \
                         --resource-group $(prodResourceGroup) \
                         --query properties.configuration.ingress.fqdn -o tsv)
+
+                      # See the staging stage for why the public host, not the
+                      # ingress FQDN, drives APP_URL and the redirect URI.
+                      PUBLIC_URL="https://${PUBLIC_HOST:-$FQDN}"
+                      echo "ingress=$FQDN  public=$PUBLIC_URL"
 
                       az containerapp secret set \
                         --name $(prodAcaApp) \
@@ -430,8 +458,8 @@ stages:
                           AZURE_TRANSLATOR_KEY=secretref:azure-translator-key \
                           AZURE_AD_TENANT_ID="$(prodAadTenantId)" \
                           AZURE_AD_CLIENT_ID="$(prodAadClientId)" \
-                          AZURE_AD_REDIRECT_URI="https://$FQDN/api/auth/callback" \
-                          APP_URL="https://$FQDN" \
+                          AZURE_AD_REDIRECT_URI="$PUBLIC_URL/api/auth/callback" \
+                          APP_URL="$PUBLIC_URL" \
                           ACS_SENDER_ADDRESS="$(prodAcsSender)" \
                           AZURE_TRANSLATOR_REGION="$(translatorRegion)" \
                           AUTH_PROVIDER="$(authProvider)" \

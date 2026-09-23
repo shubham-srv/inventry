@@ -1909,5 +1909,52 @@ an iframe into a dialog would reload it and discard all of that.
 > client's staff use Macs. If a browser refuses the request the panel simply
 > stays card-sized and logs a warning — no broken state.
 
+## Round 22 — APP_URL follows the custom domain, not the ingress FQDN (September 2026)
+
+Both deploy stages built `APP_URL` and `AZURE_AD_REDIRECT_URI` from the Container
+App's `*.azurecontainerapps.io` ingress FQDN. With custom domains bound
+(`staging.domain3.com`, `domain3.com`) that is the wrong origin for both. New
+pipeline variables `stagingPublicHost` / `prodPublicHost` supply the real host;
+leaving one empty falls back to the FQDN, so an unbound environment still works.
+The health-check poll deliberately still uses the FQDN — it answers "is the
+revision serving", which should not fail on a DNS or certificate problem.
+
+**Entra first, or sign-in breaks.** Register the new redirect URI *before* the
+first deploy that uses it — a redirect URI that isn't registered is rejected by
+Microsoft outright (`AADSTS50011`).
+
+- [ ] App registration has **`https://staging.domain3.com/api/auth/callback`** as
+      a Web redirect URI, and production's has its own.
+- [ ] Post-logout redirect URI updated to `https://staging.domain3.com/login`.
+- [ ] Pipeline log line `ingress=…  public=…` shows the custom domain as
+      `public`, not the `azurecontainerapps.io` host.
+- [ ] Container App → env vars: `APP_URL` and `AZURE_AD_REDIRECT_URI` both carry
+      the custom domain after the deploy.
+- [ ] Sign in with Microsoft **starting at `https://staging.domain3.com/login`**
+      → you land back on `staging.domain3.com`, signed in. You are **not**
+      bounced to `*.azurecontainerapps.io` at any point. *(This is the failure the
+      change prevents: the callback sets the session cookie on whichever origin
+      handles it, so the old value left you signed in on the wrong hostname.)*
+- [ ] Sign out → returns to `staging.domain3.com/login`.
+- [ ] Request a magic link → the emailed URL is on `staging.domain3.com`, and
+      following it signs you in.
+- [ ] The email logo renders (it is `APP_URL/logo-email.png` — it was pointing at
+      the ACA host before, which worked but was off-brand).
+- [ ] Cron jobs still fire. They `curl` the FQDN by design; no change needed, and
+      pointing them at the custom domain would only add a DNS dependency to a
+      call that never leaves Azure.
+- [ ] Visiting the old `*.azurecontainerapps.io` URL still serves the app but now
+      issues links on the custom domain. Consider whether the client wants that
+      hostname locked down — see below.
+
+> **Decide before go-live:** the default ACA hostname stays publicly reachable
+> after a custom domain is bound. Two origins serving the same app means a stray
+> bookmark can produce sessions on the wrong host. Options: leave it (harmless,
+> slightly untidy), or add a redirect to the canonical host.
+
+> `prodPublicHost` is set to the apex `domain3.com`. **Apex and `www` are
+> different origins** — if the client's DNS sends `www` anywhere, pick one as
+> canonical and redirect the other, or sign-in works on one and not the other.
+
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.
