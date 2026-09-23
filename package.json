@@ -21,7 +21,9 @@
     "db:migrate:reset": "prisma migrate reset",
     "db:migrate:status": "prisma migrate status",
     "reminders": "tsx scripts/run-reminders.ts",
-    "docs:guide": "tsx scripts/generate-user-guide.ts"
+    "docs:guide": "tsx scripts/generate-user-guide.ts",
+    "data:template": "tsx scripts/generate-master-data-template.ts",
+    "data:import": "tsx scripts/import-master-data.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -6,25 +6,43 @@ vendors, users, the lookups those depend on, and the mappings between them.
 Generate the blank workbook to send them with:
 
 ```bash
-npx tsx scripts/generate-master-data-template.ts
-# writes master-data-template.xlsx in the repo root
+npm run data:template            # writes master-data-template.xlsx in the repo root
+```
+
+and load the filled-in file back with:
+
+```bash
+npm run data:import -- <file.xlsx> --dry-run   # validate only, writes nothing
+npm run data:import -- <file.xlsx>             # validate, then import
 ```
 
 This document is the reference; the workbook carries the same rules as column
 notes and dropdowns, so the client can mostly work from the file alone.
 
-**Not in scope.** Thresholds, scheduler settings, item messages, packaging
-chains and any transactional data (submissions, orders, the ledger) are
-configured in the app after go-live, not uploaded.
+Both scripts read the sheet definitions from
+[`scripts/master-data-spec.ts`](../scripts/master-data-spec.ts) — one definition,
+so the file we send and the file we can read back cannot drift apart.
+
+**Not in scope.** Item messages and any transactional data (submissions, orders,
+the ledger) are configured in the app after go-live, not uploaded. Sheets 17–20
+(packaging, thresholds, reminders) *can* be uploaded but do not have to be —
+leaving them empty holds nothing up.
 
 ---
 
 ## How to fill it in
 
-One sheet per entity, one row per record. **Row 1 is the header — do not rename,
-reorder or delete columns.** Extra columns are ignored; missing ones fail the
-import. Leave optional cells blank rather than writing "N/A" or "-", except
-where a literal `N/A` is a listed option.
+One sheet per entity, one row per record. Row 1 describes the sheet, **row 2 is
+the header — do not rename, reorder or delete columns**, row 3 is a greyed-out
+example to delete, and the client's data starts on row 4. Extra columns are
+ignored; a missing *required* column fails the import, while a missing optional
+one is treated as blank. Leave optional cells blank rather than writing "N/A" or
+"-", except where a literal `N/A` is a listed option.
+
+The importer finds the header by its text rather than by counting rows, so an
+inserted row does not break it, and it skips the example row if it was left in —
+saying so in the output rather than importing "PackRight Manufacturing" as real
+data.
 
 Sheets reference each other **by name** (grower name, location name, category
 code), not by database id — the one exception is items, which are referenced by
@@ -35,8 +53,17 @@ everything else must match exactly, including case.
 ### Load order
 
 The importer processes sheets in this order, because each depends on the ones
-above it. It matters if a load fails halfway: everything runs in a single
-transaction, so a failure rolls the whole thing back and nothing is half-loaded.
+above it.
+
+**Nothing is written until the whole workbook validates.** The importer reads
+every sheet, resolves every cross-sheet reference and reports every problem it
+finds — with sheet and row numbers — before it touches the database. If there is
+even one error, nothing at all is imported. That is what makes a half-loaded
+database impossible here, rather than a transaction.
+
+**It is safe to run more than once.** Every write is an upsert keyed on the same
+name the workbook uses, so the normal loop — import, read the errors, fix those
+rows, run the whole file again — converges instead of duplicating.
 
 ```
 1  Regions
@@ -55,6 +82,10 @@ transaction, so a failure rolls the whole thing back and nothing is half-loaded.
 14 VendorCategories     -> Vendors, MaterialCategories
 15 VendorSupplyCountries-> Vendors, Countries
 16 VendorLocations      -> Vendors, Locations
+17 PackagingChains      -> MaterialCategories
+18 VendorPackaging      -> Vendors, Items, VendorItems, PackagingChains
+19 ItemThresholds       -> Items, Growers
+20 ReminderSchedules    -> Growers
 ```
 
 ---
@@ -399,6 +430,84 @@ One row per pair. Repeat the vendor name for each of its sites.
 
 ---
 
+# Sheets 17–20 — optional setup
+
+Everything below can also be entered in the app after go-live. Fill these in
+only if the client already knows the values; an empty sheet blocks nothing.
+
+Two columns take a **comma-separated list** rather than one row per level:
+`Levels` on 17 and `Ratios` on 18. That is not a shortcut — it is the shape the
+app itself uses, where both are single text fields, and a chain is rarely more
+than three deep. Keeping the workbook the same shape means what a client types
+here is what they later see on screen.
+
+## 17. PackagingChains
+
+How a category is packed for shipping — **structure only, no quantities**. The
+numbers are per vendor, on sheet 18.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `ChainName` | ✅ | text | Unique. How the chain reads, e.g. `Bags → Boxes → Cases`. Sheet 18 refers to a chain by this name. |
+| `MaterialCategoryCode` | ✅ | text | Must exist in **MaterialCategories**. Where the chain starts. |
+| `Levels` | ✅ | list | The containers **above** the item itself, innermost first: `Boxes, Cases` |
+| `IsActive` | | Yes/No | Default Yes |
+
+The chain's innermost level **is the material category**, so do not repeat it in
+`Levels` — a `BG` chain starts from Bags already. Only items in the chain's
+category can use it.
+
+## 18. VendorPackaging
+
+One vendor's packing quantities for one item.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `VendorName` | ✅ | text | Must exist in **Vendors** |
+| `ItemID` | ✅ | text | Must exist in **Items**, and the vendor/item pair must appear in **13-VendorItems** |
+| `ChainName` | ✅ | text | Must exist in **17-PackagingChains**, and its category must match the item's |
+| `Ratios` | ✅ | list | One whole number (1+) per level in the chain, innermost first |
+
+`10, 5` against `Boxes, Cases` means 10 bags per box, 5 boxes per case. The
+count must equal the chain's number of levels — the importer rejects the row
+otherwise, because a mismatch has no sensible interpretation.
+
+> **Packaging is descriptive and never changes a quantity.** It works out how
+> many containers an ordered quantity occupies in transit. Those containers are
+> discarded on arrival and are never stock. What a grower orders is what a
+> grower receives.
+
+## 19. ItemThresholds
+
+The stock level below which an item is flagged low.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `ItemID` | ✅ | text | Must exist in **Items** |
+| `GrowerName` | | text | **Blank = the default for every grower.** Name a grower to override it for them. |
+| `ThresholdQuantity` | ✅ | number | 0 or more |
+
+At most one row per item per grower, plus at most one blank-grower default per
+item. The quantity is in the item's **material category** — the same terms its
+counts are recorded in. There is no unit column.
+
+## 20. ReminderSchedules
+
+When a grower who has not submitted gets chased by email.
+
+| Column | Required | Type | Rules |
+|---|---|---|---|
+| `GrowerName` | | text | **Blank = the global setting.** At most one such row. |
+| `CadenceType` | ✅ | list | `Daily`, `Weekly`, `Monthly`, `AfterNDays` |
+| `ThresholdDays` | | number | Whole days, 1+. Only read when `CadenceType` is `AfterNDays`. |
+| `IsEnabled` | ✅ | Yes/No | `No` = send no reminders for this scope |
+
+A grower row **replaces** the global one for that grower wholesale — there is no
+field-level merge, so fill in every column on it. An overdue grower gets at most
+one reminder a day regardless of what is set here.
+
+---
+
 ## Validation summary
 
 Everything the importer checks before writing anything:
@@ -427,14 +536,19 @@ Everything the importer checks before writing anything:
 - a user's `GrowerName`/`VendorName` matches their role
 - location types satisfy the grower/vendor gate
 
-**Images**
-- `ImageFile`, when given, resolves to a file in the images folder
-- the file is a real JPG/PNG/WebP (checked by content, not by extension)
-- the file is within the size limit
+**Packaging, thresholds and reminders (17–20)**
+- a chain's `Levels` is non-empty; a row's `Ratios` count equals its chain's level count
+- every ratio is a whole number, 1 or more
+- a packaging row's vendor/item pair exists in **13-VendorItems**
+- the chain's category matches the item's category
+- `ThresholdDays` is present when `CadenceType` is `AfterNDays`
+- at most one blank-`GrowerName` row on **20-ReminderSchedules**
 
 **Advisory (warn, don't fail)**
-- an `ImageFile` naming a file that is not in the folder — the item loads without it
-- an image file in the folder that no row references
+- rows naming a photo in `ImageFile` — the importer does not upload photos, so
+  those items load without one
+- the example row left in a sheet — skipped, not imported
+- an optional column deleted from a sheet — treated as blank
 - an active grower with no `GrowerLocations` row — they cannot submit
 - an active grower with no `GrowerItems` rows — they will see an empty form
 - a vendor supplying items outside its declared categories
@@ -444,12 +558,15 @@ Everything the importer checks before writing anything:
 
 ## After the upload
 
-Configure in the app, not the workbook:
+- **Item messages** — `/admin/item-messages`. Not uploadable; authored in the app.
+- **Item photos** — the importer does **not** upload them. It validates and
+  counts the `ImageFile` column and warns about the rows that name a file, but
+  the pictures themselves are attached through `/admin/items`.
 
-- **Thresholds** — `/admin/settings/thresholds`. A quantity only, in the item's category.
-- **Reminder schedules** — `/admin/settings/schedulers`. A Global row is created by the bootstrap.
-- **Packaging chains and pack ratios** — `/admin/packaging`, then per vendor-item on `/admin/mappings/vendors`. Descriptive only: it says how many containers an order occupies, and never changes the quantity ordered or received.
-- **Item messages** — `/admin/item-messages`.
+Anything on sheets 17–20 that was left blank is also set in the app:
+**thresholds** at `/admin/settings/thresholds`, **reminder schedules** at
+`/admin/settings/schedulers`, **packaging** at `/admin/packaging` and then per
+vendor-item on `/admin/mappings/vendors`.
 
 Reference data the bootstrap creates by itself, whether or not it appears in the
 workbook: the five **roles**, and the first admin **user** from

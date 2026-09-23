@@ -1956,5 +1956,69 @@ Microsoft outright (`AADSTS50011`).
 > different origins** — if the client's DNS sends `www` anywhere, pick one as
 > canonical and redirect the other, or sign-in works on one and not the other.
 
+## Round 23 — Workbook sheets 17–20, and an importer for it (September 2026)
+
+The template generator gained the four sheets that were written on `master`
+after this branch diverged — `17-PackagingChains`, `18-VendorPackaging`,
+`19-ItemThresholds`, `20-ReminderSchedules` — so it now emits **21 tabs**:
+README plus 20 numbered. They were ported onto this branch's file rather than
+copied over it, because this branch had meanwhile added the `ImageFile` column
+to `7-Items` and the photos section of the README, which `master` does not have.
+
+The sheet definitions moved to `scripts/master-data-spec.ts`, shared by the
+generator and the new importer. One definition, so the file we send the client
+and the file we can read back cannot drift.
+
+`scripts/import-master-data.ts` is new: `npm run data:import -- <file> [--dry-run]`.
+
+**What I verified myself** (throwaway database `inventory_import_test`, created,
+pushed, imported, dropped — the same approach we used for the migrations):
+
+- ✅ blank template → valid, example rows detected on all 20 sheets
+- ✅ filled workbook → imported; relations checked individually, not just counts:
+      chain levels ordered `1=Boxes 2=Cases`, ratios `1:10 2:5` on the right
+      `ItemVendor`, thresholds as both a global (null grower) **and** an Agribar
+      override on the same item, scheduler rows as `Global` + `Grower`, users
+      wired to the right role/grower/vendor, items to sub-category and origin
+- ✅ **re-run → byte-identical counts** (no duplicates, levels and ratios not doubled)
+- ✅ deliberately broken workbook → **24 errors reported, nothing written**
+      (verified counts unchanged afterwards)
+- ✅ `npm run typecheck` · `npm run lint` clean
+
+**One real bug that testing caught, worth knowing about.** Example-row detection
+originally matched on cell values alone. A client whose genuine first region is
+called "West" — the same value as the example — would have had that row silently
+dropped, and then every later sheet referencing it would fail with "region not
+found". It now requires the generator's grey italic styling *as well as* the
+values. Test both halves if you touch it:
+
+- [ ] Fill `1-Regions` row 4 with `West` (same as the example) as **normal, un-italic**
+      text → it imports. This is the regression.
+- [ ] Leave the greyed example row in place → skipped, with a warning naming the row.
+- [ ] Type real data over the example row → imported, not skipped.
+
+**Still worth checking by hand:**
+
+- [ ] Run against a copy of the **client's real workbook** once they return it.
+      Synthetic data cannot stand in for the ways a real one will be odd.
+- [ ] Insert a row above the header in one sheet → the header is still found by
+      text and the import still works.
+- [ ] Delete an *optional* column → warning, treated as blank. Delete a
+      *required* one → error, nothing imported.
+- [ ] After import, the app agrees: `/admin/items`, `/admin/mappings/vendors`
+      (packaging visible), `/admin/settings/thresholds`, `/admin/settings/schedulers`.
+- [ ] A grower user from `10-Users` can sign in by magic link and sees exactly
+      the items on `12-GrowerItems`.
+
+> **Photos are not imported.** `ImageFile` is validated and counted, and the run
+> warns about rows naming a file, but nothing is uploaded — that needs the
+> storage account and belongs with `lib/storage`. Attach photos via `/admin/items`,
+> or say the word and I'll add it to the script.
+
+> **No global transaction, deliberately.** Validation has already ruled out the
+> realistic failures, a single transaction spanning twenty sheets is a long one
+> to hold against a Basic-tier Azure SQL, and every write is an upsert — so the
+> recovery from a mid-run failure is simply to run the file again.
+
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.
