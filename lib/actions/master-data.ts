@@ -252,7 +252,7 @@ export async function deleteCountry(id: number): Promise<ActionState> {
 const locationSchema = z.object({
   id: z.string().trim().optional().default(""),
   locationName: z.string().trim().min(1, "Name is required"),
-  locationType: z.string().trim().optional().default(""),
+  locationTypeId: z.string().trim().optional().default(""),
   regionId: z.string().trim().optional().default(""),
   countryId: z.string().trim().optional().default(""),
   commodityFocus: z.string().trim().optional().default(""),
@@ -264,7 +264,7 @@ type LocationInput = z.infer<typeof locationSchema>
 function locationData(d: LocationInput) {
   return {
     locationName: d.locationName,
-    locationType: d.locationType || null,
+    locationTypeId: d.locationTypeId ? Number(d.locationTypeId) : null,
     regionId: d.regionId ? Number(d.regionId) : null,
     countryId: d.countryId ? Number(d.countryId) : null,
     commodityFocus: d.commodityFocus || null,

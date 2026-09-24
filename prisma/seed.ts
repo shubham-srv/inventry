@@ -6,6 +6,7 @@ import {
   AUDIT_ACTIONS,
   COUNTRIES_OF_ORIGIN,
   REGIONS,
+  LOCATION_TYPE_SEED,
 } from "../lib/constants"
 
 const prisma = new PrismaClient()
@@ -87,6 +88,7 @@ async function clearAll() {
   await prisma.user.deleteMany()
   await prisma.role.deleteMany()
   await prisma.location.deleteMany()
+  await prisma.locationType.deleteMany()
   await prisma.vendor.deleteMany()
   await prisma.grower.deleteMany()
   // Country goes LAST of the lookups, after every table that points at it:
@@ -173,20 +175,32 @@ async function main() {
     (await prisma.country.findMany({ select: { id: true, name: true } })).map((c) => [c.name, c.id])
   )
 
+  // ---- Location types -------------------------------------------------
+  // The lookup the Location.locationTypeId foreign key points at. Admins
+  // maintain it at /admin/location-types; LOCATION_TYPE_SEED is only the
+  // starting list.
+  console.log("Seeding location types…")
+  await prisma.locationType.createMany({
+    data: LOCATION_TYPE_SEED.map((t, i) => ({ name: t.name, appliesTo: t.appliesTo, sortOrder: i + 1 })),
+  })
+  const typeByName: Record<string, number> = Object.fromEntries(
+    (await prisma.locationType.findMany({ select: { id: true, name: true } })).map((t) => [t.name, t.id])
+  )
+
   // ---- Locations ------------------------------------------------------
   console.log("Seeding locations…")
   const loc = await Promise.all(
     [
-      { locationName: "Salinas Packing House", locationType: "Packing House", regionId: regionByName["West"], countryId: cooByName["USA"], commodityFocus: "Asparagus" },
-      { locationName: "Central Warehouse", locationType: "Warehouse", regionId: regionByName["Central"], countryId: cooByName["USA"], commodityFocus: "Mixed" },
-      { locationName: "East Cross-dock", locationType: "Cross-dock", regionId: regionByName["East"], countryId: cooByName["USA"], commodityFocus: "Berries" },
-      { locationName: "Hermosillo Yard", locationType: "Warehouse", regionId: regionByName["West"], countryId: cooByName["Mexico"], commodityFocus: "Table Grapes" },
-      // Vendor-side sites. Types are gated (lib/constants.ts LOCATION_TYPES), so
+      { locationName: "Salinas Packing House", locationTypeId: typeByName["Packing House"], regionId: regionByName["West"], countryId: cooByName["USA"], commodityFocus: "Asparagus" },
+      { locationName: "Central Warehouse", locationTypeId: typeByName["Warehouse"], regionId: regionByName["Central"], countryId: cooByName["USA"], commodityFocus: "Mixed" },
+      { locationName: "East Cross-dock", locationTypeId: typeByName["Cross-dock"], regionId: regionByName["East"], countryId: cooByName["USA"], commodityFocus: "Berries" },
+      { locationName: "Hermosillo Yard", locationTypeId: typeByName["Warehouse"], regionId: regionByName["West"], countryId: cooByName["Mexico"], commodityFocus: "Table Grapes" },
+      // Vendor-side sites. Types are gated by LocationType.appliesTo, so
       // a vendor cannot sit at the Packing House above and a grower cannot count
       // inventory at these — which is the whole point of the type field.
-      { locationName: "PackRight Plant", locationType: "Manufacturing Plant", regionId: regionByName["West"], countryId: cooByName["USA"] },
-      { locationName: "Gulf Distribution Center", locationType: "Distribution Center", regionId: regionByName["East"], countryId: cooByName["USA"] },
-      { locationName: "Nogales 3PL", locationType: "3PL Facility", regionId: regionByName["West"], countryId: cooByName["Mexico"] },
+      { locationName: "PackRight Plant", locationTypeId: typeByName["Manufacturing Plant"], regionId: regionByName["West"], countryId: cooByName["USA"] },
+      { locationName: "Gulf Distribution Center", locationTypeId: typeByName["Distribution Center"], regionId: regionByName["East"], countryId: cooByName["USA"] },
+      { locationName: "Nogales 3PL", locationTypeId: typeByName["3PL Facility"], regionId: regionByName["West"], countryId: cooByName["Mexico"] },
     ].map((l) => prisma.location.create({ data: l }))
   )
 
@@ -322,29 +336,29 @@ async function main() {
 
   // ---- Items ----------------------------------------------------------
   const itemDefs = [
-    { id: "AP-BX-00001", itemName: "Asparagus Cardboard Box 11lb", commodityCode: "AP", materialCategoryCode: "BX", subCategory: "Cardboard Boxes", coo: "USA" },
-    { id: "AP-BG-00002", itemName: "Asparagus Mesh Bag 2lb", commodityCode: "AP", materialCategoryCode: "BG", subCategory: "Mesh Bags", coo: "Mexico" },
-    { id: "BP-BX-00003", itemName: "Bell Pepper Box 25lb", commodityCode: "BP", materialCategoryCode: "BX", subCategory: "Cardboard Boxes", coo: "USA" },
-    { id: "BP-LB-00004", itemName: "Bell Pepper PLU Sticker", commodityCode: "BP", materialCategoryCode: "LB", subCategory: "PLU Stickers", coo: "USA" },
-    { id: "CG-BX-00005", itemName: "Grape Clamshell Box", commodityCode: "CG", materialCategoryCode: "BX", subCategory: "Packaged Boxes", coo: "Peru" },
-    { id: "CG-PL-00006", itemName: "Grape Wooden Pallet", commodityCode: "CG", materialCategoryCode: "PL", subCategory: "Wooden Pallets", coo: "Canada" },
-    { id: "BR-BX-00007", itemName: "Berry Clamshell 6oz", commodityCode: "BR", materialCategoryCode: "BX", subCategory: "Packaged Boxes", coo: "Mexico" },
-    { id: "BR-LB-00008", itemName: "Berry Brand Label", commodityCode: "BR", materialCategoryCode: "LB", subCategory: "Brand Labels", coo: "USA" },
-    { id: "AV-BX-00009", itemName: "Avocado Box 25lb", commodityCode: "AV", materialCategoryCode: "BX", subCategory: "Cardboard Boxes", coo: "Mexico" },
-    { id: "AV-BG-00010", itemName: "Avocado Poly Bag 4ct", commodityCode: "AV", materialCategoryCode: "BG", subCategory: "Poly Bags", coo: "Ecuador" },
-    { id: "BP-PL-00011", itemName: "Bell Pepper Pallet", commodityCode: "BP", materialCategoryCode: "PL", subCategory: "Wooden Pallets", coo: "USA" },
-    { id: "CG-ST-00012", itemName: "Grape Adhesive Sticker", commodityCode: "CG", materialCategoryCode: "ST", subCategory: "Adhesive Stickers", coo: "N/A" },
+    { id: "AP-BX-000001", itemName: "Asparagus Cardboard Box 11lb", commodityCode: "AP", materialCategoryCode: "BX", subCategory: "Cardboard Boxes", coo: "USA" },
+    { id: "AP-BG-000002", itemName: "Asparagus Mesh Bag 2lb", commodityCode: "AP", materialCategoryCode: "BG", subCategory: "Mesh Bags", coo: "Mexico" },
+    { id: "BP-BX-000003", itemName: "Bell Pepper Box 25lb", commodityCode: "BP", materialCategoryCode: "BX", subCategory: "Cardboard Boxes", coo: "USA" },
+    { id: "BP-LB-000004", itemName: "Bell Pepper PLU Sticker", commodityCode: "BP", materialCategoryCode: "LB", subCategory: "PLU Stickers", coo: "USA" },
+    { id: "CG-BX-000005", itemName: "Grape Clamshell Box", commodityCode: "CG", materialCategoryCode: "BX", subCategory: "Packaged Boxes", coo: "Peru" },
+    { id: "CG-PL-000006", itemName: "Grape Wooden Pallet", commodityCode: "CG", materialCategoryCode: "PL", subCategory: "Wooden Pallets", coo: "Canada" },
+    { id: "BR-BX-000007", itemName: "Berry Clamshell 6oz", commodityCode: "BR", materialCategoryCode: "BX", subCategory: "Packaged Boxes", coo: "Mexico" },
+    { id: "BR-LB-000008", itemName: "Berry Brand Label", commodityCode: "BR", materialCategoryCode: "LB", subCategory: "Brand Labels", coo: "USA" },
+    { id: "AV-BX-000009", itemName: "Avocado Box 25lb", commodityCode: "AV", materialCategoryCode: "BX", subCategory: "Cardboard Boxes", coo: "Mexico" },
+    { id: "AV-BG-000010", itemName: "Avocado Poly Bag 4ct", commodityCode: "AV", materialCategoryCode: "BG", subCategory: "Poly Bags", coo: "Ecuador" },
+    { id: "BP-PL-000011", itemName: "Bell Pepper Pallet", commodityCode: "BP", materialCategoryCode: "PL", subCategory: "Wooden Pallets", coo: "USA" },
+    { id: "CG-ST-000012", itemName: "Grape Adhesive Sticker", commodityCode: "CG", materialCategoryCode: "ST", subCategory: "Adhesive Stickers", coo: "N/A" },
     // No unit per item: a quantity is counted in the item's material category
     // (BX=Boxes, BG=Bags, LB=Labels, PL=Pallets, ST=Stickers). Packaging chains
     // hang off the same category, so the two can never disagree.
-    { id: "AP-LB-00013", itemName: "Asparagus Brand Label", commodityCode: "AP", materialCategoryCode: "LB", subCategory: "Brand Labels", coo: "USA" },
-    { id: "BP-BG-00014", itemName: "Bell Pepper Mesh Bag 3lb", commodityCode: "BP", materialCategoryCode: "BG", subCategory: "Mesh Bags", coo: "Mexico" },
-    { id: "CG-BG-00015", itemName: "Grape Poly Bag 2lb", commodityCode: "CG", materialCategoryCode: "BG", subCategory: "Poly Bags", coo: "Peru" },
-    { id: "BR-PL-00016", itemName: "Berry Wooden Pallet", commodityCode: "BR", materialCategoryCode: "PL", subCategory: "Wooden Pallets", coo: "USA" },
-    { id: "AV-LB-00017", itemName: "Avocado PLU Sticker", commodityCode: "AV", materialCategoryCode: "LB", subCategory: "PLU Stickers", coo: "Mexico" },
-    { id: "AP-PL-00018", itemName: "Asparagus Pallet", commodityCode: "AP", materialCategoryCode: "PL", subCategory: "Wooden Pallets", coo: "USA" },
-    { id: "BR-BG-00019", itemName: "Berry Poly Bag 1lb", commodityCode: "BR", materialCategoryCode: "BG", subCategory: "Poly Bags", coo: "Mexico" },
-    { id: "BP-ST-00020", itemName: "Bell Pepper Adhesive Sticker", commodityCode: "BP", materialCategoryCode: "ST", subCategory: "Adhesive Stickers", coo: "N/A" },
+    { id: "AP-LB-000013", itemName: "Asparagus Brand Label", commodityCode: "AP", materialCategoryCode: "LB", subCategory: "Brand Labels", coo: "USA" },
+    { id: "BP-BG-000014", itemName: "Bell Pepper Mesh Bag 3lb", commodityCode: "BP", materialCategoryCode: "BG", subCategory: "Mesh Bags", coo: "Mexico" },
+    { id: "CG-BG-000015", itemName: "Grape Poly Bag 2lb", commodityCode: "CG", materialCategoryCode: "BG", subCategory: "Poly Bags", coo: "Peru" },
+    { id: "BR-PL-000016", itemName: "Berry Wooden Pallet", commodityCode: "BR", materialCategoryCode: "PL", subCategory: "Wooden Pallets", coo: "USA" },
+    { id: "AV-LB-000017", itemName: "Avocado PLU Sticker", commodityCode: "AV", materialCategoryCode: "LB", subCategory: "PLU Stickers", coo: "Mexico" },
+    { id: "AP-PL-000018", itemName: "Asparagus Pallet", commodityCode: "AP", materialCategoryCode: "PL", subCategory: "Wooden Pallets", coo: "USA" },
+    { id: "BR-BG-000019", itemName: "Berry Poly Bag 1lb", commodityCode: "BR", materialCategoryCode: "BG", subCategory: "Poly Bags", coo: "Mexico" },
+    { id: "BP-ST-000020", itemName: "Bell Pepper Adhesive Sticker", commodityCode: "BP", materialCategoryCode: "ST", subCategory: "Adhesive Stickers", coo: "N/A" },
   ]
   await prisma.item.createMany({
     data: itemDefs.map((it) => ({
@@ -369,11 +383,11 @@ async function main() {
 
   // ---- Grower ↔ Item authorizations -----------------------------------
   const authMap: Record<number, string[]> = {
-    [agribar.id]: ["AP-BX-00001", "AP-BG-00002", "BP-BX-00003", "BP-LB-00004", "CG-BX-00005", "CG-PL-00006", "BR-BX-00007", "BR-LB-00008"],
-    [brigo.id]: ["BP-BX-00003", "BP-LB-00004", "CG-BX-00005", "CG-PL-00006", "BR-BX-00007", "BR-LB-00008", "AV-BX-00009", "AV-BG-00010"],
-    [pdg.id]: ["AP-BX-00001", "AP-BG-00002", "CG-BX-00005", "CG-PL-00006", "AV-BX-00009", "AV-BG-00010", "BP-PL-00011", "CG-ST-00012"],
-    [verdeval.id]: ["AP-BX-00001", "BP-BX-00003", "BR-BX-00007", "AP-LB-00013", "BP-BG-00014", "CG-BG-00015", "BR-PL-00016", "AV-LB-00017"],
-    [sunridge.id]: ["CG-BX-00005", "AV-BX-00009", "AP-LB-00013", "BP-BG-00014", "AP-PL-00018", "BR-BG-00019", "BP-ST-00020"],
+    [agribar.id]: ["AP-BX-000001", "AP-BG-000002", "BP-BX-000003", "BP-LB-000004", "CG-BX-000005", "CG-PL-000006", "BR-BX-000007", "BR-LB-000008"],
+    [brigo.id]: ["BP-BX-000003", "BP-LB-000004", "CG-BX-000005", "CG-PL-000006", "BR-BX-000007", "BR-LB-000008", "AV-BX-000009", "AV-BG-000010"],
+    [pdg.id]: ["AP-BX-000001", "AP-BG-000002", "CG-BX-000005", "CG-PL-000006", "AV-BX-000009", "AV-BG-000010", "BP-PL-000011", "CG-ST-000012"],
+    [verdeval.id]: ["AP-BX-000001", "BP-BX-000003", "BR-BX-000007", "AP-LB-000013", "BP-BG-000014", "CG-BG-000015", "BR-PL-000016", "AV-LB-000017"],
+    [sunridge.id]: ["CG-BX-000005", "AV-BX-000009", "AP-LB-000013", "BP-BG-000014", "AP-PL-000018", "BR-BG-000019", "BP-ST-000020"],
   }
   await prisma.growerItemAuthorization.createMany({
     data: growers.flatMap((g) =>
@@ -406,11 +420,11 @@ async function main() {
 
   // ---- Item ↔ Vendor mappings -----------------------------------------
   const vendorItemMap: Record<number, string[]> = {
-    [packRight.id]: ["AP-BX-00001", "AP-BG-00002", "BP-BX-00003", "CG-BX-00005", "BR-BX-00007", "AV-BX-00009", "AV-BG-00010"],
-    [palletPool.id]: ["CG-PL-00006", "BP-PL-00011", "BR-PL-00016", "AP-PL-00018"],
-    [labelWorks.id]: ["BP-LB-00004", "BR-LB-00008", "CG-ST-00012"],
-    [boxCraft.id]: ["BP-BX-00003", "BR-BX-00007", "BP-BG-00014", "CG-BG-00015", "BR-BG-00019"],
-    [stickerPro.id]: ["AP-LB-00013", "AV-LB-00017", "BP-ST-00020"],
+    [packRight.id]: ["AP-BX-000001", "AP-BG-000002", "BP-BX-000003", "CG-BX-000005", "BR-BX-000007", "AV-BX-000009", "AV-BG-000010"],
+    [palletPool.id]: ["CG-PL-000006", "BP-PL-000011", "BR-PL-000016", "AP-PL-000018"],
+    [labelWorks.id]: ["BP-LB-000004", "BR-LB-000008", "CG-ST-000012"],
+    [boxCraft.id]: ["BP-BX-000003", "BR-BX-000007", "BP-BG-000014", "CG-BG-000015", "BR-BG-000019"],
+    [stickerPro.id]: ["AP-LB-000013", "AV-LB-000017", "BP-ST-000020"],
   }
   await prisma.itemVendor.createMany({
     data: Object.entries(vendorItemMap).flatMap(([vendorId, items]) =>
@@ -456,18 +470,18 @@ async function main() {
   // ---- Thresholds (some global, one per-grower override) --------------
   console.log("Seeding thresholds, schedulers, packaging…")
   const thresholdDefs = [
-    { itemId: "AP-BX-00001", growerId: null, qty: 50 },
-    { itemId: "BP-BX-00003", growerId: null, qty: 40 },
-    { itemId: "CG-BX-00005", growerId: null, qty: 60 },
-    { itemId: "BR-BX-00007", growerId: null, qty: 30 },
-    { itemId: "AV-BX-00009", growerId: null, qty: 35 },
-    { itemId: "BP-BG-00014", growerId: null, qty: 120 },
-    { itemId: "CG-BG-00015", growerId: null, qty: 100 },
-    { itemId: "AP-LB-00013", growerId: null, qty: 25 },
-    { itemId: "AV-LB-00017", growerId: null, qty: 20 },
-    { itemId: "BR-BG-00019", growerId: null, qty: 90 },
-    { itemId: "AP-BX-00001", growerId: agribar.id, qty: 80 }, // per-grower override
-    { itemId: "BP-BG-00014", growerId: verdeval.id, qty: 160 }, // per-grower override
+    { itemId: "AP-BX-000001", growerId: null, qty: 50 },
+    { itemId: "BP-BX-000003", growerId: null, qty: 40 },
+    { itemId: "CG-BX-000005", growerId: null, qty: 60 },
+    { itemId: "BR-BX-000007", growerId: null, qty: 30 },
+    { itemId: "AV-BX-000009", growerId: null, qty: 35 },
+    { itemId: "BP-BG-000014", growerId: null, qty: 120 },
+    { itemId: "CG-BG-000015", growerId: null, qty: 100 },
+    { itemId: "AP-LB-000013", growerId: null, qty: 25 },
+    { itemId: "AV-LB-000017", growerId: null, qty: 20 },
+    { itemId: "BR-BG-000019", growerId: null, qty: 90 },
+    { itemId: "AP-BX-000001", growerId: agribar.id, qty: 80 }, // per-grower override
+    { itemId: "BP-BG-000014", growerId: verdeval.id, qty: 160 }, // per-grower override
   ]
   await prisma.itemThreshold.createMany({
     data: thresholdDefs.map((t) => ({
@@ -527,27 +541,27 @@ async function main() {
   // occupies on the way.
   const packSetup: Record<string, number[]> = {
     // vendorId:itemId -> ratios indexed by level-1
-    [`${packRight.id}:AP-BG-00002`]: [10, 5],
-    [`${packRight.id}:AV-BG-00010`]: [20, 4],
-    [`${packRight.id}:AP-BX-00001`]: [60],
-    [`${packRight.id}:BP-BX-00003`]: [60],
-    [`${packRight.id}:CG-BX-00005`]: [48],
-    [`${packRight.id}:BR-BX-00007`]: [60],
-    [`${packRight.id}:AV-BX-00009`]: [50],
-    [`${labelWorks.id}:BP-LB-00004`]: [12],
-    [`${labelWorks.id}:BR-LB-00008`]: [12],
-    [`${labelWorks.id}:CG-ST-00012`]: [24],
+    [`${packRight.id}:AP-BG-000002`]: [10, 5],
+    [`${packRight.id}:AV-BG-000010`]: [20, 4],
+    [`${packRight.id}:AP-BX-000001`]: [60],
+    [`${packRight.id}:BP-BX-000003`]: [60],
+    [`${packRight.id}:CG-BX-000005`]: [48],
+    [`${packRight.id}:BR-BX-000007`]: [60],
+    [`${packRight.id}:AV-BX-000009`]: [50],
+    [`${labelWorks.id}:BP-LB-000004`]: [12],
+    [`${labelWorks.id}:BR-LB-000008`]: [12],
+    [`${labelWorks.id}:CG-ST-000012`]: [24],
     // BoxCraft is a second source for items PackRight also supplies, packed
     // differently — the same SKU ordered from either vendor resolves to a
     // different number of containers, which is the whole point of the feature.
-    [`${boxCraft.id}:BP-BX-00003`]: [40],
-    [`${boxCraft.id}:BR-BX-00007`]: [75],
-    [`${boxCraft.id}:BP-BG-00014`]: [25, 4],
-    [`${boxCraft.id}:CG-BG-00015`]: [12, 6],
-    [`${boxCraft.id}:BR-BG-00019`]: [15, 8],
-    [`${stickerPro.id}:AP-LB-00013`]: [18],
-    [`${stickerPro.id}:AV-LB-00017`]: [30],
-    [`${stickerPro.id}:BP-ST-00020`]: [20],
+    [`${boxCraft.id}:BP-BX-000003`]: [40],
+    [`${boxCraft.id}:BR-BX-000007`]: [75],
+    [`${boxCraft.id}:BP-BG-000014`]: [25, 4],
+    [`${boxCraft.id}:CG-BG-000015`]: [12, 6],
+    [`${boxCraft.id}:BR-BG-000019`]: [15, 8],
+    [`${stickerPro.id}:AP-LB-000013`]: [18],
+    [`${stickerPro.id}:AV-LB-000017`]: [30],
+    [`${stickerPro.id}:BP-ST-000020`]: [20],
   }
   const itemVendorRows = await prisma.itemVendor.findMany({
     select: { id: true, vendorId: true, itemId: true, item: { select: { materialCategoryCode: true } } },
@@ -878,10 +892,10 @@ async function main() {
   // proves the vendor-stock report lists MAPPINGS, not just submissions.
   // Deliberately a skip here rather than a new ItemVendor mapping: adding one
   // would feed the order-vendor rotation above and shift the order counts.
-  const vendorNeverReports = new Set([`${stickerPro.id}:BP-ST-00020`])
+  const vendorNeverReports = new Set([`${stickerPro.id}:BP-ST-000020`])
   // Reported historically, then dropped from the two most recent submissions, so
   // this item reads Stale while its siblings at the same vendor read Fresh.
-  const vendorRecentSkips = new Set([`${stickerPro.id}:AV-LB-00017`])
+  const vendorRecentSkips = new Set([`${stickerPro.id}:AV-LB-000017`])
 
   const vendors = vendorRows
   // Allocations hang off the *detail* id, so unlike the grower loop above the
@@ -998,7 +1012,7 @@ async function main() {
     data: [
       {
         growerId: agribar.id,
-        itemId: "BR-BX-00007",
+        itemId: "BR-BX-000007",
         flaggedBy: jamesUserId,
         reason: "Running low ahead of weekend harvest",
         isActive: true,
@@ -1006,7 +1020,7 @@ async function main() {
       },
       {
         growerId: brigo.id,
-        itemId: "CG-BX-00005",
+        itemId: "CG-BX-000005",
         flaggedBy: diagoUserId,
         reason: "Unexpected demand spike",
         isActive: true,
@@ -1048,7 +1062,7 @@ async function main() {
   await prisma.itemMessage.createMany({
     data: [
       {
-        itemId: "CG-ST-00012",
+        itemId: "CG-ST-000012",
         type: "Retiring",
         severity: "warning",
         audience: "All",
@@ -1057,7 +1071,7 @@ async function main() {
         updatedBy: adminId,
       },
       {
-        itemId: "AV-BG-00010",
+        itemId: "AV-BG-000010",
         type: "ClearInventory",
         severity: "critical",
         audience: "All",
@@ -1077,7 +1091,7 @@ async function main() {
   await prisma.itemMessageTranslation.createMany({
     data: [
       {
-        itemMessageId: messageIdByItem.get("CG-ST-00012")!,
+        itemMessageId: messageIdByItem.get("CG-ST-000012")!,
         locale: "es",
         body: "En proceso de retirada — por favor agote las existencias restantes.",
         isMachine: false, // reviewed
@@ -1085,7 +1099,7 @@ async function main() {
         updatedBy: adminId,
       },
       {
-        itemMessageId: messageIdByItem.get("AV-BG-00010")!,
+        itemMessageId: messageIdByItem.get("AV-BG-000010")!,
         locale: "es",
         body: "Material fuera de fabricación — vacíe el inventario pronto.",
         isMachine: true, // still flagged as unreviewed machine output
@@ -1099,7 +1113,7 @@ async function main() {
   // FK for the ItemMessageGrower target row below.
   const increaseStock = await prisma.itemMessage.create({
     data: {
-      itemId: "CG-BX-00005",
+      itemId: "CG-BX-000005",
       type: "IncreaseStock",
       severity: "info",
       audience: "Selected",
@@ -1126,7 +1140,7 @@ async function main() {
 
   // ---- Audit logs (sample of internal CRUD) ---------------------------
   const auditSamples = [
-    { action: AUDIT_ACTIONS.CREATE, entityType: "Item", entityId: "AP-BX-00001", changes: '{"itemName":"Asparagus Cardboard Box 11lb"}' },
+    { action: AUDIT_ACTIONS.CREATE, entityType: "Item", entityId: "AP-BX-000001", changes: '{"itemName":"Asparagus Cardboard Box 11lb"}' },
     { action: AUDIT_ACTIONS.CREATE, entityType: "Grower", entityId: String(agribar.id), changes: '{"growerName":"Agribar"}' },
     { action: AUDIT_ACTIONS.UPDATE, entityType: "Vendor", entityId: String(packRight.id), changes: '{"status":["Pending","Active"]}' },
     { action: AUDIT_ACTIONS.CREATE, entityType: "User", entityId: String(jamesUserId), changes: '{"email":"james@agribar.local"}' },

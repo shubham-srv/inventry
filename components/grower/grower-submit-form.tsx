@@ -30,6 +30,7 @@ import {
 } from "@/lib/actions/orders"
 import { initialActionState } from "@/lib/actions/types"
 import { type SubmitRow, type OrderView, type ItemMessageView } from "@/lib/grower/data"
+import { ItemImage } from "@/components/item-image"
 import { useT } from "@/lib/i18n/client"
 import { SUBMISSION_STATUS, ORDER_STATUS } from "@/lib/constants"
 import { Card, CardContent } from "@/components/ui/card"
@@ -329,6 +330,17 @@ export function GrowerSubmitForm({
             >
               <CardContent className="space-y-3 p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  {/* Photo first on the row: someone counting on a phone
+                      recognises the thing in front of them faster from a picture
+                      than from "Corrugated Box 40x30". */}
+                  <div className="flex min-w-0 items-start gap-3">
+                    <ItemImage
+                      itemId={r.itemId}
+                      hasImage={r.hasImage}
+                      alt={r.itemName}
+                      size={48}
+                      className="mt-0.5"
+                    />
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{r.itemName}</span>
@@ -378,6 +390,7 @@ export function GrowerSubmitForm({
                         </>
                       )}
                     </p>
+                    </div>
                   </div>
 
                   <div className="flex items-end gap-3">

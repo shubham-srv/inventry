@@ -169,7 +169,7 @@ mapped to a vendor and vice versa; `Both` types can be used by either.
 
 | Type | Usable by |
 |---|---|
-| `Grower Field` | growers only |
+| `Grower Site` | growers only |
 | `Packing House` | growers only |
 | `Cold Storage` | growers only |
 | `Manufacturing Plant` | vendors only |
@@ -178,10 +178,16 @@ mapped to a vendor and vice versa; `Both` types can be used by either.
 | `Warehouse` | either |
 | `Cross-dock` | either |
 
-> ⚠️ **This list is provisional** — confirm it with the client before sending
-> the workbook. Adding, renaming or re-siding a type is a one-line change in
-> `LOCATION_TYPES` in [`lib/constants.ts`](../lib/constants.ts), but only before
-> data is loaded against it.
+> **This list is the starting point, not a fixed one.** Location types are
+> maintained in the application at **Admin -> Location types**, so one can be
+> added, renamed or re-sided after go-live without a code change or a deploy.
+>
+> Still confirm the list with the client before sending the workbook: the
+> `LocationType` column validates against these names, so a site whose type does
+> not exist yet cannot be loaded. Types added in the app afterwards are available
+> to later imports immediately.
+>
+> Renamed September 2026: **Grower Field** became **Grower Site**.
 
 ---
 
@@ -193,7 +199,7 @@ afterwards.
 
 | Column | Required | Type | Rules |
 |---|---|---|---|
-| `ItemID` | ✅ | text | Format `CC-MM-NNNNN` — see below |
+| `ItemID` | ✅ | text | Format `CC-MM-NNNNNN` — see below |
 | `ItemName` | ✅ | text | e.g. `Corrugated Box 40x30` |
 | `CommodityCode` | ✅ | text | Must exist in **Commodities** |
 | `MaterialCategoryCode` | ✅ | text | Must exist in **MaterialCategories** |
@@ -208,16 +214,16 @@ afterwards.
 ### The ItemID format
 
 ```
-AP  -  BX  -  00001
+AP  -  BX  -  000001
 │      │      │
-│      │      └─ 5-digit sequence, zero-padded, 00001–99999
+│      │      └─ 6-digit sequence, zero-padded, 000001–999999
 │      └──────── MaterialCategoryCode, must match this row's column
 └─────────────── CommodityCode, must match this row's column
 ```
 
 Rules the importer enforces:
 
-1. Matches `^[A-Z]{2}-[A-Z]{2}-\d{5}$` exactly.
+1. Matches `^[A-Z]{2}-[A-Z]{2}-\d{6}$` exactly.
 2. The first segment equals this row's `CommodityCode`.
 3. The second equals this row's `MaterialCategoryCode`.
 4. The full ID is unique across the sheet.
@@ -228,7 +234,7 @@ it, and the app has no way to detect it later.
 
 > **The sequence does not need to be contiguous**, and gaps are fine. Items
 > created in the app afterwards continue from the highest number in use, across
-> all commodity/category combinations — so importing up to `AP-BX-00250` means
+> all commodity/category combinations — so importing up to `AP-BX-000250` means
 > the next item created in the UI is `00251`, whatever its category. Numbers are
 > never reused.
 
@@ -254,8 +260,8 @@ alongside the workbook**, and `ImageFile` names the file for that row:
 ```
 master-data.xlsx
 item-photos/
-  AP-BX-00001.jpg
-  AP-BX-00002.png
+  AP-BX-000001.jpg
+  AP-BX-000002.png
 ```
 
 - Names must match exactly, including case and extension.
@@ -394,7 +400,7 @@ when an admin edits a vendor.
 | `MaterialCategoryCode` | ✅ | text | Must exist in **MaterialCategories** |
 
 > Keep this consistent with **VendorItems** — if a vendor supplies item
-> `AP-BX-00001` its categories should include `BX`. The importer warns on a
+> `AP-BX-000001` its categories should include `BX`. The importer warns on a
 > mismatch rather than failing, because the two are edited separately later.
 
 ---
@@ -518,7 +524,7 @@ Everything the importer checks before writing anything:
 - required cells non-empty
 
 **Format**
-- `ItemID` matches `CC-MM-NNNNN`, segments agree with the row's own codes
+- `ItemID` matches `CC-MM-NNNNNN`, segments agree with the row's own codes
 - commodity and category codes are exactly 2 uppercase letters
 - emails are well-formed
 - day counts are non-negative whole numbers

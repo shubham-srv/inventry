@@ -12,9 +12,9 @@ order and receive. "Corrugated Box 40x30" is an item. So is "Blue Label Roll".
 
 Every item has an ID that looks like this:
 
-    AP-BX-00001
+    AP-BX-000001
     │  │  │
-    │  │  └─ a five-digit number
+    │  │  └─ a six-digit number
     │  └──── the material category (BX = Boxes)
     └─────── the commodity (AP = Asparagus)
 

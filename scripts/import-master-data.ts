@@ -32,7 +32,7 @@ import path from "node:path"
 import ExcelJS from "exceljs"
 import { PrismaClient, Prisma } from "@prisma/client"
 import { SHEETS, type SheetSpec } from "./master-data-spec"
-import { locationTypesFor } from "../lib/constants"
+import { LOCATION_TYPE_SEED } from "../lib/constants"
 
 const prisma = new PrismaClient()
 
@@ -212,7 +212,7 @@ function asDecimal(sheet: string, row: number, key: string, s: string, min: numb
 /** Comma-separated list, e.g. "Boxes, Cases" or "10, 5". */
 const asList = (s: string): string[] => s.split(",").map((p) => p.trim()).filter(Boolean)
 
-const ITEM_ID = /^([A-Z]{2})-([A-Z]{2})-(\d{5})$/
+const ITEM_ID = /^([A-Z]{2})-([A-Z]{2})-(\d{6})$/
 
 /**
  * Case-insensitive lookup that still reports the caller's spelling.
@@ -294,6 +294,7 @@ async function main() {
   const commodities = new Index<string>()
   const categories = new Index<string>()
   const subCategories = new Index<number>() // keyed "CODE|name"
+  const locationTypeIds = new Index<number>()
   const locations = new Index<{ id: number; type: string | null }>()
   const items = new Index<{ id: string; categoryCode: string | null }>()
   const growers = new Index<number>()
@@ -308,8 +309,9 @@ async function main() {
   for (const c of await prisma.materialCategory.findMany()) categories.set(c.code, c.code)
   for (const s of await prisma.subCategory.findMany())
     subCategories.set(`${s.materialCategoryCode}|${s.name}`, s.id)
-  for (const l of await prisma.location.findMany())
-    locations.set(l.locationName, { id: l.id, type: l.locationType })
+  for (const t of await prisma.locationType.findMany()) locationTypeIds.set(t.name, t.id)
+  for (const l of await prisma.location.findMany({ include: { locationType: true } }))
+    locations.set(l.locationName, { id: l.id, type: l.locationType?.name ?? null })
   for (const i of await prisma.item.findMany({ select: { id: true, materialCategoryCode: true } }))
     items.set(i.id, { id: i.id, categoryCode: i.materialCategoryCode })
   for (const g of await prisma.grower.findMany()) growers.set(g.growerName, g.id)
@@ -406,7 +408,7 @@ async function main() {
   // 6-Locations
   {
     const dup = seen("6-Locations")
-    const typeNames = new Set([...locationTypesFor("Grower"), ...locationTypesFor("Vendor")])
+    const typeNames = new Set<string>(LOCATION_TYPE_SEED.map((t) => t.name))
     for (const r of rowsOf("6-Locations")) {
       const name = r.get("LocationName")
       const type = r.get("LocationType")
@@ -432,7 +434,7 @@ async function main() {
       const id = r.get("ItemID")
       const m = ITEM_ID.exec(id)
       if (!m) {
-        err("7-Items", r.row, `ItemID: "${id}" must look like AP-BX-00001 (CC-MM-NNNNN)`)
+        err("7-Items", r.row, `ItemID: "${id}" must look like AP-BX-000001 (CC-MM-NNNNNN)`)
         continue
       }
       const [, cc, mm] = m
@@ -522,7 +524,9 @@ async function main() {
     ["16-VendorLocations", "Vendor", "VendorName", vendors],
   ] as const) {
     const dup = seen(sheet)
-    const allowed = new Set(locationTypesFor(side))
+    const allowed = new Set<string>(
+      LOCATION_TYPE_SEED.filter((t) => t.appliesTo === side || t.appliesTo === "Both").map((t) => t.name)
+    )
     for (const r of rowsOf(sheet)) {
       const owner = r.get(nameKey)
       const loc = r.get("LocationName")
@@ -731,8 +735,11 @@ async function main() {
   step("6-Locations")
   for (const r of rowsOf("6-Locations")) {
     const locationName = r.get("LocationName")
+    // The workbook names a type; the column is a foreign key. An unrecognised
+    // name is left unset rather than invented — validation already reported it.
+    const typeName = r.get("LocationType")
     const data = {
-      locationType: r.get("LocationType") || null,
+      locationTypeId: typeName ? (locationTypeIds.get(typeName) ?? null) : null,
       regionId: r.has("RegionName") ? regions.get(r.get("RegionName"))! : null,
       countryId: r.has("CountryName") ? countries.get(r.get("CountryName"))!.id : null,
       commodityFocus: r.get("CommodityFocus") || null,
@@ -743,7 +750,7 @@ async function main() {
     const rec = found
       ? await prisma.location.update({ where: { id: found.id }, data })
       : await prisma.location.create({ data: { locationName, ...data } })
-    locations.set(locationName, { id: rec.id, type: rec.locationType })
+    locations.set(locationName, { id: rec.id, type: typeName || null })
     bump("locations")
   }
 

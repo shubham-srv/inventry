@@ -4,7 +4,8 @@ import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { vendorsWhere } from "@/lib/admin/queries"
 import { parseListParams } from "@/lib/query"
-import { ENTITY_STATUS, locationTypesFor } from "@/lib/constants"
+import { ENTITY_STATUS } from "@/lib/constants"
+import { locationTypeIdsFor } from "@/lib/location-types"
 import { LOCALE_OPTIONS } from "@/lib/i18n/config"
 import { createVendor, updateVendor, deleteVendor } from "@/lib/actions/partners"
 import { PageHeader } from "@/components/page-header"
@@ -95,7 +96,7 @@ export default async function VendorsPage({
     prisma.country.findMany({ where: { isSelectable: true }, orderBy: { name: "asc" } }),
     // Only vendor-side sites (and shared ones) can be a vendor's location.
     prisma.location.findMany({
-      where: { locationType: { in: locationTypesFor("Vendor") } },
+      where: { locationTypeId: { in: await locationTypeIdsFor("Vendor") } },
       orderBy: { locationName: "asc" },
       select: { id: true, locationName: true },
     }),

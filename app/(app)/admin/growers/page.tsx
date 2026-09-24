@@ -4,7 +4,8 @@ import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { growersWhere } from "@/lib/admin/queries"
 import { parseListParams } from "@/lib/query"
-import { ENTITY_STATUS, locationTypesFor } from "@/lib/constants"
+import { ENTITY_STATUS } from "@/lib/constants"
+import { locationTypeIdsFor } from "@/lib/location-types"
 import { LOCALE_OPTIONS } from "@/lib/i18n/config"
 import { createGrower, updateGrower, deleteGrower } from "@/lib/actions/partners"
 import { PageHeader } from "@/components/page-header"
@@ -56,7 +57,7 @@ export default async function GrowersPage({
     prisma.item.findMany({ where: { status: ENTITY_STATUS.ACTIVE }, orderBy: { id: "asc" }, select: { id: true, itemName: true } }),
     // Only grower-side sites (and shared ones) can be mapped to a grower.
     prisma.location.findMany({
-      where: { locationType: { in: locationTypesFor("Grower") } },
+      where: { locationTypeId: { in: await locationTypeIdsFor("Grower") } },
       orderBy: { locationName: "asc" },
       select: { id: true, locationName: true },
     }),

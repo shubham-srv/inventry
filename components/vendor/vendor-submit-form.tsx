@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { ChevronDown, ChevronRight, CheckCircle2, History, Users } from "lucide-react"
 import { submitVendorReport } from "@/lib/actions/vendor"
 import { initialActionState } from "@/lib/actions/types"
+import { ItemImage } from "@/components/item-image"
 import { type VendorSubmitRow } from "@/lib/vendor/data"
 import { useT } from "@/lib/i18n/client"
 import { Card, CardContent } from "@/components/ui/card"
@@ -244,6 +245,16 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
             >
               <CardContent className="p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  {/* Photo first, as on the grower form: a vendor reporting
+                      stock recognises the item faster from a picture. */}
+                  <div className="flex min-w-0 items-start gap-3">
+                    <ItemImage
+                      itemId={r.itemId}
+                      hasImage={r.hasImage}
+                      alt={r.itemName}
+                      size={48}
+                      className="mt-0.5"
+                    />
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{r.itemName}</span>
@@ -254,6 +265,7 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
                       {r.commodityName ?? "—"} · {r.categoryName ?? "—"}
                       {r.previousQty != null && <> · {t("vendor.form.prev")}: {r.previousQty}</>}
                     </p>
+                    </div>
                   </div>
 
                   {/* The quantity is counted in the item's material category,

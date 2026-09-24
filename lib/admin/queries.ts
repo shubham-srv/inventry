@@ -105,7 +105,7 @@ export function locationsWhere(sp: SP): Prisma.LocationWhereInput {
         { region: { name: { contains: sp.q } } },
       ],
     })
-  if (sp.type) and.push({ locationType: sp.type })
+  if (sp.type) and.push({ locationTypeId: Number(sp.type) || 0 })
   if (sp.region) and.push({ regionId: Number(sp.region) || 0 })
   return and.length ? { AND: and } : {}
 }

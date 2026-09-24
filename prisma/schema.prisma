@@ -171,7 +171,11 @@ model Vendor {
 model Location {
   id             Int     @id @default(autoincrement())
   locationName   String
-  locationType   String? // Packing House, Warehouse, Cross-dock, Grower
+  // Which kind of site this is. A FOREIGN KEY, not a string: the list is
+  // maintained by admins (/admin/location-types), and with a name stored on every
+  // row a rename would have to be chased across the Location table and could half
+  // fail. Here the name lives in exactly one row.
+  locationTypeId Int?
   regionId       Int?
   countryId      Int?
   commodityFocus String?
@@ -183,6 +187,7 @@ model Location {
   updatedBy Int?
   updatedAt DateTime @updatedAt
 
+  locationType      LocationType?            @relation(fields: [locationTypeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   region            Region?                  @relation(fields: [regionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   country           Country?                 @relation(fields: [countryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   growers           GrowerLocation[]
@@ -191,8 +196,30 @@ model Location {
   submissionDetails GrowerSubmissionDetail[]
   ledgerEntries     InventoryLedger[]
 
+  @@index([locationTypeId])
   @@index([regionId])
   @@index([countryId])
+}
+
+/// Kinds of physical site, maintained by admins at /admin/location-types.
+///
+/// `appliesTo` is the gate: a Grower type can only be mapped to growers, a
+/// Vendor type only to vendors, and Both to either. It is what stops a packing
+/// house being attached to a vendor, and is enforced server-side in
+/// lib/actions/partners.ts rather than only in the dropdown.
+model LocationType {
+  id        Int     @id @default(autoincrement())
+  name      String  @unique
+  appliesTo String  @default("Both") // Grower | Vendor | Both
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  locations Location[]
 }
 
 // ============================================================

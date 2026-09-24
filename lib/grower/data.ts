@@ -111,6 +111,9 @@ export type ItemMessageView = {
 export type SubmitRow = {
   itemId: string
   itemName: string
+  /** Whether this item has a photo, so the row can show a thumbnail. Not the
+   *  storage key — that is a server path the browser has no business knowing. */
+  hasImage: boolean
   commodityName: string | null
   /** The item's material category — also what its quantities are counted in. */
   categoryName: string | null
@@ -321,6 +324,7 @@ export async function getGrowerSubmitData(growerId: number, locationId: number) 
     return {
       itemId: a.itemId,
       itemName: a.item.itemName,
+      hasImage: Boolean(a.item.imageKey),
       commodityName: a.item.commodity?.name ?? null,
       categoryName: a.item.materialCategory?.name ?? null,
       previousQty: prev,

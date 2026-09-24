@@ -13,17 +13,35 @@ import {
 // active needs Prisma, which cannot run here, so the (app) layouts still do
 // that via getCurrentUser().
 //
-// It used to check only that the cookie was PRESENT. A cookie that was present
-// but unverifiable — rotated SESSION_SECRET, a tampered value, a browser clock
-// behind the server's — then bounced forever: / let it through, requireUser()
-// sent it to /login, and /login saw a "session" and sent it back to /. Nothing
-// on that path ever deleted the cookie, so the only escape was clearing cookies
-// by hand. Hence `stale` below: a dead cookie is removed on the way past.
+// ⚠️ DO NOT put a pattern with a negative lookahead in `config.matcher`.
+// The documented idiom — "/((?!api|_next/static|...).*)"  — caused Next 16.2.6
+// to silently DROP this proxy: no error, no warning, the module compiled and
+// was simply never registered, so the gate never ran for any request at all.
+// Nothing looked broken, because every page also checks auth in its layout; the
+// only visible symptom was /login rendering for an already-signed-in user.
+// A security gate that stops running without saying so is the worst failure
+// mode available, so the matcher now takes everything and the exclusions live
+// in `isExcluded` below, where they are ordinary code and can be tested.
 const SESSION_COOKIE = "demo_session" // keep in sync with lib/auth/session.ts
 const PUBLIC_PATHS = ["/login"]
 
+/** Paths the gate ignores — the exclusions that used to live in the matcher. */
+const EXCLUDED_PREFIXES = ["/api", "/_next/static", "/_next/image"]
+
+function isExcluded(pathname: string): boolean {
+  if (EXCLUDED_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+    return true
+  }
+  // Anything with a file extension: favicon.ico and everything under /public.
+  return /\.[^/]+$/.test(pathname)
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
+
+  // /api is excluded because the auth routes manage their own cookies and the
+  // cron endpoints authenticate with a shared secret rather than a session.
+  if (isExcluded(pathname)) return NextResponse.next()
 
   const token = request.cookies.get(SESSION_COOKIE)?.value
   const session = token ? await verifySessionToken(token) : null
@@ -48,6 +66,8 @@ export async function proxy(request: NextRequest) {
   }
 
   if (session && isPublic) {
+    // Already signed in and asking for /login. Send them to "/", which resolves
+    // to their role's home page (app/(app)/page.tsx).
     const url = request.nextUrl.clone()
     url.pathname = "/"
     url.search = ""
@@ -67,8 +87,6 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Run on everything except static assets and files with an extension.
-  // /api is excluded: the auth routes manage their own cookies, and the cron
-  // endpoints authenticate with a shared secret rather than a session.
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\..*).*)"],
+  // Everything. See the warning above before changing this to a pattern.
+  matcher: ["/:path*"],
 }

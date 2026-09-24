@@ -237,7 +237,7 @@ async function countriesSheet(sp: SP): Promise<ExcelSheet> {
 async function locationsSheet(sp: SP): Promise<ExcelSheet> {
   const rows = await prisma.location.findMany({
     where: locationsWhere(sp),
-    include: { region: true },
+    include: { locationType: true, region: true },
     orderBy: { locationName: "asc" },
   })
   return {
@@ -252,7 +252,7 @@ async function locationsSheet(sp: SP): Promise<ExcelSheet> {
     rows: rows.map((l) => ({
       id: l.id,
       name: l.locationName,
-      type: l.locationType ?? "",
+      type: l.locationType?.name ?? "",
       region: l.region?.name ?? "",
       focus: l.commodityFocus ?? "",
     })),

@@ -304,7 +304,7 @@ use one service inside it — **Blob storage** — which holds arbitrary files
 ("blobs") grouped into **containers**. One container, `item-images`, holds the
 photos admins attach to items on `/admin/items`; the code is in
 [`lib/storage/`](../lib/storage/) and the database stores only a *key* such as
-`items/AP-BX-00001/9f3c….webp`, never the bytes and never a URL.
+`items/AP-BX-000001/9f3c….webp`, never the bytes and never a URL.
 
 **Why not the database or the container's own disk.** Images in Azure SQL bloat
 every backup and put image reads on the most expensive tier in this deployment.

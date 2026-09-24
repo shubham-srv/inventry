@@ -119,8 +119,21 @@ export const REGIONS = ["West", "Central", "East"] as const
  * A location with NO type is pickable by neither — it is incomplete data, and
  * silently allowing it everywhere would defeat the gate.
  */
-export const LOCATION_TYPES = [
-  { name: "Grower Field", appliesTo: "Grower" },
+/**
+ * Seed values for the LocationType lookup table.
+ *
+ * NOT the runtime source of truth — that is the table, which admins maintain at
+ * /admin/location-types. This list exists for two things that run without a
+ * populated database: seeding a fresh one, and generating the client workbook,
+ * whose LocationType dropdown has to be written before any data exists.
+ *
+ * `appliesTo` gates which side may use a site of this type. Enforced server-side
+ * in lib/actions/partners.ts, not just in the dropdown.
+ *
+ * Renamed September 2026: "Grower Field" became "Grower Site".
+ */
+export const LOCATION_TYPE_SEED = [
+  { name: "Grower Site", appliesTo: "Grower" },
   { name: "Packing House", appliesTo: "Grower" },
   { name: "Cold Storage", appliesTo: "Grower" },
   { name: "Manufacturing Plant", appliesTo: "Vendor" },
@@ -130,17 +143,9 @@ export const LOCATION_TYPES = [
   { name: "Cross-dock", appliesTo: "Both" },
 ] as const
 
-export type LocationSide = "Grower" | "Vendor"
-export type LocationTypeName = (typeof LOCATION_TYPES)[number]["name"]
-
-export const LOCATION_TYPE_NAMES = LOCATION_TYPES.map((t) => t.name)
-
-/** Type names attachable to `side` — i.e. that side's own types plus "Both". */
-export function locationTypesFor(side: LocationSide): string[] {
-  return LOCATION_TYPES.filter(
-    (t) => t.appliesTo === side || t.appliesTo === "Both"
-  ).map((t) => t.name)
-}
+/** The three values `LocationType.appliesTo` may take. */
+export const LOCATION_APPLIES_TO = ["Grower", "Vendor", "Both"] as const
+export type LocationAppliesTo = (typeof LOCATION_APPLIES_TO)[number]
 
 // Seed values for the CountryOfOrigin lookup table (dropdown source for items).
 export const COUNTRIES_OF_ORIGIN = [

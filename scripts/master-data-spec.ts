@@ -14,7 +14,7 @@ import {
   ROLES,
   ENTITY_STATUS,
   APPLICATION_METHODS,
-  LOCATION_TYPES,
+  LOCATION_TYPE_SEED,
   CADENCE_TYPES,
 } from "../lib/constants"
 
@@ -101,8 +101,8 @@ export const SHEETS: SheetSpec[] = [
         key: "LocationType",
         width: 24,
         required: true,
-        list: LOCATION_TYPES.map((t) => t.name),
-        help: "Gates who may use the site. Grower-only: Grower Field, Packing House, Cold Storage. Vendor-only: Manufacturing Plant, Distribution Center, 3PL Facility. Either: Warehouse, Cross-dock.",
+        list: LOCATION_TYPE_SEED.map((t: { name: string }) => t.name),
+        help: "Gates who may use the site. Grower-only: Grower Site, Packing House, Cold Storage. Vendor-only: Manufacturing Plant, Distribution Center, 3PL Facility. Either: Warehouse, Cross-dock.",
       },
       { key: "RegionName", width: 18, help: "Must exist in 1-Regions" },
       { key: "CountryName", width: 20, help: "Must exist in 2-Countries and be Selectable" },
@@ -115,13 +115,13 @@ export const SHEETS: SheetSpec[] = [
   {
     name: "7-Items",
     purpose:
-      "IDs are used VERBATIM and can never change. Format CC-MM-NNNNN, where CC and MM must match this row's own codes.",
+      "IDs are used VERBATIM and can never change. Format CC-MM-NNNNNN, where CC and MM must match this row's own codes.",
     cols: [
       {
         key: "ItemID",
         width: 18,
         required: true,
-        help: "CC-MM-NNNNN, e.g. AP-BX-00001. CC must equal CommodityCode and MM must equal MaterialCategoryCode on this row. Unique. Permanent.",
+        help: "CC-MM-NNNNNN, e.g. AP-BX-000001. CC must equal CommodityCode and MM must equal MaterialCategoryCode on this row. Unique. Permanent.",
       },
       { key: "ItemName", width: 36, required: true, help: "e.g. Corrugated Box 40x30" },
       { key: "CommodityCode", width: 18, required: true, help: "Must exist in 3-Commodities" },
@@ -138,12 +138,12 @@ export const SHEETS: SheetSpec[] = [
       {
         key: "ImageFile",
         width: 28,
-        help: "Optional. The file name of this item's photo in the images folder you send alongside this workbook — e.g. AP-BX-00001.jpg. JPG, PNG or WebP, up to 10 MB each. Leave blank if the item has no photo.",
+        help: "Optional. The file name of this item's photo in the images folder you send alongside this workbook — e.g. AP-BX-000001.jpg. JPG, PNG or WebP, up to 10 MB each. Leave blank if the item has no photo.",
       },
     ],
     example: [
-      "AP-BX-00001", "Corrugated Box 40x30", "AP", "BX", "Cardboard Boxes",
-      "USA", "Machine", "Active", "FAM-10023", "", "AP-BX-00001.jpg",
+      "AP-BX-000001", "Corrugated Box 40x30", "AP", "BX", "Cardboard Boxes",
+      "USA", "Machine", "Active", "FAM-10023", "", "AP-BX-000001.jpg",
     ],
   },
   {
@@ -218,7 +218,7 @@ export const SHEETS: SheetSpec[] = [
       { key: "GrowerName", width: 30, required: true, help: "Must exist in 8-Growers" },
       { key: "ItemID", width: 18, required: true, help: "Must exist in 7-Items" },
     ],
-    example: ["Agribar", "AP-BX-00001"],
+    example: ["Agribar", "AP-BX-000001"],
   },
   {
     name: "13-VendorItems",
@@ -227,7 +227,7 @@ export const SHEETS: SheetSpec[] = [
       { key: "VendorName", width: 30, required: true, help: "Must exist in 9-Vendors" },
       { key: "ItemID", width: 18, required: true, help: "Must exist in 7-Items" },
     ],
-    example: ["PackRight Manufacturing", "AP-BX-00001"],
+    example: ["PackRight Manufacturing", "AP-BX-000001"],
   },
   {
     name: "14-VendorCategories",
@@ -326,7 +326,7 @@ export const SHEETS: SheetSpec[] = [
         help: "How many of each level fit in ONE of the next level up, innermost first, comma-separated. One whole number (1 or more) per level in the chain. 10, 5 = 10 Bags per Box, 5 Boxes per Case.",
       },
     ],
-    example: ["PackRight Manufacturing", "AP-BG-00002", "Bags → Boxes → Cases", "10, 5"],
+    example: ["PackRight Manufacturing", "AP-BG-000002", "Bags → Boxes → Cases", "10, 5"],
   },
   {
     name: "19-ItemThresholds",
@@ -346,7 +346,7 @@ export const SHEETS: SheetSpec[] = [
         help: "A number, 0 or more. In the item's material category — the same terms its counts are recorded in. There is no unit column.",
       },
     ],
-    example: ["AP-BX-00001", "", 500],
+    example: ["AP-BX-000001", "", 500],
   },
   {
     name: "20-ReminderSchedules",

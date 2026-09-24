@@ -26,7 +26,7 @@ at it. Distinct from being below threshold, which happens automatically.
 **Item** — a specific thing that is counted, ordered and received. The unit of
 everything in the system.
 
-**Item ID** — the permanent identifier of an item, in the form `CC-MM-NNNNN`.
+**Item ID** — the permanent identifier of an item, in the form `CC-MM-NNNNNN`.
 Never changes.
 
 **Item message** — a short notice staff attach to an item, shown to growers

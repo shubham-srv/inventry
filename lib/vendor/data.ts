@@ -8,6 +8,8 @@ export type VendorAllocTarget = { growerId: number; growerName: string }
 export type VendorSubmitRow = {
   itemId: string
   itemName: string
+  /** Whether this item has a photo — see the note on SubmitRow in lib/grower/data.ts. */
+  hasImage: boolean
   commodityName: string | null
   /** The item's material category — also what its quantities are counted in. */
   categoryName: string | null
@@ -106,6 +108,7 @@ export async function getVendorSubmitData(vendorId: number) {
     return {
       itemId: iv.itemId,
       itemName: iv.item.itemName,
+      hasImage: Boolean(iv.item.imageKey),
       commodityName: iv.item.commodity?.name ?? null,
       categoryName: iv.item.materialCategory?.name ?? null,
       previousQty: prevByItem.has(iv.itemId) ? prevByItem.get(iv.itemId)! : null,

@@ -176,7 +176,22 @@ export default async function ItemsPage({
       cell: (r) => <ItemImage itemId={r.id} hasImage={!!r.imageKey} alt={r.itemName} />,
     },
     { key: "id", header: "Item ID", className: "font-mono text-xs", cell: (r) => r.id },
-    { key: "itemName", header: "Name", cell: (r) => <span className="font-medium">{r.itemName}</span> },
+    {
+      key: "itemName",
+      header: "Name",
+      cell: (r) => (
+        <div className="min-w-0">
+          <span className="font-medium">{r.itemName}</span>
+          {/* The legacy reference is searchable, so show it — otherwise a hit on
+              it looks like an unexplained result. */}
+          {r.legacyFamousId && (
+            <span className="text-muted-foreground block font-mono text-[11px]">
+              {r.legacyFamousId}
+            </span>
+          )}
+        </div>
+      ),
+    },
     { key: "commodity", header: "Commodity", cell: (r) => r.commodity?.name ?? "—" },
     { key: "category", header: "Category", cell: (r) => r.materialCategory?.name ?? "—" },
     { key: "coo", header: "Origin", cell: (r) => r.countryOfOrigin?.name ?? "—" },
@@ -238,7 +253,7 @@ export default async function ItemsPage({
 
       <div className="space-y-4">
         <DataTableToolbar
-          searchPlaceholder="Search items…"
+          searchPlaceholder="Search by ID, name or legacy ref…"
           exportEntity="items"
           filters={[
             {

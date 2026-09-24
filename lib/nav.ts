@@ -82,6 +82,7 @@ export function getNavForUser(roleName: RoleName): NavSection[] {
         { title: "nav.subCategories", href: "/admin/sub-categories", icon: "list" },
         { title: "nav.countries", href: "/admin/countries", icon: "globe" },
         { title: "nav.locations", href: "/admin/locations", icon: "mapPin" },
+        { title: "nav.locationTypes", href: "/admin/location-types", icon: "tags" },
       ],
     })
   }

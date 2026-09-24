@@ -29,6 +29,7 @@ import {
   TriangleAlert,
   Megaphone,
   type LucideIcon,
+  Tags,
 } from "lucide-react"
 
 import { BrandLogo } from "@/components/brand-logo"
@@ -59,6 +60,7 @@ const ICONS: Record<string, LucideIcon> = {
   layers: Layers,
   list: List,
   mapPin: MapPin,
+  tags: Tags,
   globe: Globe,
   sprout: Sprout,
   store: Store,

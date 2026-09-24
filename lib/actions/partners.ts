@@ -13,7 +13,8 @@ import {
 import { ok, fail } from "@/lib/actions/types"
 import { recordAudit } from "@/lib/audit"
 import { CAPABILITIES } from "@/lib/rbac"
-import { AUDIT_ACTIONS, locationTypesFor } from "@/lib/constants"
+import { AUDIT_ACTIONS } from "@/lib/constants"
+import { locationTypeIdsFor } from "@/lib/location-types"
 
 const CAP = CAPABILITIES.MANAGE_GROWERS_VENDORS
 
@@ -82,7 +83,7 @@ async function syncGrowerLocations(
   // site must not become a grower's counting location by way of a hand-edited
   // request. Unknown or untyped locations fall out for the same reason.
   const allowed = await tx.location.findMany({
-    where: { id: { in: locationIds }, locationType: { in: locationTypesFor("Grower") } },
+    where: { id: { in: locationIds }, locationTypeId: { in: await locationTypeIdsFor("Grower") } },
     select: { id: true },
   })
   const want = new Set(allowed.map((l) => l.id))
@@ -110,7 +111,7 @@ async function syncGrowerLocations(
  * Same shape as syncGrowerLocations, including the soft deactivate and the
  * re-checked type gate (a grower-side site must not become a vendor's location
  * by way of a hand-edited request). The only difference is which side of
- * LOCATION_TYPES is allowed.
+ * the LocationType table allows.
  */
 async function syncVendorLocations(
   tx: Prisma.TransactionClient,
@@ -119,7 +120,7 @@ async function syncVendorLocations(
   userId: number
 ) {
   const allowed = await tx.location.findMany({
-    where: { id: { in: locationIds }, locationType: { in: locationTypesFor("Vendor") } },
+    where: { id: { in: locationIds }, locationTypeId: { in: await locationTypeIdsFor("Vendor") } },
     select: { id: true },
   })
   const want = new Set(allowed.map((l) => l.id))

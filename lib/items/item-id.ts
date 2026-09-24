@@ -1,14 +1,20 @@
 import "server-only"
 import { type Prisma } from "@prisma/client"
 
-// Item IDs look like CC-MM-NNNNN — commodity code, material category code and a
-// zero-padded sequence (e.g. AP-BG-00005). They are generated on create, never
+// Item IDs look like CC-MM-NNNNNN — commodity code, material category code and a
+// zero-padded sequence (e.g. AP-BG-000005). They are generated on create, never
 // typed by hand, and never change afterwards (the PK is referenced by ledger,
 // submissions and orders).
+//
+// The sequence is SIX digits. It was five until September 2026; widening it is a
+// breaking change to the id format, so every existing id was rewritten at the
+// same time (see prisma/migrations and docs/master-data-upload.md). Mixing
+// widths would be worse than either width on its own — ids would no longer sort
+// or align, and "AP-BX-00001" and "AP-BX-000001" would read as the same item.
 
-export const ITEM_ID_SEQUENCE_WIDTH = 5
+export const ITEM_ID_SEQUENCE_WIDTH = 6
 
-/** Trailing sequence of an item id: "AP-BG-00005" -> 5. */
+/** Trailing sequence of an item id: "AP-BG-000005" -> 5. */
 const SEQUENCE_SUFFIX = /-(\d+)$/
 
 export function formatItemId(
@@ -41,7 +47,7 @@ async function maxSequence(
 
 /**
  * ACTIVE STRATEGY — one running number across the whole item table, so the
- * numeric part is unique on its own: AP-BX-00001, AP-BG-00002, BP-BX-00003…
+ * numeric part is unique on its own: AP-BX-000001, AP-BG-000002, BP-BX-000003…
  */
 export async function nextItemId(
   tx: Prisma.TransactionClient,
@@ -67,7 +73,7 @@ export function padSequence(sequence: number): string {
 
 /**
  * ALTERNATIVE STRATEGY — sequence restarts per commodity+category combination
- * (AP-BX-00001, AP-BG-00001, BP-BX-00001…). Not wired up: `createItem` calls
+ * (AP-BX-000001, AP-BG-000001, BP-BX-000001…). Not wired up: `createItem` calls
  * `nextItemId`. Kept ready in case the client wants numbering per combination —
  * swap the call in lib/actions/items.ts, nothing else changes.
  */

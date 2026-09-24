@@ -49,11 +49,9 @@ export function isEntraConfigured(): boolean {
   )
 }
 
-// Built on first use, not at module scope, for two reasons: this module is
-// imported while `next build` traces the route (where the env vars legitimately
-// don't exist, and constructing eagerly with `!` would fail the build instead of
-// the request), and entraLogoutUrl() is imported by the sign-out action on every
-// authenticated page — which has no business loading the MSAL SDK.
+// Built on first use, not at module scope: this module is imported while
+// `next build` traces the route, where the env vars legitimately don't exist and
+// constructing eagerly with `!` would fail the build instead of the request.
 let cachedClient: ConfidentialClientApplication | null = null
 async function client(): Promise<ConfidentialClientApplication> {
   if (!cachedClient) {
@@ -257,18 +255,4 @@ export async function callback(req: NextRequest): Promise<NextResponse> {
 function clearTx(res: NextResponse): NextResponse {
   res.cookies.set(TX_COOKIE, "", { path: "/", maxAge: 0 })
   return res
-}
-
-/**
- * Where to send an internal user after clearing our own cookie.
- *
- * Dropping the session cookie alone leaves the *Entra* SSO session live, so the
- * next "Sign in with Microsoft" click silently re-authenticates as the same
- * person — which does not look like signing out to anyone watching.
- * `post_logout_redirect_uri` must be registered on the app registration.
- */
-export function entraLogoutUrl(): string {
-  const tenant = process.env.AZURE_AD_TENANT_ID
-  const post = encodeURIComponent(appUrl("/login"))
-  return `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/logout?post_logout_redirect_uri=${post}`
 }

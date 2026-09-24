@@ -947,11 +947,11 @@ As **sam@packright.local**, `/vendor/submit`:
       BoxCraft=Central, StickerPro=West — all resolved via their sites.
 
 ### R9.3 — Location types gate which side can use a site
-Types live in `LOCATION_TYPES` in [lib/constants.ts](lib/constants.ts):
+Types live in the `LocationType` table, maintained at Admin -> Location types. Seeded from `LOCATION_TYPE_SEED` in [lib/constants.ts](lib/constants.ts):
 
 | Side | Types |
 |---|---|
-| Grower only | Grower Field, Packing House, Cold Storage |
+| Grower only | Grower Site, Packing House, Cold Storage |
 | Vendor only | Manufacturing Plant, Distribution Center, 3PL Facility |
 | Either | Warehouse, Cross-dock |
 
@@ -2019,6 +2019,63 @@ values. Test both halves if you touch it:
 > realistic failures, a single transaction spanning twenty sheets is a long one
 > to hold against a Basic-tier Azure SQL, and every write is an upsert — so the
 > recovery from a mid-run failure is simply to run the file again.
+
+## Round 21 — 6-digit item IDs, editable location types (September 2026)
+
+Two breaking changes plus two fixes. **Re-seed before testing:**
+`npm run db:migrate` then `npm run db:seed`.
+
+### 1. Proxy actually runs now (the /login bug)
+The `config.matcher` pattern silently stopped the proxy being registered at all —
+no error, nothing in the logs, the gate simply never executed. Every page was
+relying on its layout's `requireUser()`. The matcher now takes everything and
+excludes in code.
+- [ ] Signed in, type `/login` in the address bar -> redirected to your role's home.
+      Test as an internal user AND as a grower.
+- [ ] Signed out, open `/admin/items` -> `/login?returnTo=/admin/items`, and after
+      signing in you land on the items page.
+- [ ] Static assets and `/api/*` still load normally (nothing 404s or loops).
+- [ ] ⚠️ Click through the whole app once. This gate has never executed before,
+      so any page that quietly depended on reaching its own layout will surface here.
+
+### 2. Sign-out no longer ends the Microsoft session
+- [ ] Internal user signs out -> back at `/login`, still signed in to Outlook/Teams.
+- [ ] Clicking "Sign in with Microsoft" again signs them straight back in with no
+      prompt. **This is expected** — see the note in `lib/auth/actions.ts`.
+- [ ] Grower/vendor sign-out unchanged.
+
+### 3. Item photos on grower and vendor screens
+- [ ] Add a photo to an item, then open the grower submit screen as a grower
+      authorised for it -> thumbnail beside the item name.
+- [ ] Same on the vendor submit screen.
+- [ ] Items with no photo show a placeholder, not a broken image.
+
+### 4. Item IDs are six digits
+- [ ] New item -> the previewed ID reads `CC-MM-NNNNNN`, e.g. `AP-BX-000021`.
+- [ ] Every seeded item is six digits; none are five.
+- [ ] Workbook: `npx tsx scripts/generate-master-data-template.ts` -> sheet
+      `7-Items` prompts for `CC-MM-NNNNNN` with example `AP-BX-000001`.
+- [ ] Importer rejects a five-digit ID with a message naming the right format.
+
+### 5. Search items by legacy reference
+- [ ] The search box reads "Search by ID, name or legacy ref…".
+- [ ] Typing a legacy reference finds its item; the reference shows under the name,
+      so the match is visible rather than unexplained.
+- [ ] Searching by item ID and by name still work.
+
+### 6. Location types are editable data
+- [ ] **Admin -> Location types** lists eight types with their side and site counts.
+- [ ] Create a type, then create a location using it.
+- [ ] Rename a type -> the new name appears on every site using it immediately.
+      **This is the point of the foreign key**: nothing had to be updated twice.
+- [ ] Deactivate a type -> gone from the New location picker; sites already on it
+      keep working and still appear in the type filter.
+- [ ] Delete a type in use -> refused, naming how many sites are using it.
+- [ ] Delete an unused type -> succeeds.
+- [ ] A Grower-only type is not offered when mapping sites to a **vendor**, and a
+      Vendor-only type is not offered for a **grower**.
+- [ ] Locations export still has a Type column with the name, not an id.
+- [ ] `Grower Field` is now `Grower Site` everywhere — app, workbook and docs.
 
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.

@@ -182,8 +182,8 @@ sub-category, country of origin, application method and status — and, editable
 same form, its **grower authorisations** (who may count it) and **vendor mappings** (who
 supplies it, and at what pack ratios).
 
-Item IDs take the form `CC-MM-NNNNN` — commodity code, material category code, and a
-five-digit sequence. On the one-time master-data load they are **supplied by the client
+Item IDs take the form `CC-MM-NNNNNN` — commodity code, material category code, and a
+six-digit sequence. On the one-time master-data load they are **supplied by the client
 and used verbatim** ([Appendix A](#appendix-a--master-data-workbook-specification));
 items created in the application afterwards have the ID **generated**, continuing from
 the highest sequence in use. Either way the ID is permanent: it is the primary key that
@@ -1010,7 +1010,7 @@ master-data-template.xlsx   the blank master-data workbook (Appendix A)
 |---|---|
 | **Grower** | An organisation that holds and consumes inventory and submits on-hand counts |
 | **Vendor** | An organisation that supplies items and reports the stock it holds |
-| **Item** | A trackable material or packaging product, identified as `CC-MM-NNNNN` |
+| **Item** | A trackable material or packaging product, identified as `CC-MM-NNNNNN` |
 | **Material category** | The item's class — and its unit of count. An item in "Boxes" is counted in boxes |
 | **Authorisation** | A grower's permission to count a specific item |
 | **Mapping** | A vendor's association with an item, category, country or location |
@@ -1171,7 +1171,7 @@ mapped to a vendor and vice versa.
 
 | Type | Usable by |
 |---|---|
-| `Grower Field` | growers only |
+| `Grower Site` | growers only |
 | `Packing House` | growers only |
 | `Cold Storage` | growers only |
 | `Manufacturing Plant` | vendors only |
@@ -1179,10 +1179,13 @@ mapped to a vendor and vice versa.
 | `3PL Facility` | vendors only |
 | `Warehouse` | either |
 | `Cross-dock` | either |
-
-> ⚠️ **Confirm this list before filling in the workbook.** Adding, renaming or re-siding a
-> type is a one-line change in `LOCATION_TYPES` in `lib/constants.ts` — but only before
-> data is loaded against it.
+> **Location types are data, not code.** They live in the `LocationType` table and
+> are maintained at **Admin -> Location types**, so a type can be added, renamed
+> or re-sided without a deployment. `appliesTo` is the gate, enforced server-side
+> in `lib/actions/partners.ts` rather than only in the dropdown.
+>
+> A type in use cannot be deleted; deactivating it hides it from the picker for
+> new sites while leaving existing sites working.
 
 ### 7. Items
 
@@ -1191,7 +1194,7 @@ referenced by every count, order and ledger row, and can never be changed afterw
 
 | Column | Required | Type | Rules |
 |---|---|---|---|
-| `ItemID` | ✅ | text | Format `CC-MM-NNNNN` — see below |
+| `ItemID` | ✅ | text | Format `CC-MM-NNNNNN` — see below |
 | `ItemName` | ✅ | text | e.g. `Corrugated Box 40x30` |
 | `CommodityCode` | ✅ | text | Must exist in **Commodities** |
 | `MaterialCategoryCode` | ✅ | text | Must exist in **MaterialCategories** |
@@ -1205,16 +1208,16 @@ referenced by every count, order and ledger row, and can never be changed afterw
 #### The ItemID format
 
 ```
-AP  -  BX  -  00001
+AP  -  BX  -  000001
 │      │      │
-│      │      └─ 5-digit sequence, zero-padded, 00001–99999
+│      │      └─ 6-digit sequence, zero-padded, 000001–999999
 │      └──────── MaterialCategoryCode, must match this row's column
 └─────────────── CommodityCode, must match this row's column
 ```
 
 The importer enforces:
 
-1. Matches `^[A-Z]{2}-[A-Z]{2}-\d{5}$` exactly.
+1. Matches `^[A-Z]{2}-[A-Z]{2}-\d{6}$` exactly.
 2. The first segment equals this row's `CommodityCode`.
 3. The second equals this row's `MaterialCategoryCode`.
 4. The full ID is unique across the sheet.
@@ -1225,7 +1228,7 @@ application has no way to detect it later.
 
 > **The sequence need not be contiguous**, and gaps are fine. Items created in the
 > application afterwards continue from the highest number in use, across all
-> commodity/category combinations — so importing up to `AP-BX-00250` means the next item
+> commodity/category combinations — so importing up to `AP-BX-000250` means the next item
 > created in the UI is `00251`, whatever its category. Numbers are never reused.
 
 #### There is no unit column — the category *is* the unit
@@ -1333,7 +1336,7 @@ administrator edits a vendor.
 | `VendorName` | ✅ | text | Must exist in **Vendors** |
 | `MaterialCategoryCode` | ✅ | text | Must exist in **MaterialCategories** |
 
-> Keep this consistent with **VendorItems** — if a vendor supplies item `AP-BX-00001` its
+> Keep this consistent with **VendorItems** — if a vendor supplies item `AP-BX-000001` its
 > categories should include `BX`. The importer warns on a mismatch rather than failing,
 > because the two are edited separately later.
 
@@ -1371,7 +1374,7 @@ Everything the importer checks before writing anything:
 - required cells non-empty
 
 **Format**
-- `ItemID` matches `CC-MM-NNNNN`, segments agree with the row's own codes
+- `ItemID` matches `CC-MM-NNNNNN`, segments agree with the row's own codes
 - commodity and category codes are exactly 2 uppercase letters
 - emails are well-formed
 - day counts are non-negative whole numbers
