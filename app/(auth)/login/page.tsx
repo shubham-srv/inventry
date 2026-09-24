@@ -54,13 +54,36 @@ export default async function LoginPage({
 
   // Only same-origin paths survive; the proxy sets this when it bounces an
   // unauthenticated deep link here.
-  const rawReturn = Array.isArray(params.returnTo) ? params.returnTo[0] : params.returnTo
+  const rawReturn = Array.isArray(params.returnTo)
+    ? params.returnTo[0]
+    : params.returnTo
   const returnTo =
-    rawReturn && rawReturn.startsWith("/") && !rawReturn.startsWith("//") ? rawReturn : ""
+    rawReturn && rawReturn.startsWith("/") && !rawReturn.startsWith("//")
+      ? rawReturn
+      : ""
 
-  const signInHref = returnTo
-    ? `/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`
-    : "/api/auth/login"
+  /**
+   * Build the Microsoft sign-in link.
+   *
+   * `pickAccount` forces Microsoft's account picker. Normally we let Entra reuse
+   * the browser's existing session, which is what makes signing in feel instant.
+   * But when the last attempt failed BECAUSE OF WHICH ACCOUNT IT WAS, silent
+   * reuse re-tries the same failing account with no visible round-trip — the
+   * page just bounces back to the same error and looks broken. Those errors get
+   * a picker instead.
+   */
+  const microsoftHref = (pickAccount: boolean) => {
+    const params = new URLSearchParams()
+    if (returnTo) params.set("returnTo", returnTo)
+    if (pickAccount) params.set("prompt", "select_account")
+    const qs = params.toString()
+    return qs ? `/api/auth/login?${qs}` : "/api/auth/login"
+  }
+
+  // Errors that mean "this account cannot get in", as opposed to a transient or
+  // configuration failure where re-picking the same account is fine.
+  const wrongAccount = error === "unprovisioned" || error === "noidentity"
+  const signInHref = microsoftHref(wrongAccount)
 
   const demoEnabled = isDemoLoginEnabled()
 
@@ -78,7 +101,10 @@ export default async function LoginPage({
         sizes="100vw"
         className="object-cover"
       />
-      <div className="bg-background/85 absolute inset-0 backdrop-blur-[2px]" aria-hidden />
+      <div
+        className="absolute inset-0 bg-background/85 backdrop-blur-[2px]"
+        aria-hidden
+      />
 
       <div className="absolute top-4 right-4 z-10">
         <LanguageSwitcher />
@@ -87,8 +113,12 @@ export default async function LoginPage({
       <div className="relative z-10 flex w-full max-w-3xl flex-col items-center">
         <div className="mb-8 flex flex-col items-center text-center">
           <BrandLogo width={200} priority className="mb-4" />
-          <h1 className="text-2xl font-semibold tracking-tight">{t("login.title")}</h1>
-          <p className="text-muted-foreground mt-1 text-sm">{t("login.signInSubtitle")}</p>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {t("login.title")}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {t("login.signInSubtitle")}
+          </p>
         </div>
 
         <div className="w-full max-w-sm">
@@ -100,7 +130,7 @@ export default async function LoginPage({
             </Alert>
           )}
 
-          <div className="bg-card space-y-5 rounded-xl border p-6 shadow-sm">
+          <div className="space-y-5 rounded-xl border bg-card p-6 shadow-sm">
             {/* A plain link, not a form: /api/auth/login is a GET that mints the
                 state + PKCE verifier and redirects to Entra, and a form post
                 would break the round-trip the callback validates. */}
@@ -108,7 +138,12 @@ export default async function LoginPage({
               <a href={signInHref}>
                 {/* Inline mark rather than an <Image>: four solid squares, no
                     network request, and it cannot 404 in a locked-down tenant. */}
-                <svg viewBox="0 0 23 23" aria-hidden className="size-4" fill="currentColor">
+                <svg
+                  viewBox="0 0 23 23"
+                  aria-hidden
+                  className="size-4"
+                  fill="currentColor"
+                >
                   <path d="M0 0h11v11H0z" opacity=".9" />
                   <path d="M12 0h11v11H12z" opacity=".7" />
                   <path d="M0 12h11v11H0z" opacity=".7" />
@@ -118,16 +153,27 @@ export default async function LoginPage({
               </a>
             </Button>
 
+            <div className="-mt-2 text-center">
+              <a
+                href={microsoftHref(true)}
+                className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+              >
+                {t("login.useAnotherAccount")}
+              </a>
+            </div>
+
             <div className="flex items-center gap-3">
-              <span className="bg-border h-px flex-1" />
-              <span className="text-muted-foreground text-xs">{t("login.or")}</span>
-              <span className="bg-border h-px flex-1" />
+              <span className="h-px flex-1 bg-border" />
+              <span className="text-xs text-muted-foreground">
+                {t("login.or")}
+              </span>
+              <span className="h-px flex-1 bg-border" />
             </div>
 
             <MagicLinkForm />
           </div>
 
-          <p className="text-muted-foreground mt-6 text-center text-xs">
+          <p className="mt-6 text-center text-xs text-muted-foreground">
             {t("login.accessHelp")}
           </p>
         </div>
@@ -173,13 +219,16 @@ async function DemoUserPicker() {
   return (
     <div className="mt-10 w-full">
       <div className="mb-6 flex items-center gap-3">
-        <span className="bg-border h-px flex-1" />
-        <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-[10px] font-medium tracking-wide text-amber-700 uppercase dark:text-amber-400">
+        <span className="h-px flex-1 bg-border" />
+        <Badge
+          variant="outline"
+          className="border-amber-500/40 bg-amber-500/10 text-[10px] font-medium tracking-wide text-amber-700 uppercase dark:text-amber-400"
+        >
           {t("login.demoOnly")}
         </Badge>
-        <span className="bg-border h-px flex-1" />
+        <span className="h-px flex-1 bg-border" />
       </div>
-      <p className="text-muted-foreground mb-6 text-center text-xs">
+      <p className="mb-6 text-center text-xs text-muted-foreground">
         {t("login.demoDesc")}
       </p>
 
@@ -188,19 +237,23 @@ async function DemoUserPicker() {
           <section key={group.label}>
             <div className="mb-3">
               <h2 className="text-sm font-medium">{group.label}</h2>
-              <p className="text-muted-foreground text-xs">{group.description}</p>
+              <p className="text-xs text-muted-foreground">
+                {group.description}
+              </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               {group.users.map((user) => {
                 const context =
-                  user.grower?.growerName ?? user.vendor?.vendorName ?? t("login.internalUsers")
+                  user.grower?.growerName ??
+                  user.vendor?.vendorName ??
+                  t("login.internalUsers")
                 const initials =
                   `${user.firstName[0] ?? ""}${user.lastName[0] ?? ""}`.toUpperCase()
                 return (
                   <form key={user.id} action={loginAs.bind(null, user.id)}>
                     <button
                       type="submit"
-                      className="bg-card hover:border-primary/50 hover:bg-accent/50 flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-colors"
+                      className="flex w-full items-center gap-3 rounded-xl border bg-card p-3 text-left transition-colors hover:border-primary/50 hover:bg-accent/50"
                     >
                       <Avatar className="size-10">
                         <AvatarFallback>{initials}</AvatarFallback>
@@ -214,7 +267,7 @@ async function DemoUserPicker() {
                             {t(`common.roles.${user.role.roleName}`)}
                           </Badge>
                         </div>
-                        <div className="text-muted-foreground truncate text-xs">
+                        <div className="truncate text-xs text-muted-foreground">
                           {context} · {user.email}
                         </div>
                       </div>

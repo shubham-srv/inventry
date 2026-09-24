@@ -2077,5 +2077,42 @@ excludes in code.
 - [ ] Locations export still has a Type column with the name, not an id.
 - [ ] `Grower Field` is now `Grower Site` everywhere — app, workbook and docs.
 
+## Round 22 — escaping a rejected Microsoft account (September 2026)
+
+An account with no `User` row signs in with Microsoft, is correctly told it has
+no access — and then cannot get out. Clicking "Sign in with Microsoft" again
+shows no picker and re-fails instantly, because Entra silently reuses the browser
+session and re-authenticates the very account that just failed. The same corner
+catches the second person on a shared machine, since signing out of this app
+deliberately leaves the Microsoft session alone (Round 21).
+
+`/api/auth/login` now accepts `?prompt=select_account`, which forces Microsoft's
+account picker. It is requested automatically after an account-specific failure,
+and is always available from a link under the button.
+
+### 1. The reported case
+- [ ] Sign in with a Microsoft account that has **no User row** -> "That account
+      does not have access to this app."
+- [ ] Click **Sign in with Microsoft** again -> Microsoft's **account picker
+      appears** (before this fix it re-failed instantly with no round-trip).
+- [ ] Choose a provisioned account -> signed in normally.
+- [ ] Refreshing the error page does not re-trigger a sign-in attempt.
+
+### 2. The escape hatch is always there
+- [ ] On a clean `/login`, **Use a different Microsoft account** appears under the
+      button and forces the picker.
+- [ ] The main button on a clean `/login` does **not** force it — an ordinary
+      sign-in stays one click for someone with a live Microsoft session.
+- [ ] Sign out, then use that link -> picker appears, so a second person on a
+      shared machine can get in as themselves.
+
+### 3. Only the one value is honoured
+- [ ] `/api/auth/login?prompt=select_account` -> authorize URL carries
+      `prompt=select_account`.
+- [ ] `/api/auth/login?prompt=consent` (or any other value) -> **no** prompt in
+      the authorize URL. The value reaches Microsoft, so it is matched against a
+      known string rather than passed through.
+- [ ] `returnTo` survives both forms, so a deep link still lands where it should.
+
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.

@@ -112,6 +112,24 @@ export async function login(req: NextRequest): Promise<NextResponse> {
   const requested = req.nextUrl.searchParams.get("returnTo") ?? ""
   const returnTo = requested.startsWith("/") && !requested.startsWith("//") ? requested : ""
 
+  /**
+   * Whether to force Microsoft's account picker.
+   *
+   * Without it, Entra silently reuses whatever session the browser already has
+   * and hands back a code for that same account — no picker, no chance to
+   * choose. That is what you want on the happy path, and a trap everywhere
+   * else: somebody whose account has no User row gets "that account does not
+   * have access", and clicking Sign in with Microsoft again re-authenticates
+   * the very account that just failed, instantly, forever. The same corner
+   * catches the second person to use a shared machine, because signing out of
+   * this app deliberately leaves the Microsoft session alone
+   * (lib/auth/actions.ts).
+   *
+   * Only `select_account` is honoured — the value reaches Microsoft, so it is
+   * matched against a known string rather than passed through.
+   */
+  const forcePicker = req.nextUrl.searchParams.get("prompt") === "select_account"
+
   let url: string
   try {
     url = await (await client()).getAuthCodeUrl({
@@ -120,6 +138,7 @@ export async function login(req: NextRequest): Promise<NextResponse> {
       codeChallenge: challenge,
       codeChallengeMethod: "S256",
       state,
+      ...(forcePicker ? { prompt: "select_account" } : {}),
     })
   } catch (e) {
     console.error("[entra] getAuthCodeUrl failed", e)
