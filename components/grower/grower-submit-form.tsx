@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   Flag,
   FileClock,
-  Plus,
   PackageCheck,
   Pencil,
   Truck,
@@ -20,10 +19,10 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
+  StickyNote,
 } from "lucide-react"
 import { submitInventory } from "@/lib/actions/grower"
 import {
-  createOrder,
   receiveOrder,
   cancelOrder,
   updateOrderDelivery,
@@ -41,6 +40,14 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -52,6 +59,7 @@ import {
   type Field,
 } from "@/components/crud/entity-form-dialog"
 import { ConfirmButton } from "@/components/crud/confirm-button"
+import { OrderFormDialog } from "@/components/grower/order-form-dialog"
 import {
   SubmitListControls,
   useSubmitListView,
@@ -120,6 +128,20 @@ export function GrowerSubmitForm({
     () => rows.filter((r) => values[r.itemId]?.qty.trim() !== "").length,
     [rows, values]
   )
+
+  // Submitting with blanks asks first: a blank is easily an item nobody
+  // counted, and the fix for "I have none" is to enter 0. Drafts never ask.
+  const formRef = useRef<HTMLFormElement>(null)
+  const submitRef = useRef<HTMLButtonElement>(null)
+  const [confirmIncomplete, setConfirmIncomplete] = useState(false)
+  function submitCounts() {
+    setConfirmIncomplete(false)
+    formRef.current?.requestSubmit(submitRef.current)
+  }
+  function onSubmitClick() {
+    if (entered < rows.length) setConfirmIncomplete(true)
+    else submitCounts()
+  }
   // Entered rows the search is currently hiding. Worth saying out loud: they
   // are still in the payload, and the progress bar counts them.
   const hiddenEntered = useMemo(() => {
@@ -187,12 +209,31 @@ export function GrowerSubmitForm({
           only that payload; the sticky buttons target it via the `form`
           attribute, so it needn't wrap the cards — that keeps the header sticky
           across the whole list and keeps the per-card order actions un-nested. */}
-      <form id="grower-submit-form" action={formAction}>
+      <form id="grower-submit-form" ref={formRef} action={formAction}>
         <input type="hidden" name="payload" value={payload} />
         {/* Which site these counts belong to. The server re-checks it against
             the grower's mapped locations — this field is a hint, not a grant. */}
         <input type="hidden" name="locationId" value={activeLocationId} />
+        {/* The real "submit" trigger; the visible button may confirm first. */}
+        <button ref={submitRef} type="submit" name="mode" value="submit" hidden />
       </form>
+
+      <Dialog open={confirmIncomplete} onOpenChange={setConfirmIncomplete}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t("grower.form.incompleteTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("grower.form.incompleteBody", { done: entered, total: rows.length })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmIncomplete(false)}>
+              {t("grower.form.goBack")}
+            </Button>
+            <Button onClick={submitCounts}>{t("grower.form.submitAnyway")}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Sticky location + progress + actions */}
       <div className="sticky top-14 z-10 -mx-4 mb-4 border-b bg-background/95 px-4 py-3 backdrop-blur md:-mx-6 md:px-6">
@@ -260,10 +301,8 @@ export function GrowerSubmitForm({
               {pending ? t("common.saving") : t("grower.form.saveDraft")}
             </Button>
             <Button
-              type="submit"
-              form="grower-submit-form"
-              name="mode"
-              value="submit"
+              type="button"
+              onClick={onSubmitClick}
               disabled={pending || entered === 0}
             >
               {pending ? t("common.saving") : t("grower.form.submit")}
@@ -390,6 +429,12 @@ export function GrowerSubmitForm({
                         </>
                       )}
                     </p>
+                    {r.notes && (
+                      <p className="mt-1 flex items-start gap-1 text-xs whitespace-pre-line text-muted-foreground">
+                        <StickyNote className="mt-0.5 size-3 shrink-0" />
+                        {r.notes}
+                      </p>
+                    )}
                     </div>
                   </div>
 
@@ -516,10 +561,20 @@ function OrderRow({ order }: { order: OrderView }) {
       {order.expectedDeliveryDate && (
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <Truck className="size-3" />
-          {t("grower.orders.eta", {
+          {t("grower.orders.requestedOn", {
             date: format(new Date(order.expectedDeliveryDate), "MMM d"),
           })}
         </span>
+      )}
+      {/* The vendor's answer, once given — what delivery is measured against. */}
+      {order.confirmedDeliveryDate ? (
+        <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+          {t("grower.orders.confirmedOn", {
+            date: format(new Date(order.confirmedDeliveryDate), "MMM d"),
+          })}
+        </span>
+      ) : (
+        isOpen && <span className="text-xs text-amber-700 dark:text-amber-400">{t("grower.orders.awaitingVendor")}</span>
       )}
       {order.packSummary && (
         <span className="text-xs text-muted-foreground">· {order.packSummary}</span>
@@ -561,53 +616,12 @@ function AddOrderButton({ item }: { item: SubmitRow }) {
       </span>
     )
   }
-  // Not an edit — `values` only seeds the unit display from the item's UOM.
-  const fields: Field[] = [
-    { name: "itemId", type: "hidden", placeholder: item.itemId },
-    {
-      name: "vendorId",
-      label: t("grower.orders.vendor"),
-      type: "select",
-      required: true,
-      placeholder: t("grower.orders.vendorPh"),
-      colSpan: 2,
-      options: item.vendorOptions.map((v) => ({
-        label: v.name,
-        value: String(v.id),
-      })),
-    },
-    {
-      // The category is the unit, so it rides on the label rather than taking a
-      // read-only field of its own next to it.
-      name: "quantity",
-      label: item.categoryName
-        ? `${t("grower.orders.quantity")} (${item.categoryName})`
-        : t("grower.orders.quantity"),
-      type: "number",
-      required: true,
-      step: "any",
-      colSpan: 2,
-    },
-    {
-      name: "expectedDeliveryDate",
-      label: t("grower.orders.expectedDelivery"),
-      type: "date",
-      colSpan: 2,
-    },
-  ]
   return (
-    <EntityFormDialog
-      title={t("grower.orders.addTitle")}
-      description={`${item.itemName} · ${item.itemId}`}
-      fields={fields}
-      action={createOrder}
-      submitLabel={t("grower.orders.add")}
-      values={{ vendorId: "", quantity: "", expectedDeliveryDate: "" }}
-      trigger={
-        <Button type="button" variant="outline" size="xs">
-          <Plus className="size-3.5" /> {t("grower.orders.add")}
-        </Button>
-      }
+    <OrderFormDialog
+      itemId={item.itemId}
+      itemName={item.itemName}
+      categoryName={item.categoryName}
+      vendors={item.vendorOptions}
     />
   )
 }
@@ -710,9 +724,15 @@ function EditDeliveryButton({ order }: { order: OrderView }) {
   const fields: Field[] = [
     {
       name: "expectedDeliveryDate",
-      label: t("grower.orders.expectedDelivery"),
+      label: t("grower.orders.requestedDelivery"),
       type: "date",
+      required: true,
+      // The server also holds it to the vendor's lead time from the order date.
+      min: toDateInput(order.orderDate),
       colSpan: 2,
+      description: order.confirmedDeliveryDate
+        ? t("grower.orders.vendorDateNote", { date: format(new Date(order.confirmedDeliveryDate), "MMM d") })
+        : undefined,
     },
   ]
   return (

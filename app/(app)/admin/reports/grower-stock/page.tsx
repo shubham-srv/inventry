@@ -1,11 +1,12 @@
-import { format } from "date-fns"
 import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { parseListParams } from "@/lib/query"
 import {
-  getInventorySnapshot,
-  type InventorySnapshotRow,
+  getGrowerStockSummary,
+  type GrowerStockSummaryRow,
+  type SnapshotFilters,
 } from "@/lib/admin/inventory-snapshot"
+import { parsePartnerSort, SUBMISSION_FLAG_FILTERS } from "@/lib/reports/submission-flag"
 import {
   activeGrowerOptions,
   categoryOptions,
@@ -13,129 +14,127 @@ import {
   countingLocationOptions,
 } from "@/lib/admin/filter-options"
 import { Badge } from "@/components/ui/badge"
-import { DataTable, type Column } from "@/components/data-table/data-table"
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
+import {
+  ExpandableReportTable,
+  SortHeader,
+  type ReportColumn,
+} from "@/components/reports/expandable-report-table"
+import { LastSubmittedCell } from "@/components/reports/submission-flag-badge"
+import { GrowerStockDetail } from "@/components/reports/grower-stock-detail"
 
-const STOCK_STATES = [
+const STOCK_STATUSES = [
   { label: "Uncounted", value: "uncounted" },
   { label: "Zero", value: "zero" },
   { label: "Below threshold", value: "low" },
   { label: "OK", value: "ok" },
 ]
 
-const STATE_TONE: Record<InventorySnapshotRow["state"], string> = {
-  Uncounted: "text-muted-foreground",
-  Zero: "border-transparent bg-red-500/15 text-red-700 dark:text-red-400",
-  Low: "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  OK: "border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-}
-
-export default async function InventorySnapshotPage({
+/**
+ * One row per grower — when they last submitted, how overdue that is, and a
+ * summary of their stock — opening to that grower's items and per-location
+ * counts. Most overdue first by default.
+ */
+export default async function GrowerStockPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.VIEW_REPORTS)
-  const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 25 })
+  const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 15 })
+  const sort = parsePartnerSort(raw.sort)
 
-  const filters = {
+  const filters: SnapshotFilters = {
     growerId: Number(raw.grower) || undefined,
     locationId: Number(raw.location) || undefined,
     commodity: raw.commodity || undefined,
     category: raw.category || undefined,
     stock: raw.stock || undefined,
+    flag: raw.flag || undefined,
     q: raw.q || undefined,
   }
 
   const [{ rows, total }, growers, locations, commodities, categories] = await Promise.all([
-    getInventorySnapshot(filters, { skip, take }),
+    getGrowerStockSummary(filters, sort, { skip, take }),
     activeGrowerOptions(),
     countingLocationOptions(),
     commodityOptions(),
     categoryOptions(),
   ])
 
-  const columns: Column<InventorySnapshotRow>[] = [
+  const count = (n: number, label: string, tone: string) =>
+    n > 0 && (
+      <Badge variant="outline" className={`whitespace-nowrap ${tone}`}>
+        {n} {label}
+      </Badge>
+    )
+
+  const columns: ReportColumn<GrowerStockSummaryRow>[] = [
     {
-      key: "item",
-      header: "Item",
+      key: "grower",
+      header: <SortHeader label="Grower" searchParams={raw} current={sort} primary="name" defaultSort="stale" />,
       cell: (r) => (
         <div>
-          <span className="font-medium">{r.itemName}</span>
-          <p className="text-muted-foreground font-mono text-xs">{r.itemId}</p>
+          <span className="font-medium">{r.growerName}</span>
+          <p className="text-muted-foreground text-xs">
+            {r.locations} location{r.locations === 1 ? "" : "s"}
+          </p>
         </div>
       ),
     },
-    { key: "grower", header: "Grower", cell: (r) => r.growerName },
-    { key: "commodity", header: "Commodity", cell: (r) => r.commodityName ?? "—" },
-    // Doubles as the unit: quantities are counted in the item's category.
-    { key: "category", header: "Category", cell: (r) => r.categoryName ?? "—" },
     {
-      key: "onHand",
-      header: "On hand",
-      className: "tabular-nums",
-      cell: (r) =>
-        r.onHand == null ? (
-          <span className="text-muted-foreground text-xs">Never counted</span>
-        ) : (
-          `${r.onHand} ${r.categoryName ?? ""}`
-        ),
-    },
-    {
-      key: "threshold",
-      header: "Threshold",
-      className: "tabular-nums",
-      cell: (r) =>
-        r.threshold == null ? (
-          "—"
-        ) : (
-          <span className="flex items-center gap-2">
-            {r.threshold}
-            <Badge variant={r.thresholdScope === "Grower" ? "secondary" : "outline"}>
-              {r.thresholdScope === "Grower" ? "Grower override" : "Global"}
-            </Badge>
-          </span>
-        ),
-    },
-    {
-      key: "state",
-      header: "State",
-      cell: (r) => (
-        <Badge variant="outline" className={STATE_TONE[r.state]}>
-          {r.state === "Low" ? "Below threshold" : r.state}
-        </Badge>
+      key: "last",
+      header: (
+        <SortHeader
+          label="Last submitted"
+          searchParams={raw}
+          current={sort}
+          primary="stale"
+          secondary="recent"
+          defaultSort="stale"
+        />
       ),
+      cell: (r) => <LastSubmittedCell at={r.lastSubmittedAt} daysSince={r.daysSince} flag={r.flag} />,
     },
     {
-      key: "asOf",
-      header: "Last counted",
-      className: "text-xs text-muted-foreground",
-      cell: (r) => (r.asOf ? format(r.asOf, "MMM d") : "—"),
+      key: "items",
+      header: "Items",
+      cell: (r) => (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="tabular-nums">{r.items}</span>
+          {count(r.low, "low", "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400")}
+          {count(r.zero, "zero", "border-transparent bg-red-500/15 text-red-700 dark:text-red-400")}
+          {count(r.uncounted, "uncounted", "text-muted-foreground")}
+          {count(r.onOrderItems, "on order", "border-transparent bg-sky-500/15 text-sky-700 dark:text-sky-400")}
+        </div>
+      ),
     },
   ]
 
   return (
     <div className="space-y-4">
       <DataTableToolbar
-        searchPlaceholder="Search grower / item id / name…"
+        searchPlaceholder="Search grower / item / legacy ID…"
         exportEntity="inventory-snapshot"
         filters={[
           { key: "grower", label: "Grower", options: growers },
+          { key: "flag", label: "Last submitted", options: [...SUBMISSION_FLAG_FILTERS] },
           { key: "location", label: "Location", options: locations },
           { key: "commodity", label: "Commodity", options: commodities },
           { key: "category", label: "Category", options: categories },
-          { key: "stock", label: "Stock", options: STOCK_STATES },
+          { key: "stock", label: "Status", options: STOCK_STATUSES },
         ]}
       />
-      <DataTable
+      <ExpandableReportTable
         columns={columns}
         rows={rows}
-        getRowKey={(r) => `${r.growerId}:${r.itemId}`}
+        getRowKey={(r) => r.growerId}
+        renderDetail={(r) => <GrowerStockDetail growerId={r.growerId} filters={filters} />}
+        searchParams={raw}
         page={page}
         pageCount={Math.ceil(total / pageSize)}
         total={total}
-        searchParams={raw}
-        emptyMessage="No authorized grower/item pairs match these filters."
+        emptyMessage="No growers have authorized items matching these filters."
       />
     </div>
   )

@@ -23,7 +23,7 @@ Five roles. A person has exactly one.
 | Area | SuperAdmin | InternalAdmin | Editor |
 |---|---|---|---|
 | Items, commodities, categories, sub-categories, countries, locations | Yes | Yes | **Yes** |
-| Packaging | Yes | Yes | **Yes** |
+| Conversions (formerly Packaging) | Yes | Yes | **Yes** |
 | Growers, vendors, authorisations | Yes | Yes | No |
 | Users | Yes | Yes | No |
 | Thresholds, schedules, audit log, outbox | Yes | Yes | No |
@@ -61,7 +61,13 @@ grower is emailed the outcome, note included, so it is worth writing something
 they can act on.
 
 Reviewing a flag does not change any stock figure. It records that a human
-looked and responded.
+looked and responded. **Current on hand** beside each flag shows what the grower
+holds now (per location when they have several), so you can judge it without
+leaving the queue.
+
+**Flag history** (the third tab) keeps every flag ever raised — open, unflagged
+by the grower, or reviewed — with who raised and cleared it, when, the on-hand
+then and now, and the review note.
 
 ### 4.2.2 Low inventory — Current
 
@@ -134,6 +140,7 @@ as you fill it in. Once saved it is permanent (§1.1).
 |---|---|---|---|
 | **Item ID** | — | Generated on create; shown but not editable when editing | Permanent. Every count and order points at it |
 | **Name** | Yes | What people call the thing | Change this freely — it is a label, not the identity |
+| **Legacy ID** | No | The item's ID in the previous (Famous) system | No two items can share one. Searchable everywhere and shown in the reports |
 | **Photo** | No | A picture of the item | Helps people counting recognise it. Large photos are resized automatically. Growers and vendors can see it |
 | **Commodity** | Yes | The crop or product family | Forms the first part of the ID. **Cannot be changed after creation** |
 | **Category** | Yes | The material category | Forms the second part of the ID, **and is the unit everything is counted in** (§1.2) |
@@ -143,7 +150,8 @@ as you fill it in. Once saved it is permanent (§1.1).
 | **Status** | Yes | Active / Inactive / Review | *Review* marks an item you are still deciding about |
 | **Growers** | No | Who may count this item | The same as authorising from the mappings screen (§4.6) |
 | **Vendors** | No | Who supplies it | A grower can only order from a vendor listed here |
-| **Notes** | No | Anything useful about the item | |
+| **Notes** | No | Anything useful about the item | Shown to growers and vendors under the item, and in the item and report tables |
+| **Spanish notes** | No | Your own Spanish wording | Leave blank to machine-translate on save. Changing the English notes empties this box and re-translates. The Notes column shows *ES missing / auto / reviewed* |
 
 ### Deactivate rather than delete
 
@@ -167,8 +175,8 @@ a long way.
 
 | Screen | What it holds | Consequence of changing it |
 |---|---|---|
-| **Commodities** | Crop/product families, with a short code | The code is the first part of every item ID built from it. Existing IDs never change, so a renamed code leaves old IDs reading the old letters |
-| **Categories** | Material categories, with a short code | The second part of the ID — **and the unit every quantity is counted in**. See the warning below |
+| **Commodities** | Crop/product families, with a short code | The code is the first part of every item ID built from it. Existing IDs never change, so a renamed code leaves old IDs reading the old letters. **Disabling** a commodity (power button) hides all its items from growers, vendors, pickers and current reports without changing the items; enabling it restores them exactly as they were |
+| **Categories** | Material categories, with a short code | The second part of the ID — **and the unit every quantity is counted in**. See the warning below. When adding one, the existing codes are listed under the Code box so a duplicate is obvious |
 | **Sub-categories** | The finer split within a category | Moving one between categories will contradict the IDs of items already using it |
 | **Countries** | Origins and locations | A country marked as not selectable stays valid as an item origin but disappears from the location and vendor pickers |
 | **Locations** | Physical sites | A site's type gates who can use it — some are grower-only, some vendor-only, some either |
@@ -195,7 +203,7 @@ The organisations on the other side of the system.
 |---|---|---|---|
 | **Name** | Yes | The organisation's name | Must be unique |
 | **Primary email** | No | Where confirmations and reminders go | Without it, this grower receives no notifications at all |
-| **Status** | Yes | Active / Inactive / Pending | |
+| **Status** | Yes | Active / Inactive / Pending | Only **Active** growers' users can sign in — Inactive or Pending signs them out on their next page. Their own accounts are not changed, so switching back to Active restores access |
 | **Language** | Yes | English or Spanish | The language of emails to the address above. Separate from the language each person chooses for themselves |
 | **Items** | No | Which items they may count | Same as authorising in §4.6 |
 | **Locations** | No | Which sites they count at | **A grower with no location cannot submit anything at all** |
@@ -216,7 +224,7 @@ The organisations on the other side of the system.
 | **Lead time (days)** | No | Whole days from order to delivery | Informational |
 | **Payment terms (days)** | No | The number from "Net N days" | The number only |
 | **Account number** | No | Your account reference with them | |
-| **Status** | Yes | Active / Inactive | |
+| **Status** | Yes | Active / Inactive | Inactive signs the vendor's users out and stops them signing in, until set back to Active |
 | **Language** | Yes | English or Spanish | Language of emails to this vendor |
 
 ---
@@ -324,6 +332,20 @@ silently never reminded.
 Available to administrators, not Editors.
 
 Grower stock, orders and vendor stock, each filterable.
+
+- **Grower stock** and **Vendor stock** show one row per grower or vendor: when
+  they last submitted (date and time), how many days ago, and a flag — amber
+  **3+ days**, red **1 week+**, or **Never submitted**. The most overdue are at
+  the top; click **Last submitted** to reverse, or the name column to sort by
+  name. Open a row (the arrow) to see its items: on hand at each location and in
+  total, on order, threshold, status, legacy ID and notes for growers; reported,
+  allocated and unallocated for vendors.
+- **Orders** shows each order's **Requested** date (the grower's) and the
+  **Vendor's date** once they confirm it — or *Awaiting vendor*. On time, late
+  and overdue are measured against the vendor's date when there is one.
+
+The stock exports contain two sheets: the per-grower (or per-vendor) summary and
+the item rows.
 
 **Export to Excel** produces exactly what is on screen — the same rows, in the
 same order, with your filters applied. If an export looks wrong, check the

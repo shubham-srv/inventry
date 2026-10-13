@@ -75,8 +75,10 @@ export function usersWhere(sp: SP): Prisma.UserWhereInput {
 }
 
 export function commoditiesWhere(sp: SP): Prisma.CommodityWhereInput {
-  if (!sp.q) return {}
-  return { OR: [{ code: { contains: sp.q } }, { name: { contains: sp.q } }] }
+  const and: Prisma.CommodityWhereInput[] = []
+  if (sp.q) and.push({ OR: [{ code: { contains: sp.q } }, { name: { contains: sp.q } }] })
+  if (sp.status) and.push({ isActive: sp.status === "active" })
+  return and.length ? { AND: and } : {}
 }
 
 export function categoriesWhere(sp: SP): Prisma.MaterialCategoryWhereInput {

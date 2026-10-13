@@ -8,6 +8,7 @@ import { homePathForRole } from "@/lib/rbac"
 import { appUrl } from "@/lib/app-url"
 import { INTERNAL_ROLES, type RoleName } from "@/lib/constants"
 import { notifyMagicLink } from "@/lib/email/notify"
+import { PARTNER_STATUS_SELECT, partnerAccessBlocked } from "@/lib/auth/partner-access"
 
 /**
  * Passwordless sign-in for EXTERNAL users (growers & vendors).
@@ -61,13 +62,16 @@ export async function requestLink(req: NextRequest): Promise<NextResponse> {
 
   const user = await prisma.user.findUnique({
     where: { email: normalized },
-    include: { role: true },
+    include: { role: true, ...PARTNER_STATUS_SELECT },
   })
 
-  // Only active EXTERNAL users get links; internal staff authenticate via Entra.
+  // Only active EXTERNAL users of an Active grower/vendor get links; internal
+  // staff authenticate via Entra. A disabled partner gets the same neutral
+  // answer as an unknown address — saying so here would leak who is registered.
   if (
     !user ||
     !user.isActive ||
+    partnerAccessBlocked(user) ||
     INTERNAL_ROLES.includes(user.role.roleName as RoleName)
   ) {
     return neutral
@@ -157,10 +161,15 @@ export async function consumeLink(req: NextRequest): Promise<NextResponse> {
 
   const user = await prisma.user.findUnique({
     where: { id: uid },
-    include: { role: true },
+    include: { role: true, ...PARTNER_STATUS_SELECT },
   })
   if (!user || !user.isActive) {
     return NextResponse.redirect(appUrl("/login?error=unprovisioned"))
+  }
+  // Safe to be specific here: only the inbox owner can reach this point. Covers
+  // a link issued just before the partner was disabled.
+  if (partnerAccessBlocked(user)) {
+    return NextResponse.redirect(appUrl("/login?error=partnerdisabled"))
   }
 
   // Burn the token (single-use), then reuse the existing session mechanism.

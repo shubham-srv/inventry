@@ -9,7 +9,8 @@ import { ok, fail } from "@/lib/actions/types"
 import { recordAudit } from "@/lib/audit"
 import { CAPABILITIES } from "@/lib/rbac"
 import { AUDIT_ACTIONS } from "@/lib/constants"
-import { translateText, TRANSLATABLE_LOCALES } from "@/lib/i18n/machine-translate"
+import { TRANSLATABLE_LOCALES } from "@/lib/i18n/machine-translate"
+import { applyTranslation, planTranslation } from "@/lib/i18n/text-translation"
 
 const CAP = CAPABILITIES.MANAGE_GROWERS_VENDORS
 
@@ -61,11 +62,9 @@ function messageData(d: Input) {
 }
 
 /**
- * Keep the Spanish note in step with the English one.
- *
- * - Admin typed something  -> store it verbatim, isMachine=false (reviewed).
- * - Left blank + body set  -> machine-translate, isMachine=true (flagged in the list).
- * - Left blank + no body   -> remove the translation entirely.
+ * Keep the Spanish note in step with the English one (rules in
+ * lib/i18n/text-translation.ts): a typed Spanish note is stored as reviewed; a
+ * blank box, or a changed English note under an untouched box, re-translates.
  *
  * Runs AFTER the message transaction commits, not inside it: an outbound HTTP
  * call must never hold a DB transaction open, and a translator outage must not
@@ -73,40 +72,30 @@ function messageData(d: Input) {
  */
 async function syncTranslations(
   messageId: number,
+  bodyBefore: string | null,
   body: string,
   bodyEs: string,
   userId: number
 ) {
   for (const locale of TRANSLATABLE_LOCALES) {
-    const manual = locale === "es" ? bodyEs : ""
-
-    if (manual) {
-      await prisma.itemMessageTranslation.upsert({
-        where: { itemMessageId_locale: { itemMessageId: messageId, locale } },
-        update: { body: manual, isMachine: false, updatedBy: userId },
-        create: { itemMessageId: messageId, locale, body: manual, isMachine: false, createdBy: userId, updatedBy: userId },
-      })
-      continue
-    }
-
-    if (!body) {
-      await prisma.itemMessageTranslation.deleteMany({ where: { itemMessageId: messageId, locale } })
-      continue
-    }
-
-    // Don't burn a translation call (or clobber a reviewed one) when an admin
-    // has already corrected this locale and only edited unrelated fields.
-    const existing = await prisma.itemMessageTranslation.findUnique({
-      where: { itemMessageId_locale: { itemMessageId: messageId, locale } },
+    const key = { itemMessageId_locale: { itemMessageId: messageId, locale } }
+    const stored = await prisma.itemMessageTranslation.findUnique({ where: key })
+    const plan = planTranslation({
+      sourceBefore: bodyBefore,
+      sourceAfter: body,
+      stored: stored && { text: stored.body, isMachine: stored.isMachine },
+      posted: locale === "es" ? bodyEs : "",
     })
-    if (existing && !existing.isMachine) continue
-
-    const result = await translateText(body, locale)
-    if (!result.ok) continue // provider off or failing — grower falls back to `body`
-    await prisma.itemMessageTranslation.upsert({
-      where: { itemMessageId_locale: { itemMessageId: messageId, locale } },
-      update: { body: result.text, isMachine: true, updatedBy: userId },
-      create: { itemMessageId: messageId, locale, body: result.text, isMachine: true, createdBy: userId, updatedBy: userId },
+    await applyTranslation(plan, {
+      source: body,
+      locale,
+      save: (text, isMachine) =>
+        prisma.itemMessageTranslation.upsert({
+          where: key,
+          update: { body: text, isMachine, updatedBy: userId },
+          create: { itemMessageId: messageId, locale, body: text, isMachine, createdBy: userId, updatedBy: userId },
+        }),
+      remove: () => prisma.itemMessageTranslation.deleteMany({ where: { itemMessageId: messageId, locale } }),
     })
   }
 }
@@ -145,7 +134,7 @@ export async function createItemMessage(_p: ActionState, fd: FormData): Promise<
       await syncTargets(tx, msg.id, data.audience, parseGrowerIds(data.growerIds))
       return msg
     })
-    await syncTranslations(created.id, data.body, data.bodyEs, user.id)
+    await syncTranslations(created.id, null, data.body, data.bodyEs, user.id)
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.CREATE, entityType: "ItemMessage", entityId: created.id, changes: data })
     revalidate()
     return ok("Item message created")
@@ -160,11 +149,13 @@ export async function updateItemMessage(_p: ActionState, fd: FormData): Promise<
   if (error) return error
   try {
     const id = Number(data.id)
+    // Read before the update: whether the English changed decides the Spanish.
+    const before = await prisma.itemMessage.findUnique({ where: { id }, select: { body: true } })
     await prisma.$transaction(async (tx) => {
       await tx.itemMessage.update({ where: { id }, data: { ...messageData(data), updatedBy: user.id } })
       await syncTargets(tx, id, data.audience, parseGrowerIds(data.growerIds))
     })
-    await syncTranslations(id, data.body, data.bodyEs, user.id)
+    await syncTranslations(id, before?.body ?? "", data.body, data.bodyEs, user.id)
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.UPDATE, entityType: "ItemMessage", entityId: data.id, changes: data })
     revalidate()
     return ok("Item message updated")

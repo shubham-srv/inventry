@@ -2,11 +2,11 @@ import { format } from "date-fns"
 import { Pencil, Plus, Trash2, Languages } from "lucide-react"
 import { type Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
+import { ACTIVE_ITEM } from "@/lib/items/active"
 import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { parseListParams } from "@/lib/query"
 import {
-  ENTITY_STATUS,
   ITEM_MESSAGE_TYPES,
   ITEM_MESSAGE_TYPE_LABELS,
   ITEM_MESSAGE_SEVERITIES,
@@ -72,7 +72,7 @@ export default async function AdminItemMessagesPage({
       take,
     }),
     prisma.itemMessage.count({ where }),
-    prisma.item.findMany({ where: { status: ENTITY_STATUS.ACTIVE }, orderBy: { id: "asc" }, select: { id: true, itemName: true } }),
+    prisma.item.findMany({ where: ACTIVE_ITEM, orderBy: { id: "asc" }, select: { id: true, itemName: true } }),
     prisma.grower.findMany({ orderBy: { growerName: "asc" }, select: { id: true, growerName: true } }),
     // Which growers can actually see a message about a given item. A message
     // targeted at a grower not authorized for the item is invisible to them —
@@ -115,8 +115,9 @@ export default async function AdminItemMessagesPage({
       label: "Spanish note",
       type: "textarea",
       colSpan: 2,
+      translationOf: "body",
       description:
-        "Leave blank to machine-translate the note on save. Anything typed here is used as-is and marked reviewed. Spanish-preference growers see this instead of the English note.",
+        "Leave blank to machine-translate the note on save; changing the English note re-translates it. Anything typed here is used as-is and marked reviewed. Spanish-preference growers see this instead of the English note.",
     },
     { name: "startsAt", label: "Starts (optional)", type: "date" },
     { name: "endsAt", label: "Ends (optional)", type: "date" },

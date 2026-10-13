@@ -1,4 +1,4 @@
-import { Pencil, Plus, Trash2 } from "lucide-react"
+import { Pencil, Plus, Power, PowerOff, Trash2 } from "lucide-react"
 import { prisma } from "@/lib/db"
 import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
@@ -8,7 +8,9 @@ import {
   createCommodity,
   updateCommodity,
   deleteCommodity,
+  setCommodityActive,
 } from "@/lib/actions/master-data"
+import { StatusBadge } from "@/components/status-badge"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { DataTable, type Column } from "@/components/data-table/data-table"
@@ -32,7 +34,7 @@ const fields: Field[] = [
   { name: "name", label: "Name", type: "text", required: true, colSpan: 2 },
 ]
 
-type Row = { code: string; name: string; _count: { items: number } }
+type Row = { code: string; name: string; isActive: boolean; _count: { items: number } }
 
 export default async function CommoditiesPage({
   searchParams,
@@ -69,12 +71,33 @@ export default async function CommoditiesPage({
     },
     { key: "items", header: "Items", cell: (r) => r._count.items },
     {
+      key: "status",
+      header: "Status",
+      cell: (r) => <StatusBadge status={r.isActive ? "Active" : "Inactive"} />,
+    },
+    {
       key: "actions",
       header: "",
       headClassName: "w-0",
       className: "text-right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
+          <ConfirmButton
+            title={r.isActive ? `Disable ${r.code}?` : `Enable ${r.code}?`}
+            description={
+              r.isActive
+                ? `Its ${r._count.items} item(s) disappear from grower and vendor screens, pickers and current reports until it is enabled again. The items themselves are not changed.`
+                : `Its ${r._count.items} item(s) come back exactly as they were — items that were inactive on their own stay inactive.`
+            }
+            confirmLabel={r.isActive ? "Disable" : "Enable"}
+            variant={r.isActive ? "destructive" : "default"}
+            action={setCommodityActive.bind(null, r.code, !r.isActive)}
+            trigger={
+              <Button variant="ghost" size="icon-sm" aria-label={r.isActive ? "Disable" : "Enable"}>
+                {r.isActive ? <PowerOff /> : <Power />}
+              </Button>
+            }
+          />
           <EntityFormDialog
             title="Edit commodity"
             fields={fields}
@@ -113,6 +136,16 @@ export default async function CommoditiesPage({
         <DataTableToolbar
           searchPlaceholder="Search commodities…"
           exportEntity="commodities"
+          filters={[
+            {
+              key: "status",
+              label: "Status",
+              options: [
+                { label: "Active", value: "active" },
+                { label: "Disabled", value: "inactive" },
+              ],
+            },
+          ]}
         >
           <EntityFormDialog
             title="New commodity"

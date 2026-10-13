@@ -12,11 +12,6 @@ import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
 import { EntityFormDialog, type Field } from "@/components/crud/entity-form-dialog"
 import { ConfirmButton } from "@/components/crud/confirm-button"
 
-const fields: Field[] = [
-  { name: "code", label: "Code", type: "text", required: true, placeholder: "BX", lockOnEdit: true, description: "Material category code, e.g. BX" },
-  { name: "name", label: "Name", type: "text", required: true, colSpan: 2 },
-]
-
 type Row = { code: string; name: string; _count: { items: number; subCategories: number } }
 
 export default async function CategoriesPage({
@@ -27,10 +22,28 @@ export default async function CategoriesPage({
   await requireCapability(CAPABILITIES.MANAGE_MASTER_DATA)
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
   const where = categoriesWhere(raw)
-  const [rows, total] = await Promise.all([
+  const [rows, total, allCategories] = await Promise.all([
     prisma.materialCategory.findMany({ where, include: { _count: { select: { items: true, subCategories: true } } }, orderBy: { code: "asc" }, skip, take }),
     prisma.materialCategory.count({ where }),
+    // Every code, unpaged: the create form lists what is taken.
+    prisma.materialCategory.findMany({ select: { code: true, name: true }, orderBy: { code: "asc" } }),
   ])
+
+  const fields: Field[] = [
+    {
+      name: "code",
+      label: "Code",
+      type: "suggest",
+      required: true,
+      placeholder: "BX",
+      lockOnEdit: true,
+      colSpan: 2,
+      suggestTitle: "Existing codes",
+      options: allCategories.map((c) => ({ label: `${c.code} — ${c.name}`, value: c.code })),
+      description: "Material category code, e.g. BX. Pick one that isn't in the list.",
+    },
+    { name: "name", label: "Name", type: "text", required: true, colSpan: 2 },
+  ]
 
   const columns: Column<Row>[] = [
     { key: "code", header: "Code", className: "font-mono text-xs", cell: (r) => r.code },

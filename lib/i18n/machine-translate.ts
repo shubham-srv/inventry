@@ -40,8 +40,12 @@ export async function translateText(
 ): Promise<TranslateOutcome> {
   const trimmed = text.trim()
   if (!trimmed) return { ok: false, reason: "disabled" }
-  if (!isEnabled()) return { ok: false, reason: "disabled" }
   if (to === from) return { ok: false, reason: "disabled" }
+  // Dev aid: TRANSLATION_PROVIDER=fake tags instead of translating ("[es] …"),
+  // so the re-translate flow is testable without a key. Never in production.
+  if (process.env.TRANSLATION_PROVIDER === "fake" && process.env.NODE_ENV !== "production")
+    return { ok: true, text: `[${to}] ${trimmed}` }
+  if (!isEnabled()) return { ok: false, reason: "disabled" }
 
   const endpoint = (process.env.AZURE_TRANSLATOR_ENDPOINT || AZURE_DEFAULT_ENDPOINT).replace(/\/$/, "")
   const url = `${endpoint}/translate?api-version=3.0&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`

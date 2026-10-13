@@ -9,12 +9,14 @@ import { createItem, updateItem, deleteItem } from "@/lib/actions/items"
 import { peekNextSequence, padSequence } from "@/lib/items/item-id"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
 import { EntityFormDialog, type Field } from "@/components/crud/entity-form-dialog"
 import { ConfirmButton } from "@/components/crud/confirm-button"
 import { StatusBadge } from "@/components/status-badge"
 import { ItemImage } from "@/components/item-image"
+import { NotesCell } from "@/components/data-table/notes-cell"
 
 type ItemRow = Awaited<ReturnType<typeof getItems>>["rows"][number]
 
@@ -29,6 +31,7 @@ async function getItems(where: ReturnType<typeof itemsWhere>, skip: number, take
         countryOfOrigin: true,
         authorizations: { where: { isActive: true }, select: { growerId: true } },
         itemVendors: { where: { isActive: true }, select: { vendorId: true } },
+        translations: { where: { field: "notes", locale: "es" }, select: { text: true, isMachine: true } },
       },
       orderBy: { id: "asc" },
       skip,
@@ -71,6 +74,14 @@ export default async function ItemsPage({
   const fields: Field[] = [
     { name: "itemName", label: "Name", type: "text", required: true, colSpan: 2 },
     {
+      name: "legacyFamousId",
+      label: "Legacy ID",
+      type: "text",
+      placeholder: "Famous ID",
+      colSpan: 2,
+      description: "Optional. The item's ID in the legacy (Famous) system — no two items can share one.",
+    },
+    {
       name: "image",
       label: "Photo",
       type: "image",
@@ -84,7 +95,10 @@ export default async function ItemsPage({
       type: "select",
       required: true,
       placeholder: "Select commodity",
-      options: commodities.map((c) => ({ label: `${c.code} — ${c.name}`, value: c.code })),
+      options: commodities.map((c) => ({
+        label: `${c.code} — ${c.name}${c.isActive ? "" : " (disabled)"}`,
+        value: c.code,
+      })),
     },
     {
       name: "materialCategoryCode",
@@ -145,7 +159,20 @@ export default async function ItemsPage({
       colSpan: 2,
       options: vendors.map((v) => ({ label: v.vendorName, value: String(v.id) })),
     },
-    { name: "notes", label: "Notes", type: "textarea" },
+    {
+      name: "notes",
+      label: "Notes",
+      type: "textarea",
+      description: "Shown to growers and vendors under the item, in their language.",
+    },
+    {
+      name: "notesEs",
+      label: "Spanish notes",
+      type: "textarea",
+      translationOf: "notes",
+      description:
+        "Leave blank to machine-translate on save; changing the English notes re-translates. Anything typed here is used as-is and marked reviewed.",
+    },
   ]
 
   // Create previews the ID it will get; edit shows the real one (read-only) so
@@ -177,25 +204,57 @@ export default async function ItemsPage({
     },
     { key: "id", header: "Item ID", className: "font-mono text-xs", cell: (r) => r.id },
     {
-      key: "itemName",
-      header: "Name",
+      key: "legacy",
+      header: "Legacy ID",
+      className: "font-mono text-xs",
+      cell: (r) => r.legacyFamousId ?? <span className="text-muted-foreground">—</span>,
+    },
+    { key: "itemName", header: "Name", cell: (r) => <span className="font-medium">{r.itemName}</span> },
+    { key: "commodity", header: "Commodity", cell: (r) => r.commodity?.name ?? "—" },
+    { key: "category", header: "Category", cell: (r) => r.materialCategory?.name ?? "—" },
+    { key: "coo", header: "Origin", cell: (r) => r.countryOfOrigin?.name ?? "—" },
+    {
+      key: "notes",
+      header: "Notes",
+      cell: (r) => {
+        if (!r.notes) return <NotesCell notes={null} />
+        const es = r.translations[0]
+        return (
+          <div className="space-y-1">
+            <NotesCell notes={r.notes} />
+            {/* Spanish copy: missing, raw machine output, or checked by a person. */}
+            {!es ? (
+              <Badge variant="outline" className="border-transparent bg-red-500/15 text-[10px] text-red-700 dark:text-red-400">
+                ES missing
+              </Badge>
+            ) : es.isMachine ? (
+              <Badge variant="outline" className="border-transparent bg-amber-500/15 text-[10px] text-amber-700 dark:text-amber-400">
+                ES auto
+              </Badge>
+            ) : (
+              <Badge variant="secondary" className="text-[10px]">
+                ES reviewed
+              </Badge>
+            )}
+          </div>
+        )
+      },
+    },
+    {
+      key: "status",
+      header: "Status",
       cell: (r) => (
-        <div className="min-w-0">
-          <span className="font-medium">{r.itemName}</span>
-          {/* The legacy reference is searchable, so show it — otherwise a hit on
-              it looks like an unexplained result. */}
-          {r.legacyFamousId && (
-            <span className="text-muted-foreground block font-mono text-[11px]">
-              {r.legacyFamousId}
-            </span>
+        <div className="flex flex-wrap items-center gap-1">
+          <StatusBadge status={r.status} />
+          {/* Own status untouched, but hidden everywhere while this lasts. */}
+          {r.commodity && !r.commodity.isActive && (
+            <Badge variant="outline" className="text-muted-foreground whitespace-nowrap">
+              Commodity disabled
+            </Badge>
           )}
         </div>
       ),
     },
-    { key: "commodity", header: "Commodity", cell: (r) => r.commodity?.name ?? "—" },
-    { key: "category", header: "Category", cell: (r) => r.materialCategory?.name ?? "—" },
-    { key: "coo", header: "Origin", cell: (r) => r.countryOfOrigin?.name ?? "—" },
-    { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
     {
       key: "actions",
       header: "",
@@ -211,6 +270,7 @@ export default async function ItemsPage({
             values={{
               id: r.id,
               itemName: r.itemName,
+              legacyFamousId: r.legacyFamousId ?? "",
               // The URL, not the key — the browser never sees storage paths.
               image: r.imageKey ? `/items/${encodeURIComponent(r.id)}/image` : "",
               commodityCode: r.commodityCode ?? "",
@@ -222,6 +282,7 @@ export default async function ItemsPage({
               growerIds: r.authorizations.map((a) => String(a.growerId)).join(","),
               vendorIds: r.itemVendors.map((iv) => String(iv.vendorId)).join(","),
               notes: r.notes ?? "",
+              notesEs: r.translations[0]?.text ?? "",
             }}
             submitLabel="Save changes"
             trigger={

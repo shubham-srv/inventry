@@ -2114,5 +2114,119 @@ and is always available from a link under the button.
       known string rather than passed through.
 - [ ] `returnTo` survives both forms, so a deep link still lands where it should.
 
+## Round 24 — Client feedback batch (October 2026)
+
+**Setup.** Four migrations (`20261011090000`–`…0300`: commodity active flag, flag
+history, vendor delivery date, item translations). Already applied to the local
+DB; elsewhere run `npm run db:migrate:deploy`, then restart `npm run dev` (the
+Prisma client was regenerated). `npm run db:reset` reseeds with confirmed and
+awaiting orders, cleared/reviewed flags and three items with legacy IDs + Spanish
+notes. To see machine translation locally without an Azure key, set
+`TRANSLATION_PROVIDER=fake` in `.env` (tags text as `[es] …`; ignored in
+production).
+
+### 1. Disabled grower/vendor cannot log in
+- [ ] Set a grower to **Inactive** (or **Pending**) -> its user, already signed
+      in, is sent to `/login` with "Your organization's access … disabled" on the
+      next page load.
+- [ ] Dev picker shows that user with an **Access disabled** badge; clicking it
+      lands on the same message. Email sign-in answers neutrally and sends no link.
+- [ ] Same for a vendor set **Inactive**. Set back to **Active** -> users get in
+      again (their own Active flag was never touched).
+
+### 2. Commodity disable (Master data → Commodities)
+- [ ] Power button disables a commodity (confirm dialog names its item count);
+      Status column + filter show it.
+- [ ] Its items vanish from grower submit, vendor submit, ordering, admin pickers
+      (grower/vendor/mapping/thresholds/item-messages) and the stock reports.
+- [ ] Items page still lists them, with a **Commodity disabled** badge; their own
+      status is unchanged. Creating an item in that commodity, or moving one into
+      it, is refused.
+- [ ] Re-enable -> everything is back exactly as before (an item that was
+      Inactive on its own stays Inactive).
+
+### 3. Category code combobox (Master data → Categories → Add)
+- [ ] The Code box lists existing codes under it, filtered as you type; typing an
+      existing code highlights it and warns; saving it anyway is refused with
+      "BX already exists (Boxes)".
+
+### 4. Legacy ID and item notes
+- [ ] Items table has **Legacy ID** and **Notes** columns (long notes clip with
+      more/less). Create/edit form has a Legacy ID box; reusing another item's
+      legacy ID is refused ("Already used by item …").
+- [ ] Legacy ID + notes appear in every report table (expanded rows on the stock
+      tabs, columns on Orders) and in the Items / report exports.
+
+### 5. Item notes translation (and the item-message bug)
+- [ ] Item messages: edit a message, change only the **English** note -> the
+      Spanish box empties with a "will be machine-translated" hint; after save the
+      Español column shows **Auto** (with `fake`: `[es] <new text>`). Before this
+      fix it kept the old Spanish and marked it Reviewed.
+- [ ] Typing in the Spanish box keeps your text and marks it **Reviewed**.
+- [ ] Items: same behaviour for **Notes** / **Spanish notes**; the Notes column
+      shows ES missing / auto / reviewed.
+- [ ] As a Spanish grower (or switch language), item notes show in Spanish under
+      each item on Submit inventory and My items; vendors likewise on Submit report
+      and My items. With no translation they fall back to English.
+
+### 6. Low inventory
+- [ ] **Raised flags** shows **Current on hand** (total, per-location split, as-of
+      date, and the on-hand when flagged).
+- [ ] New **Flag history** tab: every flag with raised/cleared timestamps, who,
+      on-hand then vs now, outcome (open / unflagged by grower / reviewed) and
+      review notes; filter by status and grower.
+- [ ] Grower **Flag history** page shows the same for their own flags only.
+- [ ] Turning Low on and submitting, then off and submitting, adds a row that
+      reads "Unflagged by you" with both timestamps.
+
+### 7. Grower submit
+- [ ] **Submit counts** with any item blank -> "Not every item has a count … enter
+      0" dialog; Go back keeps everything; Submit anyway submits. Fully filled ->
+      no dialog. Save draft never asks.
+
+### 8. Reports — Grower stock and Vendor stock
+- [ ] One row per grower/vendor: last submitted **timestamp**, "N days ago" and a
+      flag (amber **3+ days**, red **1 week+**, **Never submitted**). Default sort
+      is most overdue first; click **Last submitted** to flip, **Grower/Vendor** to
+      sort by name. "Last submitted" filter narrows by flag.
+- [ ] Chevron expands a grower: items with on hand **per location** (each
+      location header shows its own last submission), total, **On order**,
+      threshold, **Status** (was "State"), last counted, legacy ID, notes. Several
+      can be open; the URL keeps them (`?open=…`).
+- [ ] Vendor rows count never-reported items, items with unallocated stock and
+      **orders awaiting the vendor's date**; expanded rows show reported /
+      allocated / unallocated per item.
+- [ ] Export gives two sheets: the per-partner summary and the item rows.
+
+### 9. Orders: grower → vendor → admin
+- [ ] Grower **Add order**: order date defaults to today (future blocked), the
+      requested delivery date is required and can't be earlier than order date +
+      the vendor's minimum lead time (the picker and the server both enforce it;
+      the vendor list shows each lead time).
+- [ ] Vendor gets an email; vendor sidebar **Orders** shows a badge. On the
+      Orders page: confirm a date (grower is emailed "confirmed"), change it
+      (grower is emailed "changed"). Check both in **Outbox**.
+- [ ] Vendor sets **Minimum lead time** on their Orders page -> the grower's
+      order dialog uses it immediately.
+- [ ] Grower card / On order page show "Delivery confirmed …" or "Awaiting
+      vendor's date".
+- [ ] Admin Orders report: **Requested** and **Vendor's date** columns, "Awaiting
+      vendor" badge and filter; delivery status measures against the vendor's
+      date once set.
+
+### 10. My items (grower and vendor) + vendor conversions
+- [ ] Grower **My items**: per-location on hand, total, on order, last counted,
+      notes; search; **Export** downloads the same list.
+- [ ] Vendor **My items**: latest reported, allocated, last reported, notes,
+      conversions; the box icon edits their conversion chain + ratios (only chains
+      for the item's category; wrong count of ratios is refused). Admin Mappings →
+      Vendors shows the same change.
+
+### 11. Smaller items
+- [ ] Sidebar **Packaging** is now **Conversions** (`/admin/packaging` redirects).
+- [ ] Phone width: open the sidebar, tap an item -> the menu closes.
+- [ ] New user: fill some fields, leave Role empty, submit -> error shown and the
+      typed fields are **kept** (applies to every admin form).
+
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.

@@ -59,6 +59,8 @@ export const NOTIFICATION_TYPES = {
   LOW_INVENTORY_REVIEWED: "LowInventoryReviewed",
   SCHEDULED_REMINDER: "ScheduledReminder",
   ORDER_PLACED: "OrderPlaced",
+  VENDOR_ORDER_PLACED: "VendorOrderPlaced", // to the vendor: a new order needs a date
+  ORDER_DELIVERY_CONFIRMED: "OrderDeliveryConfirmed", // to the grower: vendor set/changed it
   MAGIC_LINK: "MagicLink",
 } as const
 

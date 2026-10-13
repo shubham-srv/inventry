@@ -131,9 +131,9 @@ Two side channels run alongside it:
 
 ---
 
-## 1.6 A note on packaging
+## 1.6 A note on conversions (packaging)
 
-Vendors may have packaging described against the items they supply — how many
+Vendors may have conversions (packaging) described against the items they supply — how many
 bags to a box, boxes to a case, cases to a pallet.
 
 **This is descriptive only.** It tells you what a quantity occupies: order 343

@@ -7,6 +7,7 @@ import { TabNav } from "@/components/tab-nav"
  *  - Flags   — a workflow queue with state: growers raised these, admins clear them.
  *  - Current — a live computed report: what is actually below threshold right now,
  *              regardless of whether anyone flagged it.
+ *  - History — every flag ever raised and how it ended (the queue's audit trail).
  *
  * Separate routes rather than client tabs, so each keeps its own search and
  * pagination in the URL.
@@ -22,6 +23,7 @@ export default function LowInventoryLayout({ children }: { children: React.React
         tabs={[
           { href: "/admin/low-inventory/flags", label: "Raised flags" },
           { href: "/admin/low-inventory/current", label: "Currently low" },
+          { href: "/admin/low-inventory/history", label: "Flag history" },
         ]}
       />
       <div className="mt-4">{children}</div>

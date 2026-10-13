@@ -429,8 +429,25 @@ async function main() {
   // 7-Items
   {
     const dup = seen("7-Items")
+    const dupLegacy = seen("7-Items")
+    // Legacy refs are unique when filled — the item form enforces the same rule.
+    const legacyOwner = new Map(
+      (
+        await prisma.item.findMany({
+          where: { legacyFamousId: { not: null } },
+          select: { id: true, legacyFamousId: true },
+        })
+      ).map((i) => [i.legacyFamousId!.toLowerCase(), i.id])
+    )
     let photos = 0
     for (const r of rowsOf("7-Items")) {
+      const legacy = r.get("LegacyItemRef")
+      if (legacy) {
+        dupLegacy(r.row, legacy.toLowerCase(), "LegacyItemRef")
+        const owner = legacyOwner.get(legacy.toLowerCase())
+        if (owner && owner.toLowerCase() !== r.get("ItemID").toLowerCase())
+          err("7-Items", r.row, `LegacyItemRef: "${legacy}" already belongs to item ${owner}`)
+      }
       const id = r.get("ItemID")
       const m = ITEM_ID.exec(id)
       if (!m) {

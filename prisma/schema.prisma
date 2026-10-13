@@ -227,8 +227,12 @@ model LocationType {
 // ============================================================
 
 model Commodity {
-  code String @id // e.g., AP (Asparagus), BP (Bell Peppers)
-  name String
+  code     String  @id // e.g., AP (Asparagus), BP (Bell Peppers)
+  name     String
+  // Disabling a commodity disables its items WITHOUT touching Item.status: an
+  // item counts as active only while both are. Re-enabling restores every item
+  // exactly as it was. See lib/items/active.ts.
+  isActive Boolean @default(true)
 
   createdBy Int?
   createdAt DateTime @default(now())
@@ -274,7 +278,7 @@ model SubCategory {
 
 model Item {
   id                   String  @id // CC-MM-NNNNN, auto-generated on create (lib/actions/items.ts)
-  legacyFamousId       String? // Famous ID from the initial data upload only; not editable in the UI
+  legacyFamousId       String? // ID in the legacy (Famous) system; optional, unique when filled (enforced in the app, not the DB — uploaded data may hold duplicates)
   itemName             String
   commodityCode        String?
   materialCategoryCode String?
@@ -312,11 +316,34 @@ model Item {
   lowInventoryFlags       LowInventoryFlag[]
   thresholds              ItemThreshold[]
   messages                ItemMessage[]
+  translations            ItemTranslation[]
 
   @@index([commodityCode])
   @@index([materialCategoryCode])
   @@index([subCategoryId])
   @@index([countryOfOriginId])
+}
+
+// Translations of an item's admin-typed text, one row per (field, locale) —
+// `notes` today; `itemName` later is a new `field` value, not a new table.
+// Written on save (lib/i18n/text-translation.ts), never per page view.
+model ItemTranslation {
+  id        Int     @id @default(autoincrement())
+  itemId    String
+  field     String // notes (itemName later)
+  locale    String // es, ...
+  text      String  @db.NVarChar(Max)
+  // True while still raw machine output; false once an admin typed or edited it.
+  isMachine Boolean @default(true)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([itemId, field, locale])
 }
 
 // Shared country lookup, managed at /admin/countries. Was `CountryOfOrigin`,
@@ -567,16 +594,21 @@ model GrowerSubmissionDetail {
 // closedAt is stamped; the grower's active views show Open orders plus anything
 // closed today, so a same-day receipt stays visible but drops off the next day.
 model Order {
-  id                   Int       @id @default(autoincrement())
-  growerId             Int
-  itemId               String
-  vendorId             Int
-  quantity             Decimal   @default(0)
-  status               String    @default("Open") // Open, Received, Cancelled
-  orderDate            DateTime  @default(now())
-  expectedDeliveryDate DateTime? // grower-editable expected arrival date
-  closedAt             DateTime? // set when Received or Cancelled
-  notes                String?
+  id                    Int       @id @default(autoincrement())
+  growerId              Int
+  itemId                String
+  vendorId              Int
+  quantity              Decimal   @default(0)
+  status                String    @default("Open") // Open, Received, Cancelled
+  orderDate             DateTime  @default(now()) // chosen by the grower: today or earlier
+  expectedDeliveryDate  DateTime? // the grower's REQUESTED delivery date (required on new orders)
+  // The vendor's answer to the request. Once set it is the date delivery is
+  // measured against (on time / late / overdue); until then the request is.
+  confirmedDeliveryDate DateTime?
+  confirmedAt           DateTime?
+  confirmedBy           Int?
+  closedAt              DateTime? // set when Received or Cancelled
+  notes                 String?
 
   // Receipt validation: did we get what we ordered? Exists to score vendors —
   // deliberately does NOT touch inventory. On-hand stock comes from the grower's
@@ -656,10 +688,10 @@ model VendorSubmission {
 }
 
 model VendorSubmissionDetail {
-  id            Int     @id @default(autoincrement())
-  submissionId  Int
-  itemId        String
-  quantity      Decimal @default(0)
+  id           Int     @id @default(autoincrement())
+  submissionId Int
+  itemId       String
+  quantity     Decimal @default(0)
 
   createdBy Int?
   createdAt DateTime @default(now())
@@ -737,6 +769,12 @@ model LowInventoryFlag {
   reviewedBy   Int?
   reviewedAt   DateTime?
   reviewNotes  String?
+  // History (grower "Flag history" page, admin history tab). When and by whom
+  // the flag stopped being active, however that happened, and the grower's
+  // on-hand total when it was raised — so a past flag reads in context.
+  clearedAt    DateTime?
+  clearedBy    Int?
+  onHandAtFlag Decimal?
 
   createdBy Int?
   createdAt DateTime @default(now())
@@ -916,11 +954,11 @@ model AuditLog {
 /// provider's limits allow. That indirection is the whole reason the daily
 /// reminder burst doesn't get 429'd into oblivion — see docs/email-delivery.md.
 model NotificationLog {
-  id      Int    @id @default(autoincrement())
-  type    String // SubmissionReceived, MissingItemRequest, LowInventory, ScheduledReminder, MagicLink
+  id            Int       @id @default(autoincrement())
+  type          String // SubmissionReceived, MissingItemRequest, LowInventory, ScheduledReminder, MagicLink
   /// One or more recipients, comma-separated. Multiple only for the admin
   /// fan-out, which groups admins by language into one message per locale.
-  toEmail String
+  toEmail       String
   growerId      Int?
   vendorId      Int?
   subject       String

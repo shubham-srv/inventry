@@ -1,6 +1,8 @@
 import "server-only"
 import { startOfDay, subDays, endOfDay } from "date-fns"
 import { prisma } from "@/lib/db"
+import { ACTIVE_ITEM } from "@/lib/items/active"
+import { loadItemTranslations, localizedItemText } from "@/lib/items/translations"
 import { getLocale } from "@/lib/i18n/server"
 import { REQUEST_STATUS, SUBMISSION_STATUS, ORDER_STATUS } from "@/lib/constants"
 
@@ -91,7 +93,9 @@ export type OrderView = {
   categoryName: string | null
   status: string // Open, Received, Cancelled
   orderDate: string // ISO
-  expectedDeliveryDate: string | null // ISO; grower-editable
+  expectedDeliveryDate: string | null // ISO; the grower's REQUESTED date
+  /** ISO; the vendor's answer — null while awaiting the vendor. */
+  confirmedDeliveryDate: string | null
   closedAt: string | null // ISO; set when Received/Cancelled
   /** What actually arrived, once the grower confirms receipt. */
   receivedQuantity: number | null
@@ -100,6 +104,8 @@ export type OrderView = {
    *  never changes the quantity. Snapshotted when the order was raised. */
   packSummary: string | null
 }
+
+export type VendorOption = { id: number; name: string; leadTimeDays: number | null }
 
 export type ItemMessageView = {
   id: number
@@ -117,6 +123,8 @@ export type SubmitRow = {
   commodityName: string | null
   /** The item's material category — also what its quantities are counted in. */
   categoryName: string | null
+  /** Admin notes for the item, in the grower's language where translated. */
+  notes: string | null
   previousQty: number | null
   /** On-hand a week ago, and the change since — null when there's no history yet. */
   weekAgoQty: number | null
@@ -128,7 +136,8 @@ export type SubmitRow = {
   submittedToday: boolean // detail exists AND today's submission is Approved
   lowFlagged: boolean
   orders: OrderView[] // open orders + anything closed today
-  vendorOptions: { id: number; name: string }[] // vendors this item can be ordered from
+  /** Vendors this item can be ordered from, with each one's minimum lead time (days). */
+  vendorOptions: VendorOption[]
   messages: ItemMessageView[] // admin notices shown under this item
 }
 
@@ -147,7 +156,7 @@ export async function getTodayProgress(growerId: number) {
   const todayStart = startOfDay(new Date())
   const [itemCount, locationCount, recorded] = await Promise.all([
     prisma.growerItemAuthorization.count({
-      where: { growerId, isActive: true, item: { status: "Active" } },
+      where: { growerId, isActive: true, item: ACTIVE_ITEM },
     }),
     prisma.growerLocation.count({ where: { growerId, isActive: true } }),
     prisma.growerSubmissionDetail.count({
@@ -191,7 +200,7 @@ export async function getGrowerSubmitData(growerId: number, locationId: number) 
   // followed by an English note.
   const locale = await getLocale()
   const auths = await prisma.growerItemAuthorization.findMany({
-    where: { growerId, isActive: true, item: { status: "Active" } },
+    where: { growerId, isActive: true, item: ACTIVE_ITEM },
     include: { item: { include: { commodity: true, materialCategory: true } } },
     orderBy: { itemId: "asc" },
   })
@@ -237,7 +246,7 @@ export async function getGrowerSubmitData(growerId: number, locationId: number) 
       }),
       prisma.vendor.findMany({
         where: { status: "Active" },
-        select: { id: true, vendorName: true },
+        select: { id: true, vendorName: true, leadTimeDays: true },
         orderBy: { vendorName: "asc" },
       }),
       // Active item messages for this grower: all-growers or specifically
@@ -285,6 +294,7 @@ export async function getGrowerSubmitData(growerId: number, locationId: number) 
       status: o.status,
       orderDate: o.orderDate.toISOString(),
       expectedDeliveryDate: o.expectedDeliveryDate ? o.expectedDeliveryDate.toISOString() : null,
+      confirmedDeliveryDate: o.confirmedDeliveryDate ? o.confirmedDeliveryDate.toISOString() : null,
       closedAt: o.closedAt ? o.closedAt.toISOString() : null,
       receivedQuantity: o.receivedQuantity == null ? null : num(o.receivedQuantity),
       // Only worth showing once there is packaging beyond the item itself.
@@ -298,13 +308,16 @@ export async function getGrowerSubmitData(growerId: number, locationId: number) 
   for (const list of ordersByItem.values())
     list.sort((a, b) => Number(a.status !== ORDER_STATUS.OPEN) - Number(b.status !== ORDER_STATUS.OPEN))
 
-  const vendorsByItem = new Map<string, { id: number; name: string }[]>()
+  const vendorsByItem = new Map<string, VendorOption[]>()
   for (const iv of itemVendors) {
     const list = vendorsByItem.get(iv.itemId) ?? []
-    list.push({ id: iv.vendorId, name: iv.vendor.vendorName })
+    list.push({ id: iv.vendorId, name: iv.vendor.vendorName, leadTimeDays: iv.vendor.leadTimeDays })
     vendorsByItem.set(iv.itemId, list)
   }
-  const allVendorOptions = activeVendors.map((v) => ({ id: v.id, name: v.vendorName }))
+  const allVendorOptions = activeVendors.map((v) => ({ id: v.id, name: v.vendorName, leadTimeDays: v.leadTimeDays }))
+
+  // Item notes in the grower's language (written on save, read here).
+  const itemTranslations = await loadItemTranslations(itemIds, locale)
 
   const messagesByItem = new Map<string, ItemMessageView[]>()
   for (const m of itemMessages) {
@@ -327,6 +340,7 @@ export async function getGrowerSubmitData(growerId: number, locationId: number) 
       hasImage: Boolean(a.item.imageKey),
       commodityName: a.item.commodity?.name ?? null,
       categoryName: a.item.materialCategory?.name ?? null,
+      notes: localizedItemText(itemTranslations, a.itemId, "notes", a.item.notes),
       previousQty: prev,
       weekAgoQty: weekAgo,
       // Compared against the last recorded count, not today's half-typed entry.
@@ -391,7 +405,7 @@ export async function getGrowerDashboard(growerId: number) {
 
   const [authCount, lowFlags, openRequests, lastSub, weekSubs, recentLedger] =
     await Promise.all([
-      prisma.growerItemAuthorization.count({ where: { growerId, isActive: true } }),
+      prisma.growerItemAuthorization.count({ where: { growerId, isActive: true, item: ACTIVE_ITEM } }),
       prisma.lowInventoryFlag.count({ where: { growerId, isActive: true } }),
       prisma.missingItemRequest.count({ where: { growerId, status: REQUEST_STATUS.OPEN } }),
       // Drafts are not real submissions — only Approved counts.

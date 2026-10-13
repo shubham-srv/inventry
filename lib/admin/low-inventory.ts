@@ -1,6 +1,7 @@
 import "server-only"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
+import { activeItemSql } from "@/lib/items/active"
 
 export type CurrentlyLowRow = {
   growerId: number
@@ -103,7 +104,7 @@ export async function getCurrentlyLow(filters: {
         SELECT 1 FROM [dbo].[GrowerItemAuthorization] a
         WHERE a.[growerId] = oh.[growerId] AND a.[itemId] = oh.[itemId] AND a.[isActive] = 1
       )
-      AND i.[status] = 'Active'
+      AND ${activeItemSql("i")}
       AND th.[thresholdQuantity] IS NOT NULL
       AND oh.[onHand] < th.[thresholdQuantity]
       ${growerFilter}

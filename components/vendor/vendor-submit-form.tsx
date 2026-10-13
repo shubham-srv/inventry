@@ -3,7 +3,7 @@
 import { useActionState, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { ChevronDown, ChevronRight, CheckCircle2, History, Users } from "lucide-react"
+import { ChevronDown, ChevronRight, CheckCircle2, History, StickyNote, Users } from "lucide-react"
 import { submitVendorReport } from "@/lib/actions/vendor"
 import { initialActionState } from "@/lib/actions/types"
 import { ItemImage } from "@/components/item-image"
@@ -265,6 +265,12 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
                       {r.commodityName ?? "—"} · {r.categoryName ?? "—"}
                       {r.previousQty != null && <> · {t("vendor.form.prev")}: {r.previousQty}</>}
                     </p>
+                    {r.notes && (
+                      <p className="text-muted-foreground mt-1 flex items-start gap-1 text-xs whitespace-pre-line">
+                        <StickyNote className="mt-0.5 size-3 shrink-0" />
+                        {r.notes}
+                      </p>
+                    )}
                     </div>
                   </div>
 

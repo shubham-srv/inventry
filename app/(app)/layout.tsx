@@ -21,7 +21,7 @@ export default async function AppLayout({
   const user = await requireUser()
   const t = await getT()
   const sections = getNavForUser(user.roleName)
-  const navCounts = await getNavCounts(user.roleName)
+  const navCounts = await getNavCounts(user.roleName, user.vendorId)
   const roleLabel = t(`common.roles.${user.roleName}`)
   const contextLabel = user.growerName
     ? `${t("common.grower")} · ${user.growerName}`

@@ -1,5 +1,6 @@
 import { Plus, Trash2, ShieldX, ShieldCheck, Package, ChevronRight } from "lucide-react"
 import { prisma } from "@/lib/db"
+import { ACTIVE_ITEM } from "@/lib/items/active"
 import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { itemVendorsWhere } from "@/lib/admin/queries"
@@ -64,7 +65,7 @@ export default async function VendorItemMappingsPage({
     }),
     prisma.itemVendor.count({ where }),
     prisma.vendor.findMany({ orderBy: { vendorName: "asc" } }),
-    prisma.item.findMany({ where: { status: "Active" }, orderBy: { id: "asc" } }),
+    prisma.item.findMany({ where: ACTIVE_ITEM, orderBy: { id: "asc" } }),
     prisma.packagingChain.findMany({
       where: { isActive: true },
       include: { levels: { orderBy: { level: "asc" } } },
@@ -98,7 +99,7 @@ export default async function VendorItemMappingsPage({
       options: items.map((i) => ({ label: `${i.id} — ${i.itemName}`, value: i.id })),
       colSpan: 2,
       description:
-        "Ticked items are what the vendor supplies today. Unticking one deactivates the mapping — its packaging setup is kept, so re-ticking later restores it.",
+        "Ticked items are what the vendor supplies today. Unticking one deactivates the mapping — its conversion setup is kept, so re-ticking later restores it.",
     },
   ]
 
@@ -114,7 +115,7 @@ export default async function VendorItemMappingsPage({
       { name: "id", type: "hidden" },
       {
         name: "packagingChainId",
-        label: "Packaging chain",
+        label: "Conversion chain",
         type: "select",
         placeholder: eligible.length ? "Select a chain" : "No chain for this category",
         options: [
@@ -124,7 +125,7 @@ export default async function VendorItemMappingsPage({
         colSpan: 2,
         description: eligible.length
           ? "Describes how this vendor ships the item. It never changes the ordered quantity."
-          : `No chain is defined for category ${r.item.materialCategoryCode ?? "—"}. Add one under Packaging first.`,
+          : `No chain is defined for category ${r.item.materialCategoryCode ?? "—"}. Add one under Conversions first.`,
       },
       {
         name: "ratios",
@@ -154,7 +155,7 @@ export default async function VendorItemMappingsPage({
     },
     {
       key: "packaging",
-      header: "Packaging",
+      header: "Conversions",
       cell: (r) => {
         if (!r.packagingChain)
           return <span className="text-muted-foreground text-xs">Plain units</span>
@@ -186,7 +187,7 @@ export default async function VendorItemMappingsPage({
       cell: (r) => (
         <div className="flex justify-end gap-1">
           <EntityFormDialog
-            title="Packaging"
+            title="Conversions"
             description={`${r.vendor.vendorName} — ${r.itemId}`}
             fields={packagingFields(r)}
             action={setItemVendorPackaging}
@@ -195,13 +196,13 @@ export default async function VendorItemMappingsPage({
               packagingChainId: r.packagingChainId ? String(r.packagingChainId) : "none",
               ratios: r.packRatios.map((p) => p.perParent).join(", "),
             }}
-            submitLabel="Save packaging"
-            trigger={<Button variant="ghost" size="icon-sm" aria-label="Packaging"><Package /></Button>}
+            submitLabel="Save conversions"
+            trigger={<Button variant="ghost" size="icon-sm" aria-label="Conversions"><Package /></Button>}
           />
           <ActionButton action={setItemVendorActive.bind(null, r.id, !r.isActive)}>
             {r.isActive ? <><ShieldX className="size-4" /> Deactivate</> : <><ShieldCheck className="size-4" /> Activate</>}
           </ActionButton>
-          <ConfirmButton title="Remove mapping" description={`Remove ${r.itemId} from ${r.vendor.vendorName}? Its packaging setup is removed too.`} confirmLabel="Remove" typeToConfirm action={deleteItemVendor.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Remove"><Trash2 /></Button>} />
+          <ConfirmButton title="Remove mapping" description={`Remove ${r.itemId} from ${r.vendor.vendorName}? Its conversion setup is removed too.`} confirmLabel="Remove" typeToConfirm action={deleteItemVendor.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Remove"><Trash2 /></Button>} />
         </div>
       ),
     },
@@ -214,7 +215,7 @@ export default async function VendorItemMappingsPage({
         filters={[
           { key: "vendor", label: "Vendor", options: vendors.map((v) => ({ label: v.vendorName, value: String(v.id) })) },
           { key: "status", label: "Status", options: [{ label: "Active", value: "active" }, { label: "Inactive", value: "inactive" }] },
-          { key: "packaging", label: "Packaging", options: [{ label: "Configured", value: "configured" }, { label: "Not set", value: "missing" }] },
+          { key: "packaging", label: "Conversions", options: [{ label: "Configured", value: "configured" }, { label: "Not set", value: "missing" }] },
         ]}
       >
         <EntityFormDialog title="Edit vendor item mappings" description="Pick a vendor to load what it supplies today, then adjust." fields={createFields} action={setVendorItems} submitLabel="Save mappings" trigger={<Button size="sm"><Plus className="size-4" /> Map items</Button>} />

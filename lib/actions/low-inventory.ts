@@ -32,13 +32,16 @@ export async function reviewLowFlag(_p: ActionState, fd: FormData): Promise<Acti
     if (!flag) return fail("Flag not found.")
     if (!flag.isActive) return fail("That flag has already been cleared.")
 
+    const now = new Date()
     await prisma.lowInventoryFlag.update({
       where: { id: flag.id },
       data: {
         isActive: false,
         reviewedBy: user.id,
-        reviewedAt: new Date(),
+        reviewedAt: now,
         reviewNotes: data.reviewNotes || null,
+        clearedAt: now,
+        clearedBy: user.id,
         updatedBy: user.id,
       },
     })
@@ -63,6 +66,7 @@ export async function reviewLowFlag(_p: ActionState, fd: FormData): Promise<Acti
     revalidatePath("/admin/low-inventory", "layout")
     revalidatePath("/grower")
     revalidatePath("/grower/submit")
+    revalidatePath("/grower/flag-history")
     revalidateNavBadges()
     return ok("Low-inventory flag reviewed")
   } catch (e) {

@@ -13,12 +13,28 @@ import {
   locationsWhere,
   authorizationsWhere,
 } from "@/lib/admin/queries"
-import { getInventorySnapshot } from "@/lib/admin/inventory-snapshot"
+import { format } from "date-fns"
+import {
+  getGrowerStockSummary,
+  getInventorySnapshot,
+  onHandByLocationText,
+} from "@/lib/admin/inventory-snapshot"
+import { onHandKey } from "@/lib/inventory/on-hand"
+import { parsePartnerSort, type SubmissionFlag } from "@/lib/reports/submission-flag"
 import { getOrdersReport } from "@/lib/admin/orders-report"
-import { getVendorStock } from "@/lib/admin/vendor-stock"
+import { getVendorStock, getVendorStockSummary } from "@/lib/admin/vendor-stock"
 
 type SP = Record<string, string>
 const d = (date: Date) => date.toISOString().slice(0, 10)
+/** Server-local date + time, as shown on the report pages. */
+const dt = (date: Date) => format(date, "yyyy-MM-dd HH:mm")
+
+const FLAG_TEXT: Record<SubmissionFlag, string> = {
+  Ok: "",
+  ThreeDays: "3+ days",
+  Week: "1 week+",
+  Never: "Never submitted",
+}
 
 async function itemsSheet(sp: SP): Promise<ExcelSheet> {
   const rows = await prisma.item.findMany({
@@ -43,6 +59,7 @@ async function itemsSheet(sp: SP): Promise<ExcelSheet> {
       { header: "Application", key: "app", width: 16 },
       { header: "Status", key: "status", width: 12 },
       { header: "Legacy ID", key: "legacy", width: 16 },
+      { header: "Notes", key: "notes", width: 40 },
     ],
     rows: rows.map((i) => ({
       id: i.id,
@@ -54,6 +71,7 @@ async function itemsSheet(sp: SP): Promise<ExcelSheet> {
       app: i.applicationMethod ?? "",
       status: i.status,
       legacy: i.legacyFamousId ?? "",
+      notes: i.notes ?? "",
     })),
   }
 }
@@ -176,8 +194,9 @@ async function commoditiesSheet(sp: SP): Promise<ExcelSheet> {
     columns: [
       { header: "Code", key: "code", width: 12 },
       { header: "Name", key: "name", width: 28 },
+      { header: "Status", key: "status", width: 12 },
     ],
-    rows: rows.map((c) => ({ code: c.code, name: c.name })),
+    rows: rows.map((c) => ({ code: c.code, name: c.name, status: c.isActive ? "Active" : "Disabled" })),
   }
 }
 
@@ -288,44 +307,87 @@ async function authorizationsSheet(sp: SP): Promise<ExcelSheet> {
  * Unpaged on purpose — a download should be the whole filtered set, not the
  * 25 rows that happened to be on screen.
  */
-async function inventorySnapshotSheet(sp: SP): Promise<ExcelSheet> {
-  const { rows } = await getInventorySnapshot({
+async function inventorySnapshotSheets(sp: SP): Promise<ExcelSheet[]> {
+  const filters = {
     growerId: Number(sp.grower) || undefined,
     locationId: Number(sp.location) || undefined,
     commodity: sp.commodity || undefined,
     category: sp.category || undefined,
     stock: sp.stock || undefined,
+    flag: sp.flag || undefined,
     q: sp.q || undefined,
-  })
-  return {
-    name: "Inventory snapshot",
-    columns: [
-      { header: "Grower", key: "grower", width: 24 },
-      { header: "Item ID", key: "itemId", width: 16 },
-      { header: "Item", key: "item", width: 32 },
-      { header: "Commodity", key: "commodity", width: 18 },
-      { header: "Counted in", key: "category", width: 16 },
-      { header: "On hand", key: "onHand", width: 12 },
-      { header: "Threshold", key: "threshold", width: 12 },
-      { header: "Threshold scope", key: "scope", width: 16 },
-      { header: "State", key: "state", width: 16 },
-      { header: "Last counted", key: "asOf", width: 14 },
-    ],
-    rows: rows.map((r) => ({
-      grower: r.growerName,
-      itemId: r.itemId,
-      item: r.itemName,
-      commodity: r.commodityName ?? "",
-      category: r.categoryName ?? "",
-      // Blank rather than 0 for a pair that has never been counted — a spurious
-      // zero would read as "we counted, and there is none".
-      onHand: r.onHand ?? "",
-      threshold: r.threshold ?? "",
-      scope: r.thresholdScope ?? "",
-      state: r.state,
-      asOf: r.asOf ? d(r.asOf) : "",
-    })),
   }
+  const [{ rows: growers }, { rows }] = await Promise.all([
+    getGrowerStockSummary(filters, parsePartnerSort(sp.sort)),
+    getInventorySnapshot(filters),
+  ])
+  const byLocation = await onHandByLocationText(rows)
+  return [
+    {
+      name: "Growers",
+      columns: [
+        { header: "Grower", key: "grower", width: 24 },
+        { header: "Locations", key: "locations", width: 10 },
+        { header: "Items", key: "items", width: 8 },
+        { header: "Below threshold", key: "low", width: 16 },
+        { header: "Zero", key: "zero", width: 8 },
+        { header: "Uncounted", key: "uncounted", width: 11 },
+        { header: "Items on order", key: "onOrder", width: 15 },
+        { header: "Last submitted", key: "last", width: 18 },
+        { header: "Days since", key: "days", width: 11 },
+        { header: "Flag", key: "flag", width: 16 },
+      ],
+      rows: growers.map((g) => ({
+        grower: g.growerName,
+        locations: g.locations,
+        items: g.items,
+        low: g.low,
+        zero: g.zero,
+        uncounted: g.uncounted,
+        onOrder: g.onOrderItems,
+        last: g.lastSubmittedAt ? dt(g.lastSubmittedAt) : "",
+        days: g.daysSince ?? "",
+        flag: FLAG_TEXT[g.flag],
+      })),
+    },
+    {
+      name: "Grower stock",
+      columns: [
+        { header: "Grower", key: "grower", width: 24 },
+        { header: "Item ID", key: "itemId", width: 16 },
+        { header: "Legacy ID", key: "legacy", width: 16 },
+        { header: "Item", key: "item", width: 32 },
+        { header: "Commodity", key: "commodity", width: 18 },
+        { header: "Counted in", key: "category", width: 16 },
+        { header: "On hand", key: "onHand", width: 12 },
+        { header: "On hand by location", key: "byLocation", width: 32 },
+        { header: "On order", key: "onOrder", width: 12 },
+        { header: "Threshold", key: "threshold", width: 12 },
+        { header: "Threshold scope", key: "scope", width: 16 },
+        { header: "Status", key: "state", width: 16 },
+        { header: "Last counted", key: "asOf", width: 14 },
+        { header: "Notes", key: "notes", width: 40 },
+      ],
+      rows: rows.map((r) => ({
+        grower: r.growerName,
+        itemId: r.itemId,
+        legacy: r.legacyId ?? "",
+        item: r.itemName,
+        commodity: r.commodityName ?? "",
+        category: r.categoryName ?? "",
+        // Blank rather than 0 for a pair that has never been counted — a spurious
+        // zero would read as "we counted, and there is none".
+        onHand: r.onHand ?? "",
+        byLocation: byLocation.get(onHandKey(r.growerId, r.itemId)) ?? "",
+        onOrder: r.onOrder,
+        threshold: r.threshold ?? "",
+        scope: r.thresholdScope ?? "",
+        state: r.state === "Low" ? "Below threshold" : r.state,
+        asOf: r.asOf ? d(r.asOf) : "",
+        notes: r.notes ?? "",
+      })),
+    },
+  ]
 }
 
 const SINGLE: Record<string, (sp: SP) => Promise<ExcelSheet>> = {
@@ -360,6 +422,7 @@ async function ordersSheet(sp: SP): Promise<ExcelSheet> {
       { header: "Grower", key: "grower", width: 24 },
       { header: "Vendor", key: "vendor", width: 24 },
       { header: "Item ID", key: "itemId", width: 16 },
+      { header: "Legacy ID", key: "legacy", width: 16 },
       { header: "Item", key: "item", width: 32 },
       { header: "Counted in", key: "category", width: 14 },
       { header: "Ordered", key: "ordered", width: 12 },
@@ -367,12 +430,15 @@ async function ordersSheet(sp: SP): Promise<ExcelSheet> {
       { header: "Variance", key: "variance", width: 12 },
       { header: "Reason", key: "reason", width: 14 },
       { header: "Ordered on", key: "orderDate", width: 14 },
-      { header: "ETA", key: "eta", width: 14 },
+      { header: "Requested delivery", key: "eta", width: 18 },
+      { header: "Vendor's date", key: "confirmed", width: 14 },
+      { header: "Vendor date set", key: "confirmedAt", width: 18 },
       { header: "Closed", key: "closedAt", width: 14 },
       { header: "Delivery", key: "delivery", width: 16 },
       { header: "Delivery days", key: "deliveryDays", width: 14 },
       { header: "Lead time (days)", key: "lead", width: 16 },
       { header: "Vendor SLA (days)", key: "sla", width: 18 },
+      { header: "Item notes", key: "notes", width: 40 },
     ],
     rows: rows.map((r) => ({
       id: r.id,
@@ -380,7 +446,11 @@ async function ordersSheet(sp: SP): Promise<ExcelSheet> {
       grower: r.growerName,
       vendor: r.vendorName,
       itemId: r.itemId,
+      legacy: r.legacyId ?? "",
       item: r.itemName,
+      confirmed: r.confirmedDeliveryDate ? d(r.confirmedDeliveryDate) : r.awaitingVendor ? "Awaiting vendor" : "",
+      confirmedAt: r.confirmedAt ? dt(r.confirmedAt) : "",
+      notes: r.notes ?? "",
       category: r.categoryName ?? "",
       ordered: r.quantity,
       // Blank, never 0 — "nothing was recorded" is not "nothing arrived".
@@ -398,48 +468,79 @@ async function ordersSheet(sp: SP): Promise<ExcelSheet> {
   }
 }
 
-/** Current vendor-reported stock. Unpaged, honouring the page's filters. */
-async function vendorStockSheet(sp: SP): Promise<ExcelSheet> {
-  const { rows } = await getVendorStock({
+/** Current vendor-reported stock: a vendor summary sheet plus the item rows. */
+async function vendorStockSheets(sp: SP): Promise<ExcelSheet[]> {
+  const filters = {
     vendorId: Number(sp.vendor) || undefined,
     commodity: sp.commodity || undefined,
     category: sp.category || undefined,
     growerId: Number(sp.grower) || undefined,
-    freshness: sp.freshness || undefined,
     alloc: sp.alloc || undefined,
+    flag: sp.flag || undefined,
     q: sp.q || undefined,
-  })
-  return {
-    name: "Vendor stock",
-    columns: [
-      { header: "Vendor", key: "vendor", width: 24 },
-      { header: "Item ID", key: "itemId", width: 16 },
-      { header: "Item", key: "item", width: 32 },
-      { header: "Commodity", key: "commodity", width: 18 },
-      { header: "Counted in", key: "category", width: 14 },
-      { header: "Reported", key: "reported", width: 12 },
-      { header: "Allocated", key: "allocated", width: 12 },
-      { header: "Unallocated", key: "unallocated", width: 14 },
-      { header: "Growers served", key: "growers", width: 16 },
-      { header: "Last reported", key: "asOf", width: 14 },
-      { header: "Status", key: "state", width: 16 },
-    ],
-    rows: rows.map((r) => ({
-      vendor: r.vendorName,
-      itemId: r.itemId,
-      item: r.itemName,
-      commodity: r.commodityName ?? "",
-      category: r.categoryName ?? "",
-      // Blank, never 0 — a never-reported mapping has no figure, which is not
-      // the same as a vendor reporting that they hold none.
-      reported: r.reported ?? "",
-      allocated: r.allocated ?? "",
-      unallocated: r.unallocated ?? "",
-      growers: r.growersServed ?? "",
-      asOf: r.asOf ? d(r.asOf) : "",
-      state: r.state === "NeverReported" ? "Never reported" : r.state,
-    })),
   }
+  const [{ rows: vendors }, { rows }] = await Promise.all([
+    getVendorStockSummary(filters, parsePartnerSort(sp.sort)),
+    getVendorStock(filters),
+  ])
+  return [
+    {
+      name: "Vendors",
+      columns: [
+        { header: "Vendor", key: "vendor", width: 24 },
+        { header: "Items", key: "items", width: 8 },
+        { header: "Never reported", key: "never", width: 15 },
+        { header: "With unallocated", key: "unallocated", width: 17 },
+        { header: "Orders awaiting date", key: "awaiting", width: 20 },
+        { header: "Last submitted", key: "last", width: 18 },
+        { header: "Days since", key: "days", width: 11 },
+        { header: "Flag", key: "flag", width: 16 },
+      ],
+      rows: vendors.map((v) => ({
+        vendor: v.vendorName,
+        items: v.items,
+        never: v.neverReported,
+        unallocated: v.unallocatedItems,
+        awaiting: v.awaitingDate,
+        last: v.lastSubmittedAt ? dt(v.lastSubmittedAt) : "",
+        days: v.daysSince ?? "",
+        flag: FLAG_TEXT[v.flag],
+      })),
+    },
+    {
+      name: "Vendor stock",
+      columns: [
+        { header: "Vendor", key: "vendor", width: 24 },
+        { header: "Item ID", key: "itemId", width: 16 },
+        { header: "Legacy ID", key: "legacy", width: 16 },
+        { header: "Item", key: "item", width: 32 },
+        { header: "Commodity", key: "commodity", width: 18 },
+        { header: "Counted in", key: "category", width: 14 },
+        { header: "Reported", key: "reported", width: 12 },
+        { header: "Allocated", key: "allocated", width: 12 },
+        { header: "Unallocated", key: "unallocated", width: 14 },
+        { header: "Growers served", key: "growers", width: 16 },
+        { header: "Last reported", key: "asOf", width: 14 },
+        { header: "Notes", key: "notes", width: 40 },
+      ],
+      rows: rows.map((r) => ({
+        vendor: r.vendorName,
+        itemId: r.itemId,
+        legacy: r.legacyId ?? "",
+        item: r.itemName,
+        commodity: r.commodityName ?? "",
+        category: r.categoryName ?? "",
+        // Blank, never 0 — a never-reported mapping has no figure, which is not
+        // the same as a vendor reporting that they hold none.
+        reported: r.reported ?? "",
+        allocated: r.allocated ?? "",
+        unallocated: r.unallocated ?? "",
+        growers: r.growersServed ?? "",
+        asOf: r.asOf ? d(r.asOf) : "",
+        notes: r.notes ?? "",
+      })),
+    },
+  ]
 }
 
 /**
@@ -447,10 +548,10 @@ async function vendorStockSheet(sp: SP): Promise<ExcelSheet> {
  * every sheet in SINGLE, and a master-data workbook should not silently gain an
  * unfiltered growers × items report.
  */
-const COMPUTED: Record<string, (sp: SP) => Promise<ExcelSheet>> = {
-  "inventory-snapshot": inventorySnapshotSheet,
+const COMPUTED: Record<string, (sp: SP) => Promise<ExcelSheet | ExcelSheet[]>> = {
+  "inventory-snapshot": inventorySnapshotSheets,
   orders: ordersSheet,
-  "vendor-stock": vendorStockSheet,
+  "vendor-stock": vendorStockSheets,
 }
 
 export function isExportableEntity(entity: string): boolean {
@@ -468,5 +569,6 @@ export async function buildEntityExport(
     return { filename: "master-data", sheets }
   }
   const fn = SINGLE[entity] ?? COMPUTED[entity]
-  return { filename: entity, sheets: [await fn(sp)] }
+  const out = await fn(sp)
+  return { filename: entity, sheets: Array.isArray(out) ? out : [out] }
 }

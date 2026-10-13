@@ -6,6 +6,7 @@ import { createSession } from "@/lib/auth/session"
 import { isDemoLoginEnabled } from "@/lib/auth/demo-gate"
 import { homePathForRole } from "@/lib/rbac"
 import { type RoleName } from "@/lib/constants"
+import { PARTNER_STATUS_SELECT, partnerAccessBlocked } from "@/lib/auth/partner-access"
 
 /**
  * DEVELOPMENT ONLY — impersonate a seeded user with no credential of any kind.
@@ -26,11 +27,13 @@ export async function loginAs(userId: number): Promise<void> {
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    include: { role: true },
+    include: { role: true, ...PARTNER_STATUS_SELECT },
   })
   if (!user || !user.isActive) {
     throw new Error("Cannot log in as this user.")
   }
+  // Same gate as the real doors, so the picker can be used to verify it.
+  if (partnerAccessBlocked(user)) redirect("/login?error=partnerdisabled")
   await createSession(user.id)
   redirect(homePathForRole(user.role.roleName as RoleName))
 }

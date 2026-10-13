@@ -29,7 +29,7 @@ const chainSchema = z.object({
   id: z.string().trim().optional().default(""),
   materialCategoryCode: z.string().trim().min(1, "Category is required"),
   name: z.string().trim().min(1, "Name is required"),
-  levels: z.string().trim().min(1, "Add at least one packaging level"),
+  levels: z.string().trim().min(1, "Add at least one conversion level"),
 })
 
 /**
@@ -48,7 +48,7 @@ async function levelNameClash(
   if (!category) return "That material category no longer exists."
   const base = category.name.trim().toLowerCase()
   return levels.some((l) => l.toLowerCase() === base)
-    ? `A packaging level cannot repeat the category it starts from ("${category.name}").`
+    ? `A conversion level cannot repeat the category it starts from ("${category.name}").`
     : null
 }
 
@@ -73,7 +73,7 @@ export async function createPackagingChain(
   const { data, error } = parseForm(chainSchema, fd)
   if (error) return error
   const levels = parseLevels(data.levels)
-  if (levels.length === 0) return fail("Add at least one packaging level.")
+  if (levels.length === 0) return fail("Add at least one conversion level.")
   const clash = await levelNameClash(data.materialCategoryCode, levels)
   if (clash) return fail(clash)
 
@@ -94,8 +94,8 @@ export async function createPackagingChain(
       entityId: String(chain.id),
       changes: { ...data, levels },
     })
-    revalidatePath("/admin/packaging")
-    return ok("Packaging chain created")
+    revalidatePath("/admin/conversions")
+    return ok("Conversion chain created")
   } catch (e) {
     return fail(prismaErrorMessage(e))
   }
@@ -111,7 +111,7 @@ export async function updatePackagingChain(
   const id = Number(data.id)
   if (!id) return fail("Missing chain id.")
   const levels = parseLevels(data.levels)
-  if (levels.length === 0) return fail("Add at least one packaging level.")
+  if (levels.length === 0) return fail("Add at least one conversion level.")
   const clash = await levelNameClash(data.materialCategoryCode, levels)
   if (clash) return fail(clash)
 
@@ -146,8 +146,8 @@ export async function updatePackagingChain(
       entityId: String(id),
       changes: { ...data, levels },
     })
-    revalidatePath("/admin/packaging")
-    return ok("Packaging chain updated")
+    revalidatePath("/admin/conversions")
+    return ok("Conversion chain updated")
   } catch (e) {
     return fail(prismaErrorMessage(e))
   }
@@ -167,8 +167,8 @@ export async function deletePackagingChain(id: number): Promise<ActionState> {
       entityType: "PackagingChain",
       entityId: String(id),
     })
-    revalidatePath("/admin/packaging")
-    return ok("Packaging chain deleted")
+    revalidatePath("/admin/conversions")
+    return ok("Conversion chain deleted")
   } catch (e) {
     return fail(prismaErrorMessage(e))
   }

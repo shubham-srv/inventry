@@ -25,7 +25,7 @@ type Row = {
   _count: { itemVendors: number }
 }
 
-export default async function PackagingPage({
+export default async function ConversionsPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>
@@ -72,7 +72,7 @@ export default async function PackagingPage({
     { name: "name", label: "Name", type: "text", required: true, placeholder: "Bags → Boxes → Cases", colSpan: 2 },
     {
       name: "levels",
-      label: "Packaging levels",
+      label: "Conversion levels",
       type: "text",
       required: true,
       placeholder: "Boxes, Cases",
@@ -116,7 +116,7 @@ export default async function PackagingPage({
       cell: (r) => (
         <div className="flex justify-end gap-1">
           <EntityFormDialog
-            title="Edit packaging chain"
+            title="Edit conversion chain"
             fields={fields}
             action={updatePackagingChain}
             values={{
@@ -129,7 +129,7 @@ export default async function PackagingPage({
             trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>}
           />
           <ConfirmButton
-            title="Delete packaging chain"
+            title="Delete conversion chain"
             description={`Delete "${r.name}"?`}
             confirmLabel="Delete"
             typeToConfirm
@@ -144,17 +144,17 @@ export default async function PackagingPage({
   return (
     <>
       <PageHeader
-        title="Packaging"
-        description="How a SKU is packed for shipping. Chains define the structure only — each vendor supplies their own quantities on the vendor↔item mapping."
+        title="Conversions"
+        description="How a SKU converts into shipping units (Bags → Boxes → Cases). Chains define the structure only — each vendor supplies their own ratios, on the vendor↔item mapping or from their portal."
       />
       <div className="space-y-4">
         <DataTableToolbar searchPlaceholder="Search chains…">
           <EntityFormDialog
-            title="New packaging chain"
+            title="New conversion chain"
             fields={fields}
             action={createPackagingChain}
             submitLabel="Create"
-            trigger={<Button size="sm"><Plus className="size-4" /> Add chain</Button>}
+            trigger={<Button size="sm"><Plus className="size-4" /> Add conversion chain</Button>}
           />
         </DataTableToolbar>
         <DataTable

@@ -56,7 +56,12 @@ Useful things on this screen:
   which beats scrolling on a long list.
 
 Leave an item blank if you did not count it. A blank is not the same as zero:
-**zero means you have none**, blank means you did not look.
+**zero means you have none**, blank means you did not look. If you press
+**Submit counts** with items still blank you are asked to confirm — go back and
+enter **0** for anything you have none of.
+
+Notes the office has written about an item appear under its name, in your
+language.
 
 ### Field reference — the count form
 
@@ -100,6 +105,10 @@ and without anyone ticking anything. The tick is for when you want to say
 When staff review your flag they can add a note, and you are emailed the outcome.
 You can also clear your own flag if the situation resolves before anyone looks.
 
+**Flag history** (in the menu) lists every flag you have raised: when, by whom,
+how much you held at the time and now, and how it ended — cleared by you, or
+reviewed by staff with their note.
+
 ---
 
 ## 2.4 Ordering from a vendor
@@ -117,11 +126,15 @@ select **Add order**.
 
 | Field | Required | What to enter | Notes |
 |---|---|---|---|
-| **Vendor** | Yes | Who you are ordering from | Only vendors mapped to this item are offered. |
+| **Vendor** | Yes | Who you are ordering from | Only vendors mapped to this item are offered, each with its minimum lead time. |
 | **Quantity** | Yes | How much to order, in the item's category | Must be greater than zero. |
-| **Expected delivery date** | No | When you expect it | Can be set now or added later, and changed any time with **Edit expected delivery date**. |
+| **Order date** | Yes | When the order was placed | Today by default. Pick an earlier day for an order you placed by phone or email before entering it; future dates are not allowed. |
+| **Requested delivery date** | Yes | When you need it | No earlier than the order date plus the vendor's minimum lead time — the calendar will not offer earlier days. Change it later with **Edit requested delivery date**. |
 
-The vendor is notified when you place the order.
+The vendor is emailed when you place the order and replies with the date they
+will deliver. Until then the order shows **Awaiting vendor's date**; once they
+answer it shows **Delivery confirmed** with their date, and you are emailed —
+again if they change it.
 
 ---
 
@@ -218,6 +231,10 @@ dates — so a message disappearing is normal and does not mean anything is wron
 Open any entry to see the individual item counts, who submitted it and when.
 
 Drafts are not here. A draft has not been submitted, so it is not history yet.
+
+**My items** lists every item you work with: what you hold at each of your
+locations and in total, what is on order, when you last counted it, and the
+office's notes. **Export** downloads the same list as an Excel file.
 
 ---
 

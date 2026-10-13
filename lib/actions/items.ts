@@ -15,6 +15,7 @@ import { recordAudit } from "@/lib/audit"
 import { CAPABILITIES } from "@/lib/rbac"
 import { AUDIT_ACTIONS } from "@/lib/constants"
 import { nextItemId } from "@/lib/items/item-id"
+import { syncItemTranslations } from "@/lib/items/translations"
 import {
   discardItemImage,
   imageRejectionMessage,
@@ -27,10 +28,11 @@ const PATH = "/admin/items"
 
 // Commodity, category, sub-category and country of origin are all required: the
 // first two build the item id, and the category is what every quantity entered
-// for the item is counted in. `legacyFamousId` is intentionally absent — it only
-// ever comes from the initial data upload, never from this form.
+// for the item is counted in.
 const baseSchema = z.object({
   itemName: z.string().trim().min(1, "Name is required"),
+  // Reference from the legacy (Famous) system. Optional, unique when filled.
+  legacyFamousId: z.string().trim().max(100, "Keep the legacy ID under 100 characters").optional().default(""),
   commodityCode: z.string().trim().min(1, "Commodity is required"),
   materialCategoryCode: z.string().trim().min(1, "Category is required"),
   subCategoryId: z.string().trim().min(1, "Sub-category is required"),
@@ -38,6 +40,8 @@ const baseSchema = z.object({
   applicationMethod: z.string().trim().optional().default(""),
   status: z.string().trim().min(1, "Status is required"),
   notes: z.string().trim().optional().default(""),
+  // Spanish notes box: typed = reviewed translation; blank = machine-translate.
+  notesEs: z.string().trim().optional().default(""),
   // Comma-joined id lists from the mapping multi-selects.
   growerIds: z.string().trim().optional().default(""),
   vendorIds: z.string().trim().optional().default(""),
@@ -54,6 +58,7 @@ type ItemInput = z.infer<typeof baseSchema>
 function toData(d: ItemInput) {
   return {
     itemName: d.itemName,
+    legacyFamousId: d.legacyFamousId || null,
     commodityCode: d.commodityCode,
     materialCategoryCode: d.materialCategoryCode,
     subCategoryId: Number(d.subCategoryId),
@@ -76,6 +81,62 @@ async function subCategoryMismatch(d: ItemInput): Promise<ActionState | null> {
       subCategoryId: ["This sub-category belongs to a different category"],
     })
   return null
+}
+
+/**
+ * Keep the item's translated notes in step with the English. `notesBefore` is
+ * null on create. A failure here is logged, never fails the save — readers
+ * fall back to the English notes.
+ */
+async function translateNotes(itemId: string, notesBefore: string | null, d: ItemInput, userId: number) {
+  try {
+    await syncItemTranslations({
+      itemId,
+      before: notesBefore == null ? null : { notes: notesBefore },
+      after: { notes: d.notes },
+      posted: { notesEs: d.notesEs },
+      userId,
+    })
+  } catch (e) {
+    console.error("[items] translation sync failed for", itemId, e)
+  }
+}
+
+/**
+ * A disabled commodity takes no new items. An item already in it may still be
+ * edited (its commodity unchanged) — only moving into one is refused.
+ */
+async function commodityDisabled(d: ItemInput, itemId?: string): Promise<ActionState | null> {
+  const c = await prisma.commodity.findUnique({ where: { code: d.commodityCode }, select: { isActive: true } })
+  if (!c || c.isActive) return null
+  if (itemId) {
+    const current = await prisma.item.findUnique({ where: { id: itemId }, select: { commodityCode: true } })
+    if (current?.commodityCode === d.commodityCode) return null
+  }
+  return fail("Please fix the highlighted fields.", {
+    commodityCode: [`${d.commodityCode} is disabled — enable it first, or pick another commodity`],
+  })
+}
+
+/**
+ * Legacy IDs are unique when filled. Checked only when the value changes, so
+ * duplicates already present from the data upload don't block unrelated edits.
+ */
+async function legacyIdTaken(d: ItemInput, itemId?: string): Promise<ActionState | null> {
+  if (!d.legacyFamousId) return null
+  if (itemId) {
+    const current = await prisma.item.findUnique({ where: { id: itemId }, select: { legacyFamousId: true } })
+    if (current?.legacyFamousId?.toLowerCase() === d.legacyFamousId.toLowerCase()) return null
+  }
+  const owner = await prisma.item.findFirst({
+    where: { legacyFamousId: d.legacyFamousId, ...(itemId ? { id: { not: itemId } } : {}) },
+    select: { id: true },
+  })
+  return owner
+    ? fail("Please fix the highlighted fields.", {
+        legacyFamousId: [`Already used by item ${owner.id}`],
+      })
+    : null
 }
 
 const parseIds = (s?: string): number[] =>
@@ -146,7 +207,8 @@ export async function createItem(
   }
   const { data, error } = parseForm(createSchema, fd)
   if (error) return error
-  const mismatch = await subCategoryMismatch(data)
+  const mismatch =
+    (await subCategoryMismatch(data)) ?? (await commodityDisabled(data)) ?? (await legacyIdTaken(data))
   if (mismatch) return mismatch
 
   // The id is derived from commodity+category+sequence. Two admins creating an
@@ -170,6 +232,7 @@ export async function createItem(
         entityId: id,
         changes: toData(data),
       })
+      await translateNotes(id, null, data, user.id)
 
       // The photo is stored AFTER the item exists, because its key contains the
       // generated id. A storage failure therefore cannot roll back an item that
@@ -209,12 +272,16 @@ export async function updateItem(
   }
   const { data, error } = parseForm(updateSchema, fd)
   if (error) return error
-  const mismatch = await subCategoryMismatch(data)
+  const mismatch =
+    (await subCategoryMismatch(data)) ??
+    (await commodityDisabled(data, data.id)) ??
+    (await legacyIdTaken(data, data.id))
   if (mismatch) return mismatch
 
   const existing = await prisma.item.findUnique({
     where: { id: data.id },
-    select: { imageKey: true },
+    // notes: whether the English changed decides whether Spanish is redone.
+    select: { imageKey: true, notes: true },
   })
   const previousKey = existing?.imageKey ?? null
 
@@ -251,6 +318,7 @@ export async function updateItem(
       entityId: data.id,
       changes: { ...toData(data), ...(imageKey !== undefined ? { imageKey } : {}) },
     })
+    await translateNotes(data.id, existing?.notes ?? "", data, user.id)
     // Only once the new key is committed, so a crash in between orphans a blob
     // rather than leaving a row pointing at bytes that are gone.
     if (imageKey !== undefined && previousKey && previousKey !== imageKey) {

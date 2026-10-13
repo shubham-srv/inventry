@@ -14,6 +14,11 @@ const nextConfig: NextConfig = {
   // differs (run `ipconfig` / `Get-NetIPAddress`).
   allowedDevOrigins: ["192.168.31.39", "192.168.31.*", "192.168.0.*", "192.168.1.*"],
 
+  // "Packaging" was renamed "Conversions"; keep old bookmarks working.
+  async redirects() {
+    return [{ source: "/admin/packaging", destination: "/admin/conversions", permanent: true }]
+  },
+
   experimental: {
     // Item photos are downscaled in the browser to a few hundred KB before they
     // are posted (components/crud/image-field.tsx), so this is not the expected

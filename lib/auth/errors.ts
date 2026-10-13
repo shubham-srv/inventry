@@ -14,6 +14,7 @@ export const LOGIN_ERRORS = [
   "nocode", // callback arrived without an authorization code
   "noidentity", // Entra returned neither an oid nor a username
   "unprovisioned", // authenticated, but no active User row matches
+  "partnerdisabled", // the user's grower or vendor is not Active
   "nolink", // magic-link consume with no token
   "linkexpired", // link expired, already used, or superseded
   "mailfailed", // we couldn't hand the sign-in link to the mail provider

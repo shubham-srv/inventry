@@ -1,5 +1,6 @@
 import { Plus, Trash2, ShieldX, ShieldCheck } from "lucide-react"
 import { prisma } from "@/lib/db"
+import { ACTIVE_ITEM } from "@/lib/items/active"
 import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { authorizationsWhere } from "@/lib/admin/queries"
@@ -37,7 +38,7 @@ export default async function GrowerAuthorizationsPage({
     prisma.growerItemAuthorization.findMany({ where, include: { grower: true, item: true }, orderBy: [{ growerId: "asc" }, { itemId: "asc" }], skip, take }),
     prisma.growerItemAuthorization.count({ where }),
     prisma.grower.findMany({ orderBy: { growerName: "asc" } }),
-    prisma.item.findMany({ where: { status: "Active" }, orderBy: { id: "asc" } }),
+    prisma.item.findMany({ where: ACTIVE_ITEM, orderBy: { id: "asc" } }),
     // Every ACTIVE authorization, not just the current page's rows — the dialog
     // pre-ticks a grower's whole set, so a paged subset would silently drop the
     // ones that happen to be on another page and then deactivate them on save.

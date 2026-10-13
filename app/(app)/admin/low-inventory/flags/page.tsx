@@ -6,6 +6,7 @@ import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { parseListParams } from "@/lib/query"
 import { reviewLowFlag } from "@/lib/actions/low-inventory"
+import { currentOnHand, onHandKey } from "@/lib/inventory/on-hand"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { DataTable, type Column } from "@/components/data-table/data-table"
@@ -14,13 +15,15 @@ import { EntityFormDialog, type Field } from "@/components/crud/entity-form-dial
 
 type Row = {
   id: number
+  growerId: number
   itemId: string
   reason: string | null
   isActive: boolean
   createdAt: Date
   flaggedBy: number
+  onHandAtFlag: Prisma.Decimal | null
   grower: { growerName: string }
-  item: { itemName: string }
+  item: { itemName: string; materialCategory: { name: string } | null }
 }
 
 const reviewFields: Field[] = [
@@ -46,7 +49,7 @@ export default async function AdminLowInventoryPage({
   const [rows, total, growers] = await Promise.all([
     prisma.lowInventoryFlag.findMany({
       where,
-      include: { grower: true, item: true },
+      include: { grower: true, item: { include: { materialCategory: { select: { name: true } } } } },
       orderBy: { createdAt: "desc" },
       skip,
       take,
@@ -65,6 +68,12 @@ export default async function AdminLowInventoryPage({
     : []
   const flaggerById = new Map(flaggers.map((u) => [u.id, `${u.firstName} ${u.lastName}`]))
 
+  // What the grower holds right now, so a flag can be judged without leaving the queue.
+  const onHand = await currentOnHand(prisma, {
+    growerIds: [...new Set(rows.map((r) => r.growerId))],
+    itemIds: [...new Set(rows.map((r) => r.itemId))],
+  })
+
   const columns: Column<Row>[] = [
     {
       key: "item",
@@ -77,6 +86,32 @@ export default async function AdminLowInventoryPage({
       ),
     },
     { key: "grower", header: "Grower", cell: (r) => r.grower.growerName },
+    {
+      key: "onHand",
+      header: "Current on hand",
+      cell: (r) => {
+        const unit = r.item.materialCategory?.name ?? ""
+        const now = onHand.get(onHandKey(r.growerId, r.itemId))
+        if (!now) return <span className="text-muted-foreground text-xs">Never counted</span>
+        return (
+          <div className="text-xs">
+            <span className="text-sm font-medium tabular-nums">
+              {now.total} {unit}
+            </span>
+            {/* Per site, so a low total can be traced to the location that is short. */}
+            {now.byLocation.length > 1 && (
+              <p className="text-muted-foreground">
+                {now.byLocation.map((l) => `${l.locationName} ${l.quantity}`).join(" · ")}
+              </p>
+            )}
+            <p className="text-muted-foreground">
+              as of {format(now.asOf, "MMM d")}
+              {r.onHandAtFlag != null && ` · ${Number(r.onHandAtFlag)} when flagged`}
+            </p>
+          </div>
+        )
+      },
+    },
     { key: "by", header: "Flagged by", className: "text-muted-foreground text-xs", cell: (r) => flaggerById.get(r.flaggedBy) ?? "—" },
     { key: "reason", header: "Reason", className: "text-muted-foreground text-xs", cell: (r) => r.reason ?? "—" },
     {

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useActionState, useEffect, useRef, useState } from "react"
+import { startTransition, useActionState, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -29,6 +29,7 @@ import { MultiSelect } from "@/components/ui/multi-select"
 import { ImageField } from "@/components/crud/image-field"
 import { type ActionState, initialActionState } from "@/lib/actions/types"
 import { useT } from "@/lib/i18n/client"
+import { cn } from "@/lib/utils"
 
 export type FieldType =
   | "text"
@@ -41,6 +42,7 @@ export type FieldType =
   | "hidden"
   | "preview" // read-only, not posted: shows `pattern` filled from other fields
   | "image" // one optional photo; posts the file plus `<name>Action`
+  | "suggest" // free text, with `options` listed underneath as the values already taken
 
 export type Field = {
   name: string
@@ -96,6 +98,14 @@ export type Field = {
    * field has a value the `placeholder` is shown instead. Never posted.
    */
   pattern?: string
+  /** `suggest` fields only: heading over the list of existing values. */
+  suggestTitle?: string
+  /**
+   * `textarea` only: name of the source-language field this one translates.
+   * Editing the source empties this box (unless the user has typed in it), so
+   * the save re-translates instead of keeping a copy of words that changed.
+   */
+  translationOf?: string
 }
 
 type Props = {
@@ -127,7 +137,9 @@ export function EntityFormDialog({
   // post via hidden fields. Multiselect is stored as a comma-joined string.
   const initControlled: Record<string, string> = {}
   for (const f of fields) {
-    if (f.type === "select" || f.type === "switch" || f.type === "multiselect") {
+    if (f.type === "suggest" || f.translationOf) {
+      initControlled[f.name] = values?.[f.name] != null ? String(values[f.name]) : ""
+    } else if (f.type === "select" || f.type === "switch" || f.type === "multiselect") {
       const v = values?.[f.name]
       initControlled[f.name] =
         f.type === "switch"
@@ -144,16 +156,41 @@ export function EntityFormDialog({
     }
   }
   const [controlled, setControlled] = useState(initControlled)
+  // Translation boxes the user typed in (never auto-cleared again), and the
+  // ones emptied because their source text changed (shown with a hint).
+  const translationEdited = useRef<Record<string, boolean>>({})
+  const [staleTranslation, setStaleTranslation] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     if (open) {
       handled.current = false
+      translationEdited.current = {}
       // Reset controlled fields each time the dialog opens.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setControlled(initControlled)
+      setStaleTranslation({})
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  /** Source text edited: empty its untouched translations, or restore them if reverted. */
+  function onSourceChange(source: string, value: string) {
+    const reverted = value === String(values?.[source] ?? "")
+    const targets = fields.filter(
+      (t) => t.translationOf === source && !translationEdited.current[t.name]
+    )
+    if (targets.length === 0) return
+    setControlled((c) => {
+      const next = { ...c }
+      for (const t of targets) next[t.name] = reverted ? String(values?.[t.name] ?? "") : ""
+      return next
+    })
+    setStaleTranslation((s) => {
+      const next = { ...s }
+      for (const t of targets) next[t.name] = !reverted
+      return next
+    })
+  }
 
   useEffect(() => {
     if (state.ok && !handled.current) {
@@ -263,6 +300,15 @@ export function EntityFormDialog({
     return optionsIn(controlled, f)
   }
 
+  // Dispatched by hand instead of `<form action={formAction}>`: React 19 resets
+  // a form after its action runs, which wiped every typed field whenever the
+  // server sent back a validation error.
+  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    const fd = new FormData(e.currentTarget)
+    startTransition(() => formAction(fd))
+  }
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {/*
@@ -288,7 +334,7 @@ export function EntityFormDialog({
           {description && <DialogDescription>{description}</DialogDescription>}
         </DialogHeader>
 
-        <form action={formAction} className="grid gap-4 sm:grid-cols-2">
+        <form onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-2">
           {/* Auto-include the primary key for edits when not an explicit field. */}
           {!hasIdField && values?.id != null && (
             <input type="hidden" name="id" value={String(values.id)} />
@@ -339,6 +385,20 @@ export function EntityFormDialog({
                     }
                     aria-invalid={!!err}
                   />
+                ) : f.type === "textarea" && f.translationOf ? (
+                  <Textarea
+                    id={f.name}
+                    name={f.name}
+                    required={f.required}
+                    placeholder={f.placeholder}
+                    value={controlled[f.name] ?? ""}
+                    onChange={(e) => {
+                      translationEdited.current[f.name] = true
+                      setStaleTranslation((s) => ({ ...s, [f.name]: false }))
+                      setControlled((c) => ({ ...c, [f.name]: e.target.value }))
+                    }}
+                    aria-invalid={!!err}
+                  />
                 ) : f.type === "textarea" ? (
                   <Textarea
                     id={f.name}
@@ -346,7 +406,16 @@ export function EntityFormDialog({
                     required={f.required}
                     placeholder={f.placeholder}
                     defaultValue={String(values?.[f.name] ?? "")}
+                    onChange={(e) => onSourceChange(f.name, e.target.value)}
                     aria-invalid={!!err}
+                  />
+                ) : f.type === "suggest" ? (
+                  <SuggestInput
+                    field={f}
+                    value={controlled[f.name] ?? ""}
+                    onChange={(v) => setControlled((c) => ({ ...c, [f.name]: v }))}
+                    readOnly={f.readOnly || (isEdit && f.lockOnEdit)}
+                    invalid={!!err}
                   />
                 ) : f.type === "preview" ? (
                   // Display only — the value is derived, so nothing is posted.
@@ -421,6 +490,11 @@ export function EntityFormDialog({
                   </div>
                 ) : null}
 
+                {staleTranslation[f.name] && (
+                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                    {t("common.willRetranslate")}
+                  </p>
+                )}
                 {f.description && (
                   <p className="text-muted-foreground mt-1 text-xs">{f.description}</p>
                 )}
@@ -442,5 +516,80 @@ export function EntityFormDialog({
       </DialogContent>
       )}
     </Dialog>
+  )
+}
+
+/**
+ * A text box with the values already taken listed under it, filtered as you
+ * type, so a new code is checked against the existing ones before saving. The
+ * list is a reference, not a picker — choosing a taken value would only make a
+ * duplicate. The server still has the final word.
+ */
+function SuggestInput({
+  field,
+  value,
+  onChange,
+  readOnly,
+  invalid,
+}: {
+  field: Field
+  value: string
+  onChange: (v: string) => void
+  readOnly?: boolean
+  invalid?: boolean
+}) {
+  const typed = value.trim().toLowerCase()
+  const options = field.options ?? []
+  const shown = typed
+    ? options.filter(
+        (o) => o.value.toLowerCase().includes(typed) || o.label.toLowerCase().includes(typed)
+      )
+    : options
+  const taken = typed ? options.find((o) => o.value.toLowerCase() === typed) : undefined
+
+  return (
+    <>
+      <Input
+        id={field.name}
+        name={field.name}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        required={field.required}
+        placeholder={field.placeholder}
+        readOnly={readOnly}
+        autoComplete="off"
+        aria-invalid={invalid || !!taken}
+        className={readOnly ? "bg-muted text-muted-foreground cursor-not-allowed" : undefined}
+      />
+      {!readOnly && (
+        <div className="mt-1.5 rounded-md border">
+          <p className="text-muted-foreground border-b px-2 py-1 text-[11px] font-medium">
+            {field.suggestTitle ?? "Existing values"} ({options.length})
+          </p>
+          <ul className="max-h-32 overflow-y-auto py-1 text-xs">
+            {shown.length === 0 ? (
+              <li className="text-muted-foreground px-2 py-0.5">No match — this one is new.</li>
+            ) : (
+              shown.map((o) => (
+                <li
+                  key={o.value}
+                  className={cn(
+                    "px-2 py-0.5",
+                    o === taken && "bg-amber-500/15 font-medium text-amber-700 dark:text-amber-400"
+                  )}
+                >
+                  {o.label}
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
+      )}
+      {!readOnly && taken && (
+        <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+          &ldquo;{taken.value}&rdquo; already exists.
+        </p>
+      )}
+    </>
   )
 }

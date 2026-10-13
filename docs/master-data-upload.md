@@ -207,7 +207,7 @@ afterwards.
 | `CountryOfOrigin` | ✅ | text | Must exist in **Countries** |
 | `ApplicationMethod` | | list | `Machine`, `Hand`, `Machine/Hand`, `N/A` |
 | `Status` | ✅ | list | `Active`, `Inactive`, `Review` |
-| `LegacyItemRef` | | text | The client's own identifier from their previous system. Carried through for reconciliation; not used as a key |
+| `LegacyItemRef` | | text | The client's own identifier from their previous system. Carried through for reconciliation; not used as a key, but unique when filled (the importer rejects duplicates) and editable later on the item form |
 | `Notes` | | text | |
 | `ImageFile` | | text | File name of the item's photo in the accompanying images folder — see [Item photos](#item-photos) |
 

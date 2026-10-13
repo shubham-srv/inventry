@@ -7,6 +7,7 @@ import {
   guard,
   parseForm,
   prismaErrorMessage,
+  revalidateNavBadges,
   type ActionState,
 } from "@/lib/actions/_shared"
 import { ok, fail } from "@/lib/actions/types"
@@ -51,6 +52,23 @@ export async function updateCommodity(_p: ActionState, fd: FormData): Promise<Ac
   }
 }
 
+/**
+ * Disable / re-enable a commodity. Its items follow without their own status
+ * changing (lib/items/active.ts), so re-enabling restores them exactly.
+ */
+export async function setCommodityActive(code: string, active: boolean): Promise<ActionState> {
+  const user = await guard(CAP)
+  try {
+    await prisma.commodity.update({ where: { code }, data: { isActive: active, updatedBy: user.id } })
+    await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.UPDATE, entityType: "Commodity", entityId: code, changes: { isActive: active } })
+    // Grower/vendor screens, pickers and reports all read item activity.
+    revalidateNavBadges()
+    return ok(active ? `${code} enabled — its items are live again` : `${code} disabled — its items are hidden from growers and vendors`)
+  } catch (e) {
+    return fail(prismaErrorMessage(e))
+  }
+}
+
 export async function deleteCommodity(code: string): Promise<ActionState> {
   const user = await guard(CAP)
   try {
@@ -74,6 +92,9 @@ export async function createCategory(_p: ActionState, fd: FormData): Promise<Act
   const { data, error } = parseForm(categorySchema, fd)
   if (error) return error
   const code = data.code.toUpperCase()
+  const taken = await prisma.materialCategory.findUnique({ where: { code }, select: { name: true } })
+  if (taken)
+    return fail("Please fix the highlighted fields.", { code: [`${code} already exists (${taken.name}).`] })
   try {
     await prisma.materialCategory.create({ data: { code, name: data.name, createdBy: user.id, updatedBy: user.id } })
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.CREATE, entityType: "MaterialCategory", entityId: code, changes: data })

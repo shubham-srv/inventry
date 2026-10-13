@@ -2,6 +2,8 @@
 // Apps cron job, which run headless with no request/cookie context — which is
 // exactly why the recipient's language must come from stored data, never a cookie.)
 import * as React from "react"
+import { format } from "date-fns"
+import { enUS, es } from "date-fns/locale"
 import { render } from "@react-email/render"
 import { prisma } from "@/lib/db"
 import { makeT, type TFunction } from "@/lib/i18n/translate"
@@ -422,6 +424,142 @@ export async function notifyLowInventoryReviewed(opts: {
     body: text,
     html,
     relatedEntity: "LowInventoryFlag",
+  })
+}
+
+/** A calendar date in the recipient's language ("Oct 11, 2026" / "11 oct 2026"). */
+function emailDate(d: Date, locale: Locale): string {
+  return format(d, "PP", { locale: locale === "es" ? es : enUS })
+}
+
+/**
+ * New order: tell the vendor, who now owes a delivery date. Goes to the
+ * vendor's contact address and every active vendor user, grouped by language
+ * (one send per language, like the admin fan-out) and de-duplicated.
+ */
+export async function notifyVendorOrderPlaced(opts: {
+  vendorId: number
+  growerId: number
+  orderId: number
+  growerName: string
+  itemName: string
+  itemId: string
+  quantity: number
+  categoryName?: string | null
+  orderDate: Date
+  requestedDate: Date
+}): Promise<void> {
+  const vendor = await prisma.vendor.findUnique({
+    where: { id: opts.vendorId },
+    select: {
+      vendorName: true,
+      contactEmail: true,
+      preferredLocale: true,
+      users: { where: { isActive: true }, select: { email: true, preferredLocale: true } },
+    },
+  })
+  if (!vendor) return
+
+  const byLocale = new Map<Locale, string[]>()
+  const seen = new Set<string>()
+  const add = (email: string | null, locale: string | null) => {
+    const e = email?.trim()
+    if (!e || seen.has(e.toLowerCase())) return
+    seen.add(e.toLowerCase())
+    const l = toLocale(locale)
+    byLocale.set(l, [...(byLocale.get(l) ?? []), e])
+  }
+  add(vendor.contactEmail, vendor.preferredLocale)
+  for (const u of vendor.users) add(u.email, u.preferredLocale)
+
+  for (const [locale, recipients] of byLocale) {
+    const t = makeT(locale)
+    const qty = opts.categoryName ? `${opts.quantity} ${opts.categoryName}` : String(opts.quantity)
+    const { html, text } = await renderNotification(t, locale, {
+      preview: t("email.vendorOrderPlaced.heading"),
+      heading: t("email.vendorOrderPlaced.heading"),
+      intro: t("email.vendorOrderPlaced.intro", {
+        grower: opts.growerName,
+        vendor: vendor.vendorName,
+        item: opts.itemName,
+      }),
+      details: [
+        { label: t("email.detail.order"), value: `#${opts.orderId}` },
+        { label: t("email.detail.grower"), value: opts.growerName },
+        { label: t("email.detail.item"), value: `${opts.itemName} (${opts.itemId})` },
+        { label: t("email.detail.quantity"), value: qty },
+        { label: t("email.detail.orderedOn"), value: emailDate(opts.orderDate, locale) },
+        { label: t("email.detail.requestedDelivery"), value: emailDate(opts.requestedDate, locale) },
+      ],
+      cta: { label: t("email.vendorOrderPlaced.cta"), href: appUrl("/vendor/orders") },
+      variant: "info",
+    })
+    for (const group of chunk(recipients, MAX_RECIPIENTS_PER_MESSAGE)) {
+      await notify({
+        type: NOTIFICATION_TYPES.VENDOR_ORDER_PLACED,
+        toEmail: group.join(","),
+        vendorId: opts.vendorId,
+        growerId: opts.growerId,
+        subject: t("email.vendorOrderPlaced.subject", { item: opts.itemName, grower: opts.growerName }),
+        body: text,
+        html,
+        relatedEntity: "Order",
+      })
+    }
+  }
+}
+
+/** The vendor confirmed (or changed) the delivery date: tell the grower. */
+export async function notifyOrderDeliveryConfirmed(opts: {
+  growerId: number
+  vendorId: number
+  toEmail: string | null
+  locale: string | null
+  itemName: string
+  vendorName: string
+  quantity: number
+  categoryName?: string | null
+  requestedDate: Date | null
+  confirmedDate: Date
+  /** The vendor's previous date, when this is a change rather than a first answer. */
+  previousDate: Date | null
+}): Promise<void> {
+  if (!opts.toEmail) return
+  const locale = toLocale(opts.locale)
+  const t = makeT(locale)
+  const key = opts.previousDate ? "orderDateChanged" : "orderConfirmed"
+  const qty = opts.categoryName ? `${opts.quantity} ${opts.categoryName}` : String(opts.quantity)
+  const details = [
+    { label: t("email.detail.item"), value: opts.itemName },
+    { label: t("email.detail.vendor"), value: opts.vendorName },
+    { label: t("email.detail.quantity"), value: qty },
+  ]
+  if (opts.requestedDate)
+    details.push({ label: t("email.detail.requestedDelivery"), value: emailDate(opts.requestedDate, locale) })
+  details.push({ label: t("email.detail.confirmedDelivery"), value: emailDate(opts.confirmedDate, locale) })
+
+  const { html, text } = await renderNotification(t, locale, {
+    preview: t(`email.${key}.heading`),
+    heading: t(`email.${key}.heading`),
+    intro: t(`email.${key}.intro`, {
+      vendor: opts.vendorName,
+      item: opts.itemName,
+      date: emailDate(opts.confirmedDate, locale),
+      previous: opts.previousDate ? emailDate(opts.previousDate, locale) : "",
+    }),
+    details,
+    cta: { label: t(`email.${key}.cta`), href: appUrl("/grower/on-order") },
+    variant: opts.previousDate ? "warning" : "success",
+  })
+  await notify({
+    type: NOTIFICATION_TYPES.ORDER_DELIVERY_CONFIRMED,
+    toEmail: opts.toEmail,
+    growerId: opts.growerId,
+    vendorId: opts.vendorId,
+    subject: t(`email.${key}.subject`, { item: opts.itemName }),
+    body: text,
+    html,
+    relatedEntity: "Order",
   })
 }
 

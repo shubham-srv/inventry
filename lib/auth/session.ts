@@ -8,6 +8,7 @@ import { sessionSecret } from "@/lib/auth/secret"
 import { type RoleName } from "@/lib/constants"
 import { type Capability, can as roleCan } from "@/lib/rbac"
 import { LOCALE_COOKIE, isLocale } from "@/lib/i18n/config"
+import { partnerAccessBlocked } from "@/lib/auth/partner-access"
 
 // ============================================================
 // The session layer — auth-provider agnostic on purpose.
@@ -123,44 +124,55 @@ async function readUserId(): Promise<number | null> {
   }
 }
 
-/** Loads the impersonated user once per request (React cache). */
-export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
+type SessionLoad =
+  | { user: SessionUser; reason?: undefined }
+  | { user: null; reason: "unprovisioned" | "partnerdisabled" }
+
+/** Loads the signed-in user once per request (React cache), with why not if none. */
+const loadSession = cache(async (): Promise<SessionLoad> => {
   const userId = await readUserId()
-  if (!userId) return null
+  if (!userId) return { user: null, reason: "unprovisioned" }
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
     include: { role: true, grower: true, vendor: true },
   })
-  if (!user || !user.isActive) return null
+  if (!user || !user.isActive) return { user: null, reason: "unprovisioned" }
+  // Checked on every request, so disabling a partner ends live sessions too.
+  if (partnerAccessBlocked(user)) return { user: null, reason: "partnerdisabled" }
 
   return {
-    id: user.id,
-    firstName: user.firstName,
-    lastName: user.lastName,
-    email: user.email,
-    roleId: user.roleId,
-    roleName: user.role.roleName as RoleName,
-    growerId: user.growerId,
-    vendorId: user.vendorId,
-    growerName: user.grower?.growerName ?? null,
-    vendorName: user.vendor?.vendorName ?? null,
+    user: {
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      roleId: user.roleId,
+      roleName: user.role.roleName as RoleName,
+      growerId: user.growerId,
+      vendorId: user.vendorId,
+      growerName: user.grower?.growerName ?? null,
+      vendorName: user.vendor?.vendorName ?? null,
+    },
   }
 })
 
+export const getCurrentUser = cache(
+  async (): Promise<SessionUser | null> => (await loadSession()).user
+)
+
 /**
  * Reaching here with no user means the cookie verified but the account behind
- * it did not: deactivated, or deleted. Redirecting straight to /login would
- * leave that still-valid cookie in place, and the proxy would read it as a
- * session and send them back — the loop this route exists to break. The route
- * handler can delete cookies; a Server Component cannot.
+ * it did not: deactivated, deleted, or its grower/vendor disabled. Redirecting
+ * straight to /login would leave that still-valid cookie in place, and the
+ * proxy would read it as a session and send them back — the loop this route
+ * exists to break. The route handler can delete cookies; a Server Component
+ * cannot.
  */
-const SESSION_ENDED = "/api/auth/session-ended?error=unprovisioned"
-
 export async function requireUser(): Promise<SessionUser> {
-  const user = await getCurrentUser()
-  if (!user) redirect(SESSION_ENDED)
-  return user
+  const session = await loadSession()
+  if (!session.user) redirect(`/api/auth/session-ended?error=${session.reason}`)
+  return session.user
 }
 
 export async function requireRole(roles: RoleName[]): Promise<SessionUser> {

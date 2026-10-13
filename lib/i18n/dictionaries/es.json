@@ -35,7 +35,10 @@
       "Editor": "Editor",
       "GrowerUser": "Productor",
       "VendorUser": "Proveedor"
-    }
+    },
+    "more": "más",
+    "less": "menos",
+    "willRetranslate": "Esto se traducirá automáticamente del texto de arriba al guardar. Escribe aquí para usar tu propia traducción."
   },
   "submitList": {
     "search": "Buscar artículos…",
@@ -80,7 +83,6 @@
     "lowInventory": "Inventario Bajo",
     "itemMessages": "Mensajes de artículos",
     "users": "Usuarios",
-    "packaging": "Embalaje",
     "reports": "Informes",
     "schedulers": "Programadores",
     "thresholds": "Umbrales",
@@ -95,7 +97,11 @@
       "settings": "Configuración",
       "grower": "Productor",
       "vendor": "Proveedor"
-    }
+    },
+    "conversions": "Conversiones",
+    "myItems": "Mis artículos",
+    "flagHistory": "Historial de alertas",
+    "orders": "Pedidos"
   },
   "login": {
     "title": "Gestión de inventario",
@@ -134,8 +140,10 @@
       "nolink": "Ese enlace de acceso estaba incompleto. Solicita uno nuevo abajo.",
       "linkexpired": "Ese enlace de acceso caducó o ya se usó. Solicita uno nuevo abajo.",
       "mailfailed": "No pudimos enviar el correo de acceso. Inténtalo de nuevo en un momento.",
-      "sessionexpired": "Tu sesión finalizó. Vuelve a iniciar sesión."
-    }
+      "sessionexpired": "Tu sesión finalizó. Vuelve a iniciar sesión.",
+      "partnerdisabled": "El acceso de tu organización a esta aplicación está desactivado. Contacta a tu administrador."
+    },
+    "accessDisabled": "Acceso desactivado"
   },
   "grower": {
     "dash": {
@@ -176,7 +184,11 @@
       "weekChangeTitle": "Cambio frente al mismo artículo hace una semana",
       "location": "Ubicación",
       "locationHint": "Los conteos se registran en la ubicación seleccionada.",
-      "noLocations": "Todavía no hay ubicaciones asignadas a tu productor. Pide a un administrador que asigne al menos una antes de enviar conteos."
+      "noLocations": "Todavía no hay ubicaciones asignadas a tu productor. Pide a un administrador que asigne al menos una antes de enviar conteos.",
+      "incompleteTitle": "No todos los artículos tienen conteo",
+      "incompleteBody": "No has completado todos los artículos: {done} de {total} tienen cantidad. ¿Seguro que quieres enviar? Si no tienes un artículo, ingresa 0.",
+      "goBack": "Volver",
+      "submitAnyway": "Enviar de todos modos"
     },
     "orders": {
       "heading": "Pedidos",
@@ -186,10 +198,8 @@
       "vendor": "Proveedor",
       "vendorPh": "Selecciona proveedor",
       "quantity": "Cantidad",
-      "expectedDelivery": "Fecha de entrega prevista",
-      "eta": "Entrega {date}",
-      "editDelivery": "Editar fecha de entrega prevista",
-      "editDeliveryTitle": "Fecha de entrega prevista",
+      "editDelivery": "Editar fecha de entrega solicitada",
+      "editDeliveryTitle": "Fecha de entrega solicitada",
       "noVendors": "No hay proveedores asignados a este artículo.",
       "receive": "Recibir",
       "receivedBadge": "Recibido",
@@ -209,7 +219,12 @@
         "invalidVendor": "Elige un proveedor válido para este artículo.",
         "notFound": "Pedido no encontrado.",
         "alreadyClosed": "Ese pedido ya no está abierto.",
-        "invalidReceived": "Introduce una cantidad recibida válida."
+        "invalidReceived": "Introduce una cantidad recibida válida.",
+        "deliveryRequired": "Elige una fecha de entrega solicitada.",
+        "deliveryTooSoon": "{vendor} necesita al menos {days} día(s) desde la fecha del pedido. La primera fecha de entrega posible es {date}.",
+        "deliveryBeforeOrder": "La fecha de entrega no puede ser anterior a la fecha del pedido.",
+        "orderDateFuture": "La fecha del pedido no puede ser futura.",
+        "orderDateInvalid": "Introduce una fecha de pedido válida."
       },
       "receiveTitle": "Confirmar recepción",
       "receivedQty": "Cantidad recibida ({category})",
@@ -221,7 +236,16 @@
         "short": "Envío incompleto",
         "damaged": "Dañado",
         "over": "Envío excedente"
-      }
+      },
+      "requestedOn": "Solicitado para {date}",
+      "confirmedOn": "Entrega confirmada {date}",
+      "awaitingVendor": "Esperando fecha del proveedor",
+      "orderDate": "Fecha del pedido",
+      "orderDateHint": "Hoy, o antes si lo hiciste antes de registrarlo aquí.",
+      "requestedDelivery": "Fecha de entrega solicitada",
+      "leadTimeHint": "{vendor} necesita al menos {days} día(s), así que lo antes posible es {date}.",
+      "vendorWithLead": "{vendor} (plazo de {days} días)",
+      "vendorDateNote": "El proveedor confirmó la entrega para el {date}."
     },
     "history": {
       "title": "Historial de envíos",
@@ -239,9 +263,10 @@
       "vendor": "Proveedor",
       "qty": "Cant.",
       "ordered": "Pedido",
-      "expectedDelivery": "Entrega prevista",
       "status": "Estado",
-      "none": "No hay nada en pedido ahora."
+      "none": "No hay nada en pedido ahora.",
+      "requestedDelivery": "Entrega solicitada",
+      "confirmedDelivery": "Fecha del proveedor"
     },
     "requests": {
       "title": "Solicitudes de artículos faltantes",
@@ -270,6 +295,38 @@
       "noAuthorized": "No hay artículos autorizados en este envío.",
       "noLocation": "Elige una ubicación antes de enviar.",
       "locationNotAllowed": "Esa ubicación no está asignada a tu productor."
+    },
+    "flagHistory": {
+      "title": "Historial de alertas",
+      "description": "Cada vez que activaste \"Bajo\" en un artículo, y cómo terminó.",
+      "item": "Artículo",
+      "raised": "Activada",
+      "by": "por {name}",
+      "onHandThen": "Disponible entonces",
+      "onHandNow": "Disponible ahora",
+      "status": "Estado",
+      "cleared": "Retirada",
+      "reviewNotes": "Notas de revisión",
+      "none": "Aún no hay alertas.",
+      "outcome": {
+        "Open": "Abierta",
+        "ClearedByGrower": "Desactivada por ti",
+        "Reviewed": "Revisada por un administrador"
+      }
+    },
+    "items": {
+      "title": "Mis artículos",
+      "description": "Todo lo que estás autorizado a contar, lo que tienes en cada ubicación y lo que está en pedido.",
+      "item": "Artículo",
+      "itemId": "ID de artículo",
+      "legacyId": "ID heredado",
+      "commodity": "Producto",
+      "category": "Categoría",
+      "onHand": "Disponible",
+      "onOrder": "En pedido",
+      "lastCounted": "Último conteo",
+      "notes": "Notas",
+      "neverCounted": "Nunca contado"
     }
   },
   "vendor": {
@@ -320,6 +377,77 @@
       "noItems": "Ingresa al menos una cantidad primero.",
       "noSupplied": "No hay artículos suministrados en este envío.",
       "overAllocated": "La asignación de {item} ({allocated}) supera su cantidad ({quantity})."
+    },
+    "orders": {
+      "title": "Pedidos",
+      "description": "Pedidos que los productores te hicieron. Confirma una fecha de entrega para cada uno: el productor recibe aviso y la entrega se mide con esa fecha.",
+      "order": "Pedido",
+      "grower": "Productor",
+      "item": "Artículo",
+      "qty": "Cant.",
+      "ordered": "Pedido el",
+      "requested": "Solicitada",
+      "yourDate": "Tu fecha de entrega",
+      "setOn": "fijada el {date}",
+      "awaiting": "Falta tu fecha",
+      "status": "Estado",
+      "confirm": "Confirmar fecha",
+      "change": "Cambiar",
+      "confirmTitle": "Confirmar fecha de entrega",
+      "changeTitle": "Cambiar fecha de entrega",
+      "deliveryDate": "Fecha de entrega",
+      "requestedHint": "El productor solicitó el {date}.",
+      "saveDate": "Guardar fecha",
+      "search": "Buscar artículo o productor…",
+      "none": "No hay pedidos aquí.",
+      "views": {
+        "awaiting": "Falta tu fecha",
+        "open": "Abiertos",
+        "received": "Recibidos",
+        "cancelled": "Cancelados",
+        "all": "Todos"
+      },
+      "leadTimeLabel": "Plazo mínimo de entrega (días)",
+      "leadTimeHint": "Los productores no pueden pedir la entrega antes de este número de días desde la fecha del pedido. Déjalo en blanco para no fijar mínimo.",
+      "leadTimeTitle": "Plazo mínimo de entrega",
+      "leadTimeEdit": "Editar plazo",
+      "leadTimeNone": "Sin plazo mínimo de entrega",
+      "leadTimeValue": "Plazo mínimo de entrega: {days} día(s)",
+      "leadTimeExplain": "Los productores no pueden pedir la entrega antes de este plazo desde la fecha del pedido.",
+      "actions": {
+        "notFound": "Pedido no encontrado.",
+        "closed": "Ese pedido ya no está abierto.",
+        "dateRequired": "Elige una fecha de entrega.",
+        "beforeOrder": "La fecha de entrega no puede ser anterior a la fecha del pedido.",
+        "unchanged": "Esa ya es la fecha de entrega.",
+        "confirmed": "Fecha de entrega confirmada. Se avisó al productor.",
+        "changed": "Fecha de entrega cambiada. Se avisó al productor.",
+        "leadTimeInvalid": "Introduce un número entero de días entre 0 y 365.",
+        "leadTimeSaved": "Plazo guardado."
+      }
+    },
+    "items": {
+      "title": "Mis artículos",
+      "description": "Todo lo que suministras, tu último stock informado y cómo envías cada artículo (tus conversiones).",
+      "item": "Artículo",
+      "itemId": "ID de artículo",
+      "legacyId": "ID heredado",
+      "commodity": "Producto",
+      "category": "Categoría",
+      "reported": "Último informado",
+      "allocated": "Asignado",
+      "lastReported": "Último informe",
+      "conversions": "Conversiones",
+      "notes": "Notas",
+      "neverReported": "Nunca informado",
+      "plainUnits": "Unidades simples",
+      "editTitle": "Editar conversiones",
+      "chain": "Cadena de conversión",
+      "noChain": "— ninguna (envío en unidades simples) —",
+      "chainHint": "Cómo empacas este artículo para el envío. Nunca cambia la cantidad pedida.",
+      "noChainsDefined": "Aún no hay una cadena de conversión para {category}. Pide a un administrador que la cree.",
+      "ratios": "Cantidades por nivel",
+      "ratiosHint": "Separadas por comas, de dentro hacia fuera: cuántos {base} caben en el primer nivel y luego cuántos de esos en el siguiente."
     }
   },
   "email": {
@@ -336,7 +464,11 @@
       "status": "Estado",
       "reviewNotes": "Notas de revisión",
       "cadence": "Frecuencia",
-      "location": "Ubicación"
+      "location": "Ubicación",
+      "order": "Pedido",
+      "orderedOn": "Fecha del pedido",
+      "requestedDelivery": "Entrega solicitada",
+      "confirmedDelivery": "Entrega confirmada"
     },
     "submissionReceived": {
       "subject": "Envío de inventario recibido — {grower} ({location})",
@@ -388,6 +520,24 @@
       "intro": "Use el botón de abajo para iniciar sesión. No necesita contraseña.",
       "expiry": "Este enlace caduca en {minutes} minutos y solo se puede usar una vez. Si no lo solicitó, puede ignorar este correo.",
       "cta": "Iniciar sesión"
+    },
+    "vendorOrderPlaced": {
+      "subject": "Nuevo pedido por confirmar — {item} para {grower}",
+      "heading": "Nuevo pedido: confirma una fecha de entrega",
+      "intro": "{grower} hizo un pedido a {vendor} de {item}. Confirma la fecha en que puedes entregarlo.",
+      "cta": "Confirmar fecha de entrega"
+    },
+    "orderConfirmed": {
+      "subject": "Fecha de entrega confirmada — {item}",
+      "heading": "Fecha de entrega confirmada",
+      "intro": "{vendor} confirmó la entrega de tu pedido de {item} para el {date}.",
+      "cta": "Ver pedidos"
+    },
+    "orderDateChanged": {
+      "subject": "Fecha de entrega cambiada — {item}",
+      "heading": "Fecha de entrega cambiada",
+      "intro": "{vendor} cambió la fecha de entrega de tu pedido de {item} al {date} (antes era el {previous}).",
+      "cta": "Ver pedidos"
     }
   },
   "itemMessage": {
@@ -401,5 +551,14 @@
   "outbox": {
     "showPreview": "Ver vista previa",
     "hidePreview": "Ocultar vista previa"
+  },
+  "conversions": {
+    "mappingNotFound": "No se encontró esa asignación de artículo.",
+    "cleared": "Conversiones eliminadas. Este artículo se envía en unidades simples.",
+    "saved": "Conversiones guardadas.",
+    "chainNotFound": "No se encontró esa cadena de conversión.",
+    "wrongCategory": "Esa cadena pertenece a la categoría {chain}, pero este artículo está en {item}.",
+    "levelCount": "Introduce una cantidad por nivel: esta cadena tiene {count} ({levels}).",
+    "wholeNumbers": "Cada cantidad debe ser un número entero de 1 o más."
   }
 }

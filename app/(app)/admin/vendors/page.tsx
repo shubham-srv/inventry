@@ -1,5 +1,6 @@
 import { Pencil, Plus, Trash2 } from "lucide-react"
 import { prisma } from "@/lib/db"
+import { ACTIVE_ITEM } from "@/lib/items/active"
 import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { vendorsWhere } from "@/lib/admin/queries"
@@ -86,7 +87,7 @@ export default async function VendorsPage({
       take,
     }),
     prisma.vendor.count({ where }),
-    prisma.item.findMany({ where: { status: ENTITY_STATUS.ACTIVE }, orderBy: { id: "asc" }, select: { id: true, itemName: true, materialCategoryCode: true } }),
+    prisma.item.findMany({ where: ACTIVE_ITEM, orderBy: { id: "asc" }, select: { id: true, itemName: true, materialCategoryCode: true } }),
     prisma.materialCategory.findMany({ orderBy: { name: "asc" } }),
     // Still needed for the Region filter, which matches a vendor if ANY of its
     // locations sits in the region. There is no Region field on the vendor form.
@@ -122,7 +123,15 @@ export default async function VendorsPage({
     { name: "primaryContact", label: "Primary contact", type: "text" },
     { name: "contactEmail", label: "Contact email", type: "text" },
     { name: "contactPhone", label: "Contact phone", type: "text" },
-    { name: "leadTimeDays", label: "Lead time (days)", type: "number", min: "0", step: "1", placeholder: "5" },
+    {
+      name: "leadTimeDays",
+      label: "Minimum lead time (days)",
+      type: "number",
+      min: "0",
+      step: "1",
+      placeholder: "5",
+      description: "Growers can't request delivery sooner than this after ordering. The vendor can also set it from their Orders page.",
+    },
     { name: "paymentTermsDays", label: "Payment terms (days)", type: "number", min: "0", step: "1", placeholder: "30", description: "Net N days" },
     { name: "ptAccountNumber", label: "PT account #", type: "text" },
     {

@@ -80,6 +80,7 @@ async function clearAll() {
   await prisma.itemMessageGrower.deleteMany()
   await prisma.itemMessageTranslation.deleteMany()
   await prisma.itemMessage.deleteMany()
+  await prisma.itemTranslation.deleteMany()
   await prisma.item.deleteMany()
   await prisma.subCategory.deleteMany()
   await prisma.materialCategory.deleteMany()
@@ -371,6 +372,27 @@ async function main() {
       applicationMethod: "Machine/Hand",
       status: "Active",
       createdBy: adminId,
+    })),
+  })
+
+  // Legacy IDs, and notes growers and vendors see in their own language: one
+  // Spanish copy reviewed by a person, one raw machine output ("ES auto").
+  const itemNotes = [
+    { id: "AP-BX-000001", legacy: "FAM-10421", notes: "Store flat and dry; stack no more than 8 high.", es: "Guardar plano y seco; no apilar más de 8.", reviewed: true },
+    { id: "BR-BX-000007", legacy: "FAM-10877", notes: "New supplier lid from November; old and new lids are interchangeable.", es: "Nueva tapa del proveedor desde noviembre; las tapas viejas y nuevas son intercambiables.", reviewed: false },
+    { id: "CG-PL-000006", legacy: "FAM-20013", notes: "Return damaged pallets to the pool, do not discard.", es: "Devolver los palés dañados al pool, no desecharlos.", reviewed: true },
+  ]
+  for (const n of itemNotes)
+    await prisma.item.update({ where: { id: n.id }, data: { legacyFamousId: n.legacy, notes: n.notes } })
+  await prisma.itemTranslation.createMany({
+    data: itemNotes.map((n) => ({
+      itemId: n.id,
+      field: "notes",
+      locale: "es",
+      text: n.es,
+      isMachine: !n.reviewed,
+      createdBy: adminId,
+      updatedBy: adminId,
     })),
   })
   // What each item's quantities are counted in — its material category's name.
@@ -730,8 +752,10 @@ async function main() {
     orderDate: Date
     status: string
     closedAt: Date | null
-    /** Promised arrival. Derived from the VENDOR'S OWN quoted lead time. */
+    /** Requested arrival. Derived from the VENDOR'S OWN quoted lead time. */
     expectedDeliveryDate: Date
+    /** The vendor's answer; null = still awaiting the vendor. */
+    confirmedDeliveryDate?: Date | null
     /** null while Open or Cancelled; may differ from `quantity` (see below). */
     receivedQuantity: number | null
     receiptNote: string | null
@@ -798,6 +822,10 @@ async function main() {
         status: closed ? "Received" : "Open",
         closedAt,
         expectedDeliveryDate: daysAgo(d - lead),
+        // Vendors answered every delivered order, sometimes a day off the
+        // request; about half the open ones still await an answer.
+        confirmedDeliveryDate:
+          closed || n % 2 === 0 ? daysAgo(d - lead - (Math.round(rng(g.id * 17 + n) * 2) - 1)) : null,
         receivedQuantity,
         receiptNote,
       })
@@ -834,6 +862,10 @@ async function main() {
         status: o.status,
         orderDate: o.orderDate,
         expectedDeliveryDate: o.expectedDeliveryDate,
+        confirmedDeliveryDate: o.confirmedDeliveryDate ?? null,
+        // Answered the day after the order came in.
+        confirmedAt: o.confirmedDeliveryDate ? new Date(o.orderDate.getTime() + 86_400_000) : null,
+        confirmedBy: o.confirmedDeliveryDate ? (vendorUserByVendor[o.vendorId] ?? null) : null,
         closedAt: o.closedAt,
         createdBy: growerUserByGrower[o.growerId],
         createdAt: o.orderDate,
@@ -1025,6 +1057,36 @@ async function main() {
         reason: "Unexpected demand spike",
         isActive: true,
         createdBy: diagoUserId,
+      },
+      // History: one the grower unflagged, one an admin reviewed and cleared.
+      {
+        growerId: agribar.id,
+        itemId: "BR-BX-000007",
+        flaggedBy: jamesUserId,
+        reason: "Flagged during daily submission",
+        isActive: false,
+        onHandAtFlag: new Prisma.Decimal(12),
+        clearedAt: daysAgo(7),
+        clearedBy: jamesUserId,
+        createdAt: daysAgo(9),
+        createdBy: jamesUserId,
+        updatedBy: jamesUserId,
+      },
+      {
+        growerId: brigo.id,
+        itemId: "CG-BX-000005",
+        flaggedBy: diagoUserId,
+        reason: "Manually flagged low",
+        isActive: false,
+        onHandAtFlag: new Prisma.Decimal(30),
+        reviewedBy: adminId,
+        reviewedAt: daysAgo(4),
+        reviewNotes: "Ordered 200 from PackRight",
+        clearedAt: daysAgo(4),
+        clearedBy: adminId,
+        createdAt: daysAgo(6),
+        createdBy: diagoUserId,
+        updatedBy: adminId,
       },
     ],
   })

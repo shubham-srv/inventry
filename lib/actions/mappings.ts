@@ -13,6 +13,8 @@ import { ok, fail } from "@/lib/actions/types"
 import { recordAudit } from "@/lib/audit"
 import { CAPABILITIES } from "@/lib/rbac"
 import { AUDIT_ACTIONS } from "@/lib/constants"
+import { getT } from "@/lib/i18n/server"
+import { saveConversions } from "@/lib/packaging/save"
 
 const CAP = CAPABILITIES.MANAGE_GROWERS_VENDORS
 const PATH = "/admin/mappings/vendors"
@@ -117,12 +119,8 @@ export async function deleteItemVendor(id: number): Promise<ActionState> {
 }
 
 /**
- * Assign a packaging chain to a vendor↔item mapping and record the ratios.
- *
- * Ratios post as one comma-separated field ("10, 5"), positionally matching the
- * chain's levels innermost-first — the same shape the chain editor uses. Passing
- * an empty chain clears the packaging setup entirely, which returns the mapping
- * to plain-units ordering.
+ * Assign a conversion chain to a vendor↔item mapping and record the ratios.
+ * The rules live in lib/packaging/save.ts, shared with the vendor's own page.
  */
 const packagingSchema = z.object({
   id: z.string().trim().min(1),
@@ -139,86 +137,18 @@ export async function setItemVendorPackaging(
   if (error) return error
   const id = Number(data.id)
   if (!id) return fail("Missing mapping id.")
-
-  const mapping = await prisma.itemVendor.findUnique({
-    where: { id },
-    include: { item: { select: { materialCategoryCode: true } } },
-  })
-  if (!mapping) return fail("Mapping not found.")
-
-  // Clearing packaging: drop the chain and every ratio.
-  if (!data.packagingChainId || data.packagingChainId === "none") {
-    try {
-      await prisma.$transaction([
-        prisma.vendorPackRatio.deleteMany({ where: { itemVendorId: id } }),
-        prisma.itemVendor.update({
-          where: { id },
-          data: { packagingChainId: null, updatedBy: user.id },
-        }),
-      ])
-      revalidatePath(PATH)
-      return ok("Packaging cleared")
-    } catch (e) {
-      return fail(prismaErrorMessage(e))
-    }
-  }
-
-  const chainId = Number(data.packagingChainId)
-  const chain = await prisma.packagingChain.findUnique({
-    where: { id: chainId },
-    include: { levels: { orderBy: { level: "asc" } } },
-  })
-  if (!chain) return fail("Packaging chain not found.")
-
-  // The chain must belong to the item's material category — that category is
-  // what the item's quantities are counted in, so a chain from another one would
-  // describe containers of the wrong thing. The dropdown already filters on
-  // this; re-check it here because the id arrives in a form field.
-  if (chain.materialCategoryCode !== mapping.item.materialCategoryCode)
-    return fail(
-      `That chain belongs to category ${chain.materialCategoryCode}, but this item is in ${mapping.item.materialCategoryCode ?? "no category"}.`
-    )
-
-  const ratios = data.ratios
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map(Number)
-  if (ratios.length !== chain.levels.length)
-    return fail(
-      `This chain has ${chain.levels.length} level(s) (${chain.levels.map((l) => l.unitName).join(", ")}) — enter ${chain.levels.length} quantit${chain.levels.length === 1 ? "y" : "ies"}.`
-    )
-  if (ratios.some((n) => !Number.isInteger(n) || n < 1))
-    return fail("Each quantity must be a whole number of 1 or more.")
-
   try {
-    await prisma.$transaction([
-      prisma.vendorPackRatio.deleteMany({ where: { itemVendorId: id } }),
-      prisma.itemVendor.update({
-        where: { id },
-        data: {
-          packagingChainId: chainId,
-          updatedBy: user.id,
-          packRatios: {
-            create: ratios.map((perParent, i) => ({
-              level: i + 1,
-              perParent,
-              createdBy: user.id,
-              updatedBy: user.id,
-            })),
-          },
-        },
-      }),
-    ])
-    await recordAudit({
+    const result = await saveConversions(await getT(), {
+      mappingId: id,
+      chainId: data.packagingChainId,
+      ratios: data.ratios,
       userId: user.id,
-      action: AUDIT_ACTIONS.UPDATE,
-      entityType: "ItemVendor",
-      entityId: id,
-      changes: { packagingChainId: chainId, ratios },
     })
-    revalidatePath(PATH)
-    return ok("Packaging saved")
+    if (result.ok) {
+      revalidatePath(PATH)
+      revalidatePath("/vendor/items")
+    }
+    return result
   } catch (e) {
     return fail(prismaErrorMessage(e))
   }

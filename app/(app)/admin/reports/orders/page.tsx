@@ -8,6 +8,8 @@ import { allGrowerOptions, allVendorOptions } from "@/lib/admin/filter-options"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
 import { StatusBadge } from "@/components/status-badge"
+import { Badge } from "@/components/ui/badge"
+import { NotesCell } from "@/components/data-table/notes-cell"
 
 const PERIODS = [
   { label: "Last 7 days", value: "7" },
@@ -16,6 +18,7 @@ const PERIODS = [
 ]
 
 const DELIVERY_STATES = [
+  { label: "Awaiting vendor's date", value: "awaiting" },
   { label: "Overdue", value: "overdue" },
   { label: "Not yet due", value: "due" },
   { label: "Delivered late", value: "late" },
@@ -97,6 +100,12 @@ export default async function OrdersReportPage({
         </div>
       ),
     },
+    {
+      key: "legacy",
+      header: "Legacy ID",
+      className: "font-mono text-xs",
+      cell: (r) => r.legacyId ?? <span className="text-muted-foreground">—</span>,
+    },
     { key: "vendor", header: "Vendor", cell: (r) => r.vendorName },
     {
       key: "ordered",
@@ -143,8 +152,34 @@ export default async function OrdersReportPage({
     {
       key: "orderDate",
       header: "Ordered on",
-      className: "text-xs text-muted-foreground",
+      className: "text-xs text-muted-foreground whitespace-nowrap",
       cell: (r) => format(r.orderDate, "MMM d"),
+    },
+    {
+      key: "requested",
+      header: "Requested",
+      className: "text-xs text-muted-foreground whitespace-nowrap",
+      cell: (r) => (r.expectedDeliveryDate ? format(r.expectedDeliveryDate, "MMM d") : "—"),
+    },
+    {
+      key: "confirmed",
+      header: "Vendor's date",
+      className: "text-xs whitespace-nowrap",
+      cell: (r) =>
+        r.confirmedDeliveryDate ? (
+          <div>
+            <span className="font-medium">{format(r.confirmedDeliveryDate, "MMM d")}</span>
+            {r.confirmedAt && (
+              <p className="text-muted-foreground">set {format(r.confirmedAt, "MMM d")}</p>
+            )}
+          </div>
+        ) : r.awaitingVendor ? (
+          <Badge variant="outline" className="border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400">
+            Awaiting vendor
+          </Badge>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
     },
     {
       key: "delivery",
@@ -161,6 +196,7 @@ export default async function OrdersReportPage({
           ? "—"
           : `${r.actualLeadDays}d${r.slaLeadDays == null ? "" : ` vs ${r.slaLeadDays}d SLA`}`,
     },
+    { key: "notes", header: "Item notes", cell: (r) => <NotesCell notes={r.notes} /> },
   ]
 
   return (

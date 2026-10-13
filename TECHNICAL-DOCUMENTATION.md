@@ -118,7 +118,7 @@ a set of capabilities; every server-side entry point demands a capability.
 | Capability | Covers | SuperAdmin | InternalAdmin | Editor | Grower | Vendor |
 |---|---|:--:|:--:|:--:|:--:|:--:|
 | `manage_master_data` | Items, commodities, categories, sub-categories, locations, countries | ✅ | ✅ | ✅ | — | — |
-| `manage_conversions` | Packaging chains and vendor pack ratios | ✅ | ✅ | ✅ | — | — |
+| `manage_conversions` | Conversion chains (formerly "Packaging") and vendor pack ratios — vendors also maintain their own ratios | ✅ | ✅ | ✅ | — | — |
 | `manage_growers_vendors` | Grower/vendor records, item authorisations, low-inventory queue, requests, item messages | ✅ | ✅ | — | — | — |
 | `manage_users` | User onboarding, user↔grower/vendor mapping | ✅ | ✅ | — | — | — |
 | `access_settings` | Reminder schedules, thresholds, audit log, email outbox | ✅ | ✅ | — | — | — |
@@ -142,9 +142,10 @@ reviewer can read the whole permission model in under a minute.
 
 | Capability | Detail |
 |---|---|
-| **Daily inventory submission** | Enter on-hand quantities for every item the grower is authorised for, at a chosen location. Supports **Draft** (saved, does not count) and **Submit** (counts, writes the ledger, notifies, updates progress). |
-| **Low-stock flagging** | Tick an item during submission to raise a flag for internal review. Growers can also clear their own flag. |
-| **Orders** | Raise an order for an item against any of that item's mapped vendors. Multiple open orders per item are allowed. Set and revise an expected delivery date. |
+| **Daily inventory submission** | Enter on-hand quantities for every item the grower is authorised for, at a chosen location. Supports **Draft** (saved, does not count) and **Submit** (counts, writes the ledger, notifies, updates progress). Submitting with items still blank asks for confirmation ("enter 0 if you have none"). Item notes are shown under each item in the grower's language. |
+| **Low-stock flagging** | Tick an item during submission to raise a flag for internal review. Growers can also clear their own flag. **Flag history** lists every flag they raised and how it ended. |
+| **Orders** | Raise an order for an item against any of that item's mapped vendors. Multiple open orders per item are allowed. The grower gives an order date (today or earlier) and a **requested** delivery date, which cannot be earlier than the order date plus the vendor's minimum lead time. The vendor answers with a confirmed date. |
+| **My items** | Every authorised item with on-hand per location and in total, on order, last counted and notes; exportable to Excel. |
 | **Receiving** | Mark an order **Received** (optionally recording a quantity mismatch as Short / Damaged / Over) or **Cancelled**. Same-day closures stay visible for the rest of the day, then drop off. |
 | **Missing-item requests** | Ask internal staff to add an item that does not exist yet, with a commodity/category hint and free-text notes. Track the outcome. |
 | **History** | Past submissions and their line detail, filterable. |
@@ -156,6 +157,8 @@ reviewer can read the whole permission model in under a minute.
 | Capability | Detail |
 |---|---|
 | **Stock reporting** | Report quantity held per item, with an optional per-grower allocation breakdown showing how much of that stock is earmarked for whom. |
+| **Orders** | Emailed on every new order; confirm or change the delivery date (the grower is emailed). The sidebar badge counts open orders still awaiting a date. Also where the vendor sets their **minimum lead time**. |
+| **My items** | Supplied items with latest reported / allocated stock and notes; the vendor maintains their own **conversions** (chain and ratios) here. Exportable to Excel. |
 | **History** | Past reports and their allocations. |
 | **Dashboard** | Trends and totals for the vendor's own reported stock. |
 
@@ -163,8 +166,9 @@ reviewer can read the whole permission model in under a minute.
 
 | Screen | Purpose |
 |---|---|
-| **Low inventory → Flags** | Grower-raised flags awaiting review; reviewable with notes, which notifies the grower. |
+| **Low inventory → Flags** | Grower-raised flags awaiting review, with the grower's current on-hand; reviewable with notes, which notifies the grower. |
 | **Low inventory → Current** | A live computed report of every (grower, item) pair below its effective threshold — no queue, no state, always current. |
+| **Low inventory → Flag history** | Every flag ever raised: who raised and cleared it and when, on-hand then vs now, outcome and review notes. |
 | **Item requests** | Missing-item requests, moved through Open → Reviewed / Fulfilled / Rejected with review notes. |
 | **Item messages** | Author, schedule (start/end dates), target (all growers or a selected subset) and translate the notices growers see against an item. |
 
@@ -175,7 +179,13 @@ always-on badge never trains people to ignore the urgent ones.
 ### 3.4 Internal — master data
 
 Commodities · Material categories · Sub-categories · **Items** · Locations · Countries ·
-Regions · Growers · Vendors · Packaging chains.
+Regions · Growers · Vendors · Conversion chains (formerly "Packaging").
+
+A commodity can be **disabled**: its items then count as inactive everywhere
+(grower/vendor screens, pickers, current reports, server-side checks) while their
+own status is untouched, so re-enabling restores them exactly. The single rule
+lives in `lib/items/active.ts`. Items also carry an optional **legacy ID** (unique
+when filled) and **notes**, which are translated for Spanish-language users.
 
 Items are the centre of gravity. An item carries its commodity, material category,
 sub-category, country of origin, application method and status — and, editable from the
@@ -357,11 +367,11 @@ All are soft-toggled with `isActive` rather than deleted, so history remains res
 |---|---|
 | `GrowerSubmission` | One per grower **per location per day**. Carries status, submitter, review fields and comments |
 | `GrowerSubmissionDetail` | One row per item in that submission: quantity and low flag. Unique per (submission, item) |
-| `Order` | A grower's order to a vendor: quantity, expected delivery, status, closure timestamp, and — on receipt — the received quantity and a mismatch note |
+| `Order` | A grower's order to a vendor: quantity, order date, the grower's **requested** delivery date, the vendor's **confirmed** delivery date (with when/who), status, closure timestamp, and — on receipt — the received quantity and a mismatch note. Delivery is measured against the confirmed date once set |
 | `OrderPackLine` | An immutable per-level snapshot of what the order occupies, written once at creation |
 | `VendorSubmission` / `VendorSubmissionDetail` / `VendorAllocation` | A vendor's report, its lines, and the per-grower split of each line |
 | `MissingItemRequest` | Grower requests for items that do not exist yet |
-| `LowInventoryFlag` | Grower-raised shortage flags and their review outcome |
+| `LowInventoryFlag` | Grower-raised shortage flags, their review outcome, and their history: on-hand when raised, and when/who cleared it |
 
 `OrderPackLine` is stored as rows rather than JSON so BI tools can aggregate it directly,
 and so that later edits to a vendor's pack ratios never rewrite historical orders.
@@ -381,7 +391,8 @@ ledger and the submission can never disagree.
 |---|---|
 | `ItemThreshold` | Low-stock threshold per item; `growerId = NULL` is the global default, a grower row overrides it |
 | `SchedulerSetting` | Reminder cadence, global or per grower. A grower row replaces the global one wholesale — there is no field-level merge |
-| `PackagingChain` / `PackagingChainLevel` / `VendorPackRatio` | The packaging hierarchy and each vendor's ratios |
+| `PackagingChain` / `PackagingChainLevel` / `VendorPackRatio` | The conversion (packaging) hierarchy and each vendor's ratios |
+| `ItemTranslation` | Translated item text per (item, field, locale) — `notes` today; item names later are a new `field` value, not a new table |
 | `AuditLog` | Actor, action, entity, and a JSON before/after diff |
 | `NotificationLog` | The email **outbox** — see [§8](#8-notifications-and-scheduled-jobs) |
 | `PowerBiReport` | Registry of BI reports and their embed URLs |
@@ -442,6 +453,10 @@ a production image cannot expose it regardless of configuration.
 - The cookie is never trusted on its own. Every protected render re-loads the user from
   the database, so deactivating a user takes effect on their next request rather than
   when their cookie happens to expire.
+- An external user also needs their **grower or vendor to be Active**: Inactive or
+  Pending blocks sign-in at every door (email link, Entra, dev picker) and ends live
+  sessions on the next request. Derived, not copied onto the user, so re-activating
+  the partner restores access (`lib/auth/partner-access.ts`).
 
 ### 7.3 Authorisation
 
@@ -589,9 +604,9 @@ command-line script, so it can be exercised without waiting for a schedule.
 
 | Report | Shows |
 |---|---|
-| **Grower stock** | Current on-hand per grower/item/location, from the ledger |
-| **Orders** | Orders across the network, filterable by status, grower, vendor, item and date |
-| **Vendor stock** | Vendor-reported quantities with their per-grower allocations |
+| **Grower stock** | One row per grower: last submission timestamp, days since and an overdue flag (3+ days / 1 week+ / never), sortable. Expands to the grower's items: on-hand per location and total, on order, threshold, status, legacy ID, notes |
+| **Orders** | Orders across the network, filterable by status, grower, vendor, item, date and "awaiting vendor"; requested vs vendor-confirmed delivery dates |
+| **Vendor stock** | One row per vendor with the same last-submission flag, expanding to vendor-reported quantities and allocations per item |
 | **Currently low** | Every (grower, item) below its effective threshold, computed live |
 
 "Currently low" is a genuinely non-trivial query and is written as raw SQL for two
@@ -637,6 +652,11 @@ wired.
   edits it, because these notes drive real behaviour ("clear inventory") and a bad
   translation costs more than a missing one. With translation disabled, growers see the
   authored text.
+- **Item notes** follow the same rules and are shown to growers and vendors in their
+  language. One module decides what a translation becomes on save
+  (`lib/i18n/text-translation.ts`): an admin-typed translation is kept as reviewed; a
+  blank box, or a changed English source under an untouched box, is re-translated —
+  so editing the English never leaves a stale translation behind.
 
 ---
 
@@ -933,7 +953,7 @@ The user signs in immediately via a passwordless link; no password is ever issue
    and payment terms.
 2. **Mappings → Vendors** — items supplied, material categories, supply countries,
    locations served.
-3. *(Optional)* **Admin → Packaging** — pack ratios for the vendor's item mappings.
+3. *(Optional)* **Admin → Conversions** — conversion chains; vendors can set their own ratios from **My items**.
 4. **Admin → Users** — create the user with role `VendorUser`, mapped to this vendor.
 
 ### 16.4 Adding an internal user
@@ -1202,7 +1222,7 @@ referenced by every count, order and ledger row, and can never be changed afterw
 | `CountryOfOrigin` | ✅ | text | Must exist in **Countries** |
 | `ApplicationMethod` | | list | `Machine`, `Hand`, `Machine/Hand`, `N/A` |
 | `Status` | ✅ | list | `Active`, `Inactive`, `Review` |
-| `LegacyItemRef` | | text | Your own identifier from the previous system. Carried through for reconciliation; not used as a key |
+| `LegacyItemRef` | | text | Your own identifier from the previous system. Carried through for reconciliation; not used as a key, but unique when filled (duplicates are rejected) and editable later on the item form |
 | `Notes` | | text | |
 
 #### The ItemID format
@@ -1406,7 +1426,7 @@ Configured in the application, not the workbook:
 |---|---|
 | **Thresholds** | `/admin/settings/thresholds` — a quantity only, in the item's category |
 | **Reminder schedules** | `/admin/settings/schedulers` — a Global row is created by the bootstrap |
-| **Packaging chains and pack ratios** | `/admin/packaging`, then per vendor-item on `/admin/mappings/vendors` |
+| **Conversion chains and pack ratios** | `/admin/conversions`, then per vendor-item on `/admin/mappings/vendors` (or by the vendor on `/vendor/items`) |
 | **Item messages** | `/admin/item-messages` |
 
 Reference data the bootstrap creates by itself, whether or not it appears in the

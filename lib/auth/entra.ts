@@ -10,6 +10,7 @@ import { sessionSecret } from "@/lib/auth/secret"
 import { homePathForRole } from "@/lib/rbac"
 import { appUrl } from "@/lib/app-url"
 import { type RoleName } from "@/lib/constants"
+import { PARTNER_STATUS_SELECT, partnerAccessBlocked } from "@/lib/auth/partner-access"
 
 /**
  * Microsoft Entra ID (Azure AD) sign-in for INTERNAL staff.
@@ -237,9 +238,11 @@ export async function callback(req: NextRequest): Promise<NextResponse> {
   // findFirst (not findUnique): entraObjectId is enforced by a filtered unique
   // index, not a Prisma @unique, so it isn't a findUnique key — the DB still
   // guarantees at most one row per non-null oid.
-  let user = oid ? await prisma.user.findFirst({ where: { entraObjectId: oid } }) : null
+  let user = oid
+    ? await prisma.user.findFirst({ where: { entraObjectId: oid }, include: PARTNER_STATUS_SELECT })
+    : null
   if (!user && email) {
-    user = await prisma.user.findUnique({ where: { email } })
+    user = await prisma.user.findUnique({ where: { email }, include: PARTNER_STATUS_SELECT })
     if (user && oid && !user.entraObjectId) {
       await prisma.user.update({
         where: { id: user.id },
@@ -251,6 +254,8 @@ export async function callback(req: NextRequest): Promise<NextResponse> {
   // The provisioning gate: authenticating against the tenant is not the same as
   // having access. Admins decide who exists here.
   if (!user || !user.isActive) return clearTx(loginRedirect("unprovisioned"))
+  // Staff have no partner; this only bites a grower/vendor user with a tenant account.
+  if (partnerAccessBlocked(user)) return clearTx(loginRedirect("partnerdisabled"))
 
   // Store the token cache now that the user is known and accepted. Best-effort:
   // saveTokenCache swallows its own failures, because a session that works is

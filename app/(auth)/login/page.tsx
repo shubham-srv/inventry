@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db"
 import { loginAs } from "@/lib/auth/dummy"
 import { isDemoLoginEnabled } from "@/lib/auth/demo-gate"
 import { isLoginError } from "@/lib/auth/errors"
+import { partnerAccessBlocked } from "@/lib/auth/partner-access"
 import { ROLES } from "@/lib/constants"
 import { isInternal } from "@/lib/rbac"
 import { getT } from "@/lib/i18n/server"
@@ -266,6 +267,12 @@ async function DemoUserPicker() {
                           <Badge variant="secondary" className="text-[10px]">
                             {t(`common.roles.${user.role.roleName}`)}
                           </Badge>
+                          {/* Still listed so the block can be tried: loginAs refuses it. */}
+                          {partnerAccessBlocked(user) && (
+                            <Badge variant="outline" className="text-destructive text-[10px]">
+                              {t("login.accessDisabled")}
+                            </Badge>
+                          )}
                         </div>
                         <div className="truncate text-xs text-muted-foreground">
                           {context} · {user.email}

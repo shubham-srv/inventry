@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache"
 import { startOfDay } from "date-fns"
 import { z } from "zod"
 import { prisma } from "@/lib/db"
+import { ACTIVE_ITEM } from "@/lib/items/active"
+import { currentOnHand, onHandKey } from "@/lib/inventory/on-hand"
 import { requireRole, type SessionUser } from "@/lib/auth/session"
 import { ROLES, SUBMISSION_STATUS } from "@/lib/constants"
 import { ok, fail, type ActionState } from "@/lib/actions/types"
@@ -27,6 +29,8 @@ function revalidateGrower() {
   revalidatePath("/grower")
   revalidatePath("/grower/submit")
   revalidatePath("/grower/history")
+  revalidatePath("/grower/flag-history")
+  revalidatePath("/grower/items")
   revalidatePath("/grower/on-order")
   revalidatePath("/grower/requests")
   revalidateNavBadges()
@@ -82,9 +86,10 @@ export async function submitInventory(
   })
   if (!mapping) return fail(t("grower.actions.locationNotAllowed"))
 
-  // Security: only allow items this grower is authorized for.
+  // Security: only allow items this grower is authorized for, and that are
+  // live (item and its commodity both active).
   const auths = await prisma.growerItemAuthorization.findMany({
-    where: { growerId, isActive: true },
+    where: { growerId, isActive: true, item: ACTIVE_ITEM },
     select: { itemId: true },
   })
   const allowed = new Set(auths.map((a) => a.itemId))
@@ -185,6 +190,13 @@ export async function submitInventory(
     // sites, whichever site is submitted last decides the flag — the same
     // reasoning that leaves thresholds comparing against the total across
     // locations (see latestPerItem in lib/grower/data.ts).
+    //
+    // A new flag snapshots the on-hand total (all locations, counts just
+    // written included) for the flag history; clearing stamps who and when.
+    const onHand = await currentOnHand(tx, {
+      growerIds: [growerId],
+      itemIds: valid.filter((it) => it.low).map((it) => it.itemId),
+    })
     for (const it of valid) {
       const flag = await tx.lowInventoryFlag.findFirst({
         where: { growerId, itemId: it.itemId, isActive: true },
@@ -198,13 +210,14 @@ export async function submitInventory(
             submissionId: sub.id,
             reason: "Flagged during daily submission",
             isActive: true,
+            onHandAtFlag: onHand.get(onHandKey(growerId, it.itemId))?.total ?? null,
             createdBy: user.id,
           },
         })
       } else if (!it.low && flag) {
         await tx.lowInventoryFlag.update({
           where: { id: flag.id },
-          data: { isActive: false, updatedBy: user.id },
+          data: { isActive: false, clearedAt: new Date(), clearedBy: user.id, updatedBy: user.id },
         })
       }
     }
@@ -248,6 +261,7 @@ export async function toggleLowFlag(
     // Raising a flag does NOT email anyone — it surfaces in the admin
     // low-inventory review queue. The grower is emailed only once an admin
     // reviews it (see reviewLowFlag / notifyLowInventoryReviewed).
+    const onHand = await currentOnHand(prisma, { growerIds: [growerId], itemIds: [itemId] })
     await prisma.lowInventoryFlag.create({
       data: {
         growerId,
@@ -255,13 +269,14 @@ export async function toggleLowFlag(
         flaggedBy: user.id,
         reason: "Manually flagged low",
         isActive: true,
+        onHandAtFlag: onHand.get(onHandKey(growerId, itemId))?.total ?? null,
         createdBy: user.id,
       },
     })
   } else if (!active && existing) {
     await prisma.lowInventoryFlag.update({
       where: { id: existing.id },
-      data: { isActive: false, updatedBy: user.id },
+      data: { isActive: false, clearedAt: new Date(), clearedBy: user.id, updatedBy: user.id },
     })
   }
   revalidateGrower()

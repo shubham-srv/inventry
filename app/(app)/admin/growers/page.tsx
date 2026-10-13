@@ -1,5 +1,6 @@
 import { Pencil, Plus, Trash2 } from "lucide-react"
 import { prisma } from "@/lib/db"
+import { ACTIVE_ITEM } from "@/lib/items/active"
 import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { growersWhere } from "@/lib/admin/queries"
@@ -54,7 +55,7 @@ export default async function GrowersPage({
       take,
     }),
     prisma.grower.count({ where }),
-    prisma.item.findMany({ where: { status: ENTITY_STATUS.ACTIVE }, orderBy: { id: "asc" }, select: { id: true, itemName: true } }),
+    prisma.item.findMany({ where: ACTIVE_ITEM, orderBy: { id: "asc" }, select: { id: true, itemName: true } }),
     // Only grower-side sites (and shared ones) can be mapped to a grower.
     prisma.location.findMany({
       where: { locationTypeId: { in: await locationTypeIdsFor("Grower") } },

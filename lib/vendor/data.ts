@@ -1,6 +1,9 @@
 import "server-only"
 import { startOfDay, subDays } from "date-fns"
 import { prisma } from "@/lib/db"
+import { ACTIVE_ITEM } from "@/lib/items/active"
+import { loadItemTranslations, localizedItemText } from "@/lib/items/translations"
+import { getLocale } from "@/lib/i18n/server"
 
 const num = (d: unknown) => (d == null ? 0 : Number(d))
 
@@ -13,6 +16,8 @@ export type VendorSubmitRow = {
   commodityName: string | null
   /** The item's material category — also what its quantities are counted in. */
   categoryName: string | null
+  /** Admin notes for the item, in the vendor's language where translated. */
+  notes: string | null
   previousQty: number | null
   /**
    * The per-grower split from the same past report `previousQty` came from, so
@@ -28,7 +33,7 @@ export type VendorSubmitRow = {
 
 export async function getVendorSubmitData(vendorId: number) {
   const itemVendors = await prisma.itemVendor.findMany({
-    where: { vendorId, isActive: true, item: { status: "Active" } },
+    where: { vendorId, isActive: true, item: ACTIVE_ITEM },
     include: { item: { include: { commodity: true, materialCategory: true } } },
     orderBy: { itemId: "asc" },
   })
@@ -90,6 +95,7 @@ export async function getVendorSubmitData(vendorId: number) {
   }
 
   const todayDetail = new Map(todaySub?.details.map((d) => [d.itemId, d]) ?? [])
+  const itemTranslations = await loadItemTranslations(itemIds, await getLocale())
 
   const rows: VendorSubmitRow[] = itemVendors.map((iv) => {
     const detail = todayDetail.get(iv.itemId)
@@ -111,6 +117,7 @@ export async function getVendorSubmitData(vendorId: number) {
       hasImage: Boolean(iv.item.imageKey),
       commodityName: iv.item.commodity?.name ?? null,
       categoryName: iv.item.materialCategory?.name ?? null,
+      notes: localizedItemText(itemTranslations, iv.itemId, "notes", iv.item.notes),
       previousQty: prevByItem.has(iv.itemId) ? prevByItem.get(iv.itemId)! : null,
       previousAllocations,
       todayQty: detail ? num(detail.quantity) : null,
@@ -156,7 +163,7 @@ export async function getVendorDashboard(vendorId: number) {
   const weekAgo = subDays(todayStart, 7)
 
   const [itemCount, weekSubs, lastSub, recentDetails] = await Promise.all([
-    prisma.itemVendor.count({ where: { vendorId, isActive: true } }),
+    prisma.itemVendor.count({ where: { vendorId, isActive: true, item: ACTIVE_ITEM } }),
     prisma.vendorSubmission.count({ where: { vendorId, submissionDate: { gte: weekAgo } } }),
     prisma.vendorSubmission.findFirst({ where: { vendorId }, orderBy: { submissionDate: "desc" } }),
     prisma.vendorSubmissionDetail.findMany({

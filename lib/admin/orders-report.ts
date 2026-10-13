@@ -71,8 +71,17 @@ export type OrderReportRow = {
   receiptState: OrderReceiptState
   status: string
   orderDate: Date
+  legacyId: string | null
+  notes: string | null
+  /** The grower's requested delivery date. */
   expectedDeliveryDate: Date | null
+  /** The vendor's confirmed date, and when they set it. */
+  confirmedDeliveryDate: Date | null
+  confirmedAt: Date | null
+  /** Open, and the vendor has not given a date yet. */
+  awaitingVendor: boolean
   closedAt: Date | null
+  /** Measured against the vendor's date once set, else the request. */
   delivery: OrderDeliveryState
   /** Days overdue / until due / late / early, paired with `delivery`. */
   deliveryDays: number | null
@@ -98,7 +107,13 @@ type RawRow = {
   receiptNote: string | null
   status: string
   orderDate: Date
+  legacyId: string | null
+  notes: string | null
   expectedDeliveryDate: Date | null
+  confirmedDeliveryDate: Date | null
+  confirmedAt: Date | null
+  /** COALESCE(confirmed, requested): the date delivery is measured against. */
+  eta: Date | null
   closedAt: Date | null
 }
 
@@ -131,18 +146,18 @@ function deliveryState(
   today: Date
 ): { delivery: OrderDeliveryState; deliveryDays: number | null } {
   if (row.status === ORDER_STATUS.CANCELLED) return { delivery: "Cancelled", deliveryDays: null }
-  // No ETA was ever set. Unknown — emphatically not "on time".
-  if (!row.expectedDeliveryDate) return { delivery: "Unknown", deliveryDays: null }
+  // No date from either side. Unknown — emphatically not "on time".
+  if (!row.eta) return { delivery: "Unknown", deliveryDays: null }
 
   if (row.status === ORDER_STATUS.OPEN) {
-    const days = differenceInCalendarDays(row.expectedDeliveryDate, today)
+    const days = differenceInCalendarDays(row.eta, today)
     return days < 0
       ? { delivery: "Overdue", deliveryDays: -days }
       : { delivery: "Due", deliveryDays: days }
   }
   if (!row.closedAt) return { delivery: "Unknown", deliveryDays: null }
   // Signed, and the sign is kept: "3 days early" is information.
-  const days = differenceInCalendarDays(row.closedAt, row.expectedDeliveryDate)
+  const days = differenceInCalendarDays(row.closedAt, row.eta)
   return days > 0
     ? { delivery: "Late", deliveryDays: days }
     : { delivery: "OnTime", deliveryDays: days }
@@ -153,15 +168,18 @@ function deliveryFilter(delivery: string | undefined, today: Date): Prisma.Sql {
   switch (delivery) {
     case "overdue":
       // An ETA of *today* is not yet overdue.
-      return Prisma.sql`AND [status] = 'Open' AND [expectedDeliveryDate] IS NOT NULL AND [expectedDeliveryDate] < ${today}`
+      return Prisma.sql`AND [status] = 'Open' AND [eta] IS NOT NULL AND [eta] < ${today}`
     case "due":
-      return Prisma.sql`AND [status] = 'Open' AND [expectedDeliveryDate] IS NOT NULL AND [expectedDeliveryDate] >= ${today}`
+      return Prisma.sql`AND [status] = 'Open' AND [eta] IS NOT NULL AND [eta] >= ${today}`
+    // Calendar days, as deliveryState counts them — a same-day receipt is on time.
     case "late":
-      return Prisma.sql`AND [status] = 'Received' AND [expectedDeliveryDate] IS NOT NULL AND [closedAt] IS NOT NULL AND [closedAt] > [expectedDeliveryDate]`
+      return Prisma.sql`AND [status] = 'Received' AND [eta] IS NOT NULL AND [closedAt] IS NOT NULL AND CAST([closedAt] AS DATE) > CAST([eta] AS DATE)`
     case "ontime":
-      return Prisma.sql`AND [status] = 'Received' AND [expectedDeliveryDate] IS NOT NULL AND [closedAt] IS NOT NULL AND [closedAt] <= [expectedDeliveryDate]`
+      return Prisma.sql`AND [status] = 'Received' AND [eta] IS NOT NULL AND [closedAt] IS NOT NULL AND CAST([closedAt] AS DATE) <= CAST([eta] AS DATE)`
     case "noeta":
-      return Prisma.sql`AND [expectedDeliveryDate] IS NULL`
+      return Prisma.sql`AND [eta] IS NULL`
+    case "awaiting":
+      return Prisma.sql`AND [status] = 'Open' AND [confirmedDeliveryDate] IS NULL`
     default:
       return Prisma.empty
   }
@@ -204,7 +222,7 @@ export async function getOrdersReport(
     ? Prisma.sql`AND o.[orderDate] >= ${subDays(today, filters.periodDays)}`
     : Prisma.empty
   const qFilter = filters.q
-    ? Prisma.sql`AND (i.[itemName] LIKE ${"%" + filters.q + "%"} OR o.[itemId] LIKE ${"%" + filters.q + "%"} OR g.[growerName] LIKE ${"%" + filters.q + "%"} OR v.[vendorName] LIKE ${"%" + filters.q + "%"} OR CAST(o.[id] AS VARCHAR(20)) LIKE ${"%" + filters.q + "%"})`
+    ? Prisma.sql`AND (i.[itemName] LIKE ${"%" + filters.q + "%"} OR o.[itemId] LIKE ${"%" + filters.q + "%"} OR i.[legacyFamousId] LIKE ${"%" + filters.q + "%"} OR g.[growerName] LIKE ${"%" + filters.q + "%"} OR v.[vendorName] LIKE ${"%" + filters.q + "%"} OR CAST(o.[id] AS VARCHAR(20)) LIKE ${"%" + filters.q + "%"})`
     : Prisma.empty
 
   // NOTE: no `status = 'Active'` filters on grower/item/vendor. The snapshot has
@@ -219,7 +237,11 @@ export async function getOrdersReport(
         c.[name] AS [commodityName], mc.[name] AS [categoryName],
         o.[vendorId], v.[vendorName], v.[leadTimeDays],
         o.[quantity], o.[receivedQuantity], o.[receiptNote],
-        o.[status], o.[orderDate], o.[expectedDeliveryDate], o.[closedAt]
+        o.[status], o.[orderDate], o.[expectedDeliveryDate], o.[closedAt],
+        i.[legacyFamousId] AS [legacyId], i.[notes],
+        o.[confirmedDeliveryDate], o.[confirmedAt],
+        -- The vendor's date once given, else the grower's request.
+        COALESCE(o.[confirmedDeliveryDate], o.[expectedDeliveryDate]) AS [eta]
       FROM [dbo].[Order] o
       INNER JOIN [dbo].[Grower] g ON g.[id] = o.[growerId]
       INNER JOIN [dbo].[Item] i ON i.[id] = o.[itemId]
@@ -276,7 +298,12 @@ export async function getOrdersReport(
         receiptState: receiptState(r),
         status: r.status,
         orderDate: r.orderDate,
+        legacyId: r.legacyId,
+        notes: r.notes,
         expectedDeliveryDate: r.expectedDeliveryDate,
+        confirmedDeliveryDate: r.confirmedDeliveryDate,
+        confirmedAt: r.confirmedAt,
+        awaitingVendor: r.status === ORDER_STATUS.OPEN && r.confirmedDeliveryDate == null,
         closedAt: r.closedAt,
         ...deliveryState(r, today),
         actualLeadDays,

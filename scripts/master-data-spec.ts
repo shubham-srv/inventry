@@ -130,7 +130,7 @@ export const SHEETS: SheetSpec[] = [
       { key: "CountryOfOrigin", width: 20, required: true, help: "Must exist in 2-Countries" },
       { key: "ApplicationMethod", width: 20, list: APPLICATION_METHODS, help: "Optional" },
       { key: "Status", width: 14, required: true, list: ITEM_STATUSES, help: "" },
-      { key: "LegacyItemRef", width: 20, help: "Your existing identifier, carried through for reconciliation. Not used as a key." },
+      { key: "LegacyItemRef", width: 20, help: "Your existing identifier, carried through for reconciliation. Optional, but unique when filled." },
       { key: "Notes", width: 40, help: "" },
       // Appended after Notes rather than slotted beside it, for the same reason
       // 16-VendorLocations is appended: a client already filling this in should

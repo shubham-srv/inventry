@@ -5,7 +5,7 @@ import { type RoleName } from "@/lib/constants"
 import { CAPABILITIES, can, isGrower, isVendor } from "@/lib/rbac"
 
 /** Counter a nav item shows a badge for. Values are supplied by the layout. */
-export type BadgeKey = "lowInventory" | "requests" | "itemMessages"
+export type BadgeKey = "lowInventory" | "requests" | "itemMessages" | "vendorOrders"
 export type NavCounts = Partial<Record<BadgeKey, number>>
 
 export type NavItem = {
@@ -32,6 +32,8 @@ export function getNavForUser(roleName: RoleName): NavSection[] {
           { title: "nav.dashboard", href: "/grower", icon: "home" },
           { title: "nav.submitInventory", href: "/grower/submit", icon: "clipboard" },
           { title: "nav.onOrder", href: "/grower/on-order", icon: "truck" },
+          { title: "nav.myItems", href: "/grower/items", icon: "package" },
+          { title: "nav.flagHistory", href: "/grower/flag-history", icon: "flag" },
           { title: "nav.history", href: "/grower/history", icon: "history" },
           { title: "nav.requests", href: "/grower/requests", icon: "inbox" },
         ],
@@ -46,6 +48,9 @@ export function getNavForUser(roleName: RoleName): NavSection[] {
         items: [
           { title: "nav.dashboard", href: "/vendor", icon: "home" },
           { title: "nav.submitReport", href: "/vendor/submit", icon: "clipboard" },
+          // Badge: open orders still waiting for this vendor's delivery date.
+          { title: "nav.orders", href: "/vendor/orders", icon: "cart", badge: "vendorOrders", badgeTone: "action" },
+          { title: "nav.myItems", href: "/vendor/items", icon: "package" },
           { title: "nav.history", href: "/vendor/history", icon: "history" },
         ],
       },
@@ -103,7 +108,7 @@ export function getNavForUser(roleName: RoleName): NavSection[] {
   }
 
   const tools: NavItem[] = [
-    { title: "nav.packaging", href: "/admin/packaging", icon: "ruler" },
+    { title: "nav.conversions", href: "/admin/conversions", icon: "ruler" },
   ]
   // Reports is admin-only (VIEW_REPORTS). It used to sit here ungated, so an
   // Editor saw the link and got bounced by requireCapability on arrival.

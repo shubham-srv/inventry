@@ -1,5 +1,6 @@
 import { Pencil, Plus, Trash2 } from "lucide-react"
 import { prisma } from "@/lib/db"
+import { ACTIVE_ITEM } from "@/lib/items/active"
 import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { parseListParams } from "@/lib/query"
@@ -33,7 +34,7 @@ export default async function ThresholdsPage({
   const [rows, total, items, growers] = await Promise.all([
     prisma.itemThreshold.findMany({ where, include: { item: { include: { materialCategory: true } }, grower: true }, orderBy: { itemId: "asc" }, skip, take }),
     prisma.itemThreshold.count({ where }),
-    prisma.item.findMany({ where: { status: "Active" }, orderBy: { id: "asc" }, select: { id: true, itemName: true, materialCategory: { select: { name: true } } } }),
+    prisma.item.findMany({ where: ACTIVE_ITEM, orderBy: { id: "asc" }, select: { id: true, itemName: true, materialCategory: { select: { name: true } } } }),
     prisma.grower.findMany({ orderBy: { growerName: "asc" } }),
   ])
 

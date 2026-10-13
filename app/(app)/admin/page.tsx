@@ -9,6 +9,7 @@ import {
   Users,
 } from "lucide-react"
 import { prisma } from "@/lib/db"
+import { ACTIVE_ITEM } from "@/lib/items/active"
 import { requireRole } from "@/lib/auth/session"
 import { INTERNAL_ROLES, ENTITY_STATUS, REQUEST_STATUS, SUBMISSION_STATUS } from "@/lib/constants"
 import { can, CAPABILITIES } from "@/lib/rbac"
@@ -32,7 +33,7 @@ export default async function AdminDashboard() {
   ] = await Promise.all([
     prisma.grower.count({ where: { status: ENTITY_STATUS.ACTIVE } }),
     prisma.vendor.count({ where: { status: ENTITY_STATUS.ACTIVE } }),
-    prisma.item.count({ where: { status: ENTITY_STATUS.ACTIVE } }),
+    prisma.item.count({ where: ACTIVE_ITEM }),
     prisma.user.count({ where: { isActive: true } }),
     prisma.missingItemRequest.count({ where: { status: REQUEST_STATUS.OPEN } }),
     prisma.lowInventoryFlag.count({ where: { isActive: true } }),
@@ -153,8 +154,8 @@ export default async function AdminDashboard() {
               <Link href="/admin/items" className="text-primary block hover:underline">
                 Manage items →
               </Link>
-              <Link href="/admin/packaging" className="text-primary block hover:underline">
-                Packaging →
+              <Link href="/admin/conversions" className="text-primary block hover:underline">
+                Conversions →
               </Link>
               <Link href="/admin/reports" className="text-primary block hover:underline">
                 Reports →

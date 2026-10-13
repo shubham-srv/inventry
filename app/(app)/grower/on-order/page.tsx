@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db"
 import { getT } from "@/lib/i18n/server"
 import { parseListParams } from "@/lib/query"
 import { updateOrderDelivery } from "@/lib/actions/orders"
+import { toDayInput } from "@/lib/orders/dates"
 import { PageHeader } from "@/components/page-header"
 import { Pager } from "@/components/pager"
 import { Badge } from "@/components/ui/badge"
@@ -52,11 +53,14 @@ export default async function GrowerOnOrderPage({
     prisma.order.count({ where }),
   ])
 
-  const deliveryFields: Field[] = [
+  // The server also holds the date to the vendor's lead time from the order date.
+  const deliveryFields = (orderDate: Date): Field[] => [
     {
       name: "expectedDeliveryDate",
-      label: t("grower.onOrder.expectedDelivery"),
+      label: t("grower.orders.requestedDelivery"),
       type: "date",
+      required: true,
+      min: toDayInput(orderDate),
       colSpan: 2,
     },
   ]
@@ -76,7 +80,8 @@ export default async function GrowerOnOrderPage({
                 <TableHead>{t("grower.onOrder.vendor")}</TableHead>
                 <TableHead>{t("grower.onOrder.qty")}</TableHead>
                 <TableHead>{t("grower.onOrder.ordered")}</TableHead>
-                <TableHead>{t("grower.onOrder.expectedDelivery")}</TableHead>
+                <TableHead>{t("grower.onOrder.requestedDelivery")}</TableHead>
+                <TableHead>{t("grower.onOrder.confirmedDelivery")}</TableHead>
                 <TableHead>{t("grower.onOrder.status")}</TableHead>
                 <TableHead className="w-0"></TableHead>
               </TableRow>
@@ -85,7 +90,7 @@ export default async function GrowerOnOrderPage({
               {orders.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={7}
+                    colSpan={8}
                     className="h-24 text-center text-muted-foreground"
                   >
                     {t("grower.onOrder.none")}
@@ -114,6 +119,19 @@ export default async function GrowerOnOrderPage({
                       {o.expectedDeliveryDate
                         ? format(o.expectedDeliveryDate, "MMM d, yyyy")
                         : "—"}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {o.confirmedDeliveryDate ? (
+                        <span className="font-medium text-emerald-700 dark:text-emerald-400">
+                          {format(o.confirmedDeliveryDate, "MMM d, yyyy")}
+                        </span>
+                      ) : isOpen ? (
+                        <span className="text-amber-700 dark:text-amber-400">
+                          {t("grower.orders.awaitingVendor")}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {isOpen ? (
@@ -144,7 +162,7 @@ export default async function GrowerOnOrderPage({
                         <EntityFormDialog
                           title={t("grower.orders.editDeliveryTitle")}
                           description={`${o.vendor.vendorName} · ${Number(o.quantity)} ${o.item.materialCategory?.name ?? ""}`}
-                          fields={deliveryFields}
+                          fields={deliveryFields(o.orderDate)}
                           action={updateOrderDelivery}
                           submitLabel={t("common.save")}
                           values={{

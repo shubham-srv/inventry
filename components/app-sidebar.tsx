@@ -30,6 +30,8 @@ import {
   Megaphone,
   type LucideIcon,
   Tags,
+  Flag,
+  ShoppingCart,
 } from "lucide-react"
 
 import { BrandLogo } from "@/components/brand-logo"
@@ -47,6 +49,7 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar"
 
 const ICONS: Record<string, LucideIcon> = {
@@ -74,6 +77,8 @@ const ICONS: Record<string, LucideIcon> = {
   mail: Mail,
   triangleAlert: TriangleAlert,
   megaphone: Megaphone,
+  flag: Flag,
+  cart: ShoppingCart,
 }
 
 /**
@@ -122,6 +127,11 @@ export function AppSidebar({
 }) {
   const pathname = usePathname()
   const t = useT()
+  const { isMobile, setOpenMobile } = useSidebar()
+  // On phones the menu is an overlay sheet; close it once an item is picked.
+  const closeOnMobile = () => {
+    if (isMobile) setOpenMobile(false)
+  }
 
   return (
     <Sidebar>
@@ -151,7 +161,7 @@ export function AppSidebar({
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton asChild isActive={active} tooltip={t(item.title)}>
-                        <Link href={item.href}>
+                        <Link href={item.href} onClick={closeOnMobile}>
                           <NavLinkContent
                             Icon={Icon}
                             label={t(item.title)}
