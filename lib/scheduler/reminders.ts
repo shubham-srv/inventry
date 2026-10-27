@@ -2,8 +2,9 @@
 // headless, with no request or cookie context.)
 import { startOfDay, differenceInCalendarDays } from "date-fns"
 import { prisma } from "@/lib/db"
-import { notifyScheduledReminder } from "@/lib/email/notify"
-import { NOTIFICATION_TYPES, SUBMISSION_STATUS } from "@/lib/constants"
+import { notifyScheduledReminder, notifyVendorScheduledReminder } from "@/lib/email/notify"
+import { NOTIFICATION_TYPES, SCHEDULER_SCOPES, SUBMISSION_STATUS } from "@/lib/constants"
+import { ACTIVE_ITEM } from "@/lib/items/active"
 
 // Shared reminder logic. Invoked by:
 //  - the daily Container Apps job, via POST /api/cron/reminders
@@ -46,9 +47,19 @@ export type ReminderResult = {
 }
 
 export async function runReminderCheck(): Promise<ReminderResult> {
+  const growers = await remindGrowers()
+  const vendors = await remindVendors()
+  return {
+    checked: growers.checked + vendors.checked,
+    remindersCreated: growers.remindersCreated + vendors.remindersCreated,
+    messages: [...growers.messages, ...vendors.messages],
+  }
+}
+
+async function remindGrowers(): Promise<ReminderResult> {
   const [globalSetting, growerSettings, growers] = await Promise.all([
-    prisma.schedulerSetting.findFirst({ where: { scope: "Global" } }),
-    prisma.schedulerSetting.findMany({ where: { scope: "Grower" } }),
+    prisma.schedulerSetting.findFirst({ where: { scope: SCHEDULER_SCOPES.GROWER_DEFAULT } }),
+    prisma.schedulerSetting.findMany({ where: { scope: SCHEDULER_SCOPES.GROWER } }),
     prisma.grower.findMany({ where: { status: "Active" } }),
   ])
 
@@ -126,4 +137,70 @@ export async function runReminderCheck(): Promise<ReminderResult> {
   }
 
   return { checked: growers.length, remindersCreated, messages }
+}
+
+/**
+ * Same rules for vendors, simpler clock: a vendor reports once per day with no
+ * locations, so overdue = days since their last report. Vendors with no live
+ * mapped items have nothing to report and are skipped.
+ */
+async function remindVendors(): Promise<ReminderResult> {
+  const [defaultSetting, vendorSettings, vendors, lastByVendor] = await Promise.all([
+    prisma.schedulerSetting.findFirst({ where: { scope: SCHEDULER_SCOPES.VENDOR_DEFAULT } }),
+    prisma.schedulerSetting.findMany({ where: { scope: SCHEDULER_SCOPES.VENDOR } }),
+    prisma.vendor.findMany({
+      where: { status: "Active" },
+      select: {
+        id: true,
+        vendorName: true,
+        _count: { select: { itemVendors: { where: { isActive: true, item: ACTIVE_ITEM } } } },
+      },
+    }),
+    prisma.vendorSubmission.groupBy({ by: ["vendorId"], _max: { submissionDate: true } }),
+  ])
+
+  const byVendor = new Map(
+    vendorSettings.filter((s) => s.vendorId != null).map((s) => [s.vendorId!, s])
+  )
+  const lastAt = new Map(lastByVendor.map((r) => [r.vendorId, r._max.submissionDate]))
+  const today = startOfDay(new Date())
+  let remindersCreated = 0
+  const messages: string[] = []
+
+  for (const v of vendors) {
+    const setting = byVendor.get(v.id) ?? defaultSetting
+    if (!setting || !setting.isEnabled) continue
+    if (v._count.itemVendors === 0) continue
+
+    const last = lastAt.get(v.id)
+    const daysSince = last
+      ? differenceInCalendarDays(today, startOfDay(last))
+      : Number.POSITIVE_INFINITY
+    if (daysSince < cadenceDays(setting)) continue
+
+    // At most one reminder per vendor per day.
+    const already = await prisma.notificationLog.findFirst({
+      where: {
+        type: NOTIFICATION_TYPES.VENDOR_SCHEDULED_REMINDER,
+        vendorId: v.id,
+        createdAt: { gte: today },
+      },
+    })
+    if (already) continue
+
+    const overdueLabel = Number.isFinite(daysSince) ? `${daysSince} day(s)` : "a while"
+    const queued = await notifyVendorScheduledReminder({
+      vendorId: v.id,
+      daysSince: Number.isFinite(daysSince) ? daysSince : null,
+      cadenceType: setting.cadenceType,
+    })
+    if (!queued) {
+      messages.push(`${v.vendorName}: overdue ${overdueLabel}, but no contact or user email → skipped`)
+      continue
+    }
+    remindersCreated++
+    messages.push(`${v.vendorName}: overdue ${overdueLabel} → reminder queued`)
+  }
+
+  return { checked: vendors.length, remindersCreated, messages }
 }

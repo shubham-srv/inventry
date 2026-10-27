@@ -12,7 +12,7 @@ import { getT } from "@/lib/i18n/server"
 import { notifyOrderDeliveryConfirmed, notifyVendorSubmissionReceived } from "@/lib/email/notify"
 import { revalidateNavBadges } from "@/lib/actions/_shared"
 import { recordAudit } from "@/lib/audit"
-import { parseDay } from "@/lib/orders/dates"
+import { parseDay, parseLeadDays } from "@/lib/orders/dates"
 import { saveConversions } from "@/lib/packaging/save"
 
 async function requireVendor(): Promise<{ user: SessionUser; vendorId: number }> {
@@ -242,15 +242,15 @@ export async function confirmDeliveryDate(_prev: ActionState, fd: FormData): Pro
 const leadTimeSchema = z.object({ leadTimeDays: z.string().trim().optional().default("") })
 
 /**
- * The vendor's minimum lead time, in whole days. Growers cannot request
- * delivery sooner than order date + this (lib/orders/dates.ts). Blank clears it.
+ * The vendor's DEFAULT minimum lead time, in whole days. Growers cannot request
+ * delivery sooner than order date + this (lib/orders/dates.ts), unless the item
+ * has its own value (setMyItemLeadTime). Blank clears it.
  */
 export async function setLeadTime(_prev: ActionState, fd: FormData): Promise<ActionState> {
   const { user, vendorId } = await requireVendor()
   const t = await getT()
-  const raw = leadTimeSchema.parse(Object.fromEntries(fd)).leadTimeDays
-  const days = raw === "" ? null : Number(raw)
-  if (days != null && (!Number.isInteger(days) || days < 0 || days > 365)) {
+  const days = parseLeadDays(leadTimeSchema.parse(Object.fromEntries(fd)).leadTimeDays)
+  if (days === undefined) {
     const message = t("vendor.orders.actions.leadTimeInvalid")
     return fail(message, { leadTimeDays: [message] })
   }
@@ -263,9 +263,47 @@ export async function setLeadTime(_prev: ActionState, fd: FormData): Promise<Act
     changes: { leadTimeDays: days },
   })
   revalidatePath("/vendor/orders")
+  revalidatePath("/vendor/items")
   revalidatePath("/grower/submit")
   revalidatePath("/admin/vendors")
+  revalidatePath("/admin/mappings/vendors")
   return ok(t("vendor.orders.actions.leadTimeSaved"))
+}
+
+const itemLeadSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  leadTimeDays: z.string().trim().optional().default(""),
+})
+
+/** A vendor sets the lead time for one of ITS OWN items. Blank = use their default. */
+export async function setMyItemLeadTime(_prev: ActionState, fd: FormData): Promise<ActionState> {
+  const { user, vendorId } = await requireVendor()
+  const t = await getT()
+  const parsed = itemLeadSchema.safeParse(Object.fromEntries(fd))
+  if (!parsed.success) return fail(t("conversions.mappingNotFound"))
+  const mapping = await prisma.itemVendor.findUnique({
+    where: { id: parsed.data.id },
+    select: { vendorId: true, isActive: true, itemId: true },
+  })
+  if (!mapping || mapping.vendorId !== vendorId || !mapping.isActive) return fail(t("conversions.mappingNotFound"))
+
+  const days = parseLeadDays(parsed.data.leadTimeDays)
+  if (days === undefined) {
+    const message = t("vendor.orders.actions.leadTimeInvalid")
+    return fail(message, { leadTimeDays: [message] })
+  }
+  await prisma.itemVendor.update({ where: { id: parsed.data.id }, data: { leadTimeDays: days, updatedBy: user.id } })
+  await recordAudit({
+    userId: user.id,
+    action: AUDIT_ACTIONS.UPDATE,
+    entityType: "ItemVendor",
+    entityId: parsed.data.id,
+    changes: { itemId: mapping.itemId, leadTimeDays: days },
+  })
+  revalidatePath("/vendor/items")
+  revalidatePath("/grower/submit")
+  revalidatePath("/admin/mappings/vendors")
+  return ok(t("vendor.items.leadTimeSaved"))
 }
 
 const conversionsSchema = z.object({

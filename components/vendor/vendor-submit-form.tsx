@@ -7,6 +7,7 @@ import { ChevronDown, ChevronRight, CheckCircle2, History, StickyNote, Users } f
 import { submitVendorReport } from "@/lib/actions/vendor"
 import { initialActionState } from "@/lib/actions/types"
 import { ItemImage } from "@/components/item-image"
+import { ItemMessageBanner } from "@/components/item-message-banner"
 import { type VendorSubmitRow } from "@/lib/vendor/data"
 import { useT } from "@/lib/i18n/client"
 import { Card, CardContent } from "@/components/ui/card"
@@ -287,6 +288,15 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
                     </div>
                   </div>
                 </div>
+
+                {/* Admin notices for this item (retiring, increase stock, …) */}
+                {r.messages.length > 0 && (
+                  <div className="mt-3 flex flex-col gap-1.5">
+                    {r.messages.map((m) => (
+                      <ItemMessageBanner key={m.id} message={m} />
+                    ))}
+                  </div>
+                )}
 
                 {r.growers.length > 0 && (
                   <div className="mt-3 border-t pt-3">

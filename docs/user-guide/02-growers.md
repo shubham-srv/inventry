@@ -126,10 +126,14 @@ select **Add order**.
 
 | Field | Required | What to enter | Notes |
 |---|---|---|---|
-| **Vendor** | Yes | Who you are ordering from | Only vendors mapped to this item are offered, each with its minimum lead time. |
+| **Vendor** | Yes | Who you are ordering from | Only vendors mapped to this item are offered, each with its minimum lead time for this item. |
 | **Quantity** | Yes | How much to order, in the item's category | Must be greater than zero. |
 | **Order date** | Yes | When the order was placed | Today by default. Pick an earlier day for an order you placed by phone or email before entering it; future dates are not allowed. |
-| **Requested delivery date** | Yes | When you need it | No earlier than the order date plus the vendor's minimum lead time — the calendar will not offer earlier days. Change it later with **Edit requested delivery date**. |
+| **Requested delivery date** | Yes | When you need it | No earlier than the order date plus the vendor's minimum lead time for this item — the calendar will not offer earlier days. Change it later with **Edit requested delivery date**. |
+
+A vendor can set a different lead time for each item it supplies, so the earliest
+date can differ between items from the same vendor; the figure shown beside the
+vendor is the one for the item you are ordering.
 
 The vendor is emailed when you place the order and replies with the date they
 will deliver. Until then the order shows **Awaiting vendor's date**; once they

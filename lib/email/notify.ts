@@ -304,6 +304,72 @@ export async function notifyScheduledReminder(opts: {
 }
 
 /**
+ * Vendor reminder: contact email + active vendor users, one message per
+ * language (as notifyVendorOrderPlaced). Returns false when nobody has an email.
+ */
+export async function notifyVendorScheduledReminder(opts: {
+  vendorId: number
+  daysSince: number | null // null => never reported
+  cadenceType: string
+}): Promise<boolean> {
+  const vendor = await prisma.vendor.findUnique({
+    where: { id: opts.vendorId },
+    select: {
+      vendorName: true,
+      contactEmail: true,
+      preferredLocale: true,
+      users: { where: { isActive: true }, select: { email: true, preferredLocale: true } },
+    },
+  })
+  if (!vendor) return false
+
+  const byLocale = new Map<Locale, string[]>()
+  const seen = new Set<string>()
+  const add = (email: string | null, locale: string | null) => {
+    const e = email?.trim()
+    if (!e || seen.has(e.toLowerCase())) return
+    seen.add(e.toLowerCase())
+    const l = toLocale(locale)
+    byLocale.set(l, [...(byLocale.get(l) ?? []), e])
+  }
+  add(vendor.contactEmail, vendor.preferredLocale)
+  for (const u of vendor.users) add(u.email, u.preferredLocale)
+  if (byLocale.size === 0) return false
+
+  for (const [locale, recipients] of byLocale) {
+    const t = makeT(locale)
+    const overdue =
+      opts.daysSince == null
+        ? t("email.scheduledReminder.overdueUnknown")
+        : t("email.scheduledReminder.overdueDays", { days: opts.daysSince })
+    const { html, text } = await renderNotification(t, locale, {
+      preview: t("email.vendorScheduledReminder.heading"),
+      heading: t("email.vendorScheduledReminder.heading"),
+      intro: t("email.vendorScheduledReminder.intro", { vendor: vendor.vendorName, overdue }),
+      details: [
+        { label: t("email.detail.vendor"), value: vendor.vendorName },
+        { label: t("email.detail.cadence"), value: opts.cadenceType },
+      ],
+      cta: { label: t("email.vendorScheduledReminder.cta"), href: appUrl("/vendor/submit") },
+      variant: "warning",
+    })
+    for (const group of chunk(recipients, MAX_RECIPIENTS_PER_MESSAGE)) {
+      await notify({
+        type: NOTIFICATION_TYPES.VENDOR_SCHEDULED_REMINDER,
+        toEmail: group.join(","),
+        vendorId: opts.vendorId,
+        subject: t("email.vendorScheduledReminder.subject", { vendor: vendor.vendorName }),
+        body: text,
+        html,
+        relatedEntity: "SchedulerSetting",
+        priority: EMAIL_PRIORITY.BULK,
+      })
+    }
+  }
+  return true
+}
+
+/**
  * New item request: fan out to every active admin, each in their own language.
  *
  * Grouped by language rather than sent per-admin. Ten admins used to mean ten

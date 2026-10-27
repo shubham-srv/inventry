@@ -12,8 +12,8 @@ earmarked for a particular grower. Informational; not an order or a commitment.
 **Authorisation** — permission for a grower to count a particular item. A grower
 sees only the items authorised for them.
 
-**Cadence** — how often a grower is reminded to submit: daily, weekly, monthly,
-or after a set number of days without a count.
+**Cadence** — how often a grower or vendor is reminded to submit: daily,
+weekly, monthly, or after a set number of days without a count or report.
 
 **Commodity** — the crop or product family an item belongs to. Supplies the
 first two letters of the item ID.
@@ -30,7 +30,11 @@ everything in the system.
 Never changes.
 
 **Item message** — a short notice staff attach to an item, shown to growers
-while they count.
+while they count, to vendors while they report, or to both.
+
+**Lead time** — the fewest days between an order and its requested delivery. A
+vendor has a default and may set a different figure for each item it supplies;
+the item's own figure wins.
 
 **Location** — a physical site. Counts are recorded against one, and a site's
 type governs whether growers, vendors or both may use it.
@@ -117,6 +121,7 @@ optionally overridden for one grower.
 | **Submission received** | The grower's primary email | A grower submits a count |
 | **Supply report received** | The vendor's contact email | A vendor submits a report |
 | **Scheduled reminder** | The grower's primary email | Their cadence says a count is due |
+| **Supply report reminder** | The vendor's contact email and its active users | Their cadence says a report is due |
 | **Missing item request** | All administrators | A grower requests an item |
 | **Request reviewed** | The grower's primary email | Staff record an outcome, with their note |
 | **Low inventory reviewed** | The grower's primary email | Staff review a flag, with their note |
@@ -132,20 +137,43 @@ receives none of them, silently.
 
 ### I cannot sign in
 
-**"That account does not have access to this app"** — your sign-in worked; you
-have no user record. Ask an administrator to add you (§4.7).
+**"This account doesn't have access to this app"** — your Microsoft sign-in
+worked; you have no user record. Try a different Microsoft account if you have
+one, or ask an administrator to add you (§4.7).
 
 **Nothing about my account is recognised** — for internal staff, the email on
 your user record must be the same address as your Microsoft account. An
 administrator can check.
 
+**"We couldn't find an account for …"** — no user is registered with that
+address. Check the spelling; if it is right, ask an administrator to add exactly
+that address (§4.7).
+
+**"… is a company staff account"** — staff sign in with Microsoft, not by email.
+Use the **Sign in with Microsoft** button the message offers.
+
+**"The account for … has been turned off"** — your user is switched off. An
+administrator can turn it back on (§4.7).
+
+**"Your organization's access to this app is turned off"** — your grower or
+vendor is not Active. An administrator can reactivate it (§4.5), and everyone on
+it can then sign in again.
+
+**"Too many attempts"** — too many links were requested for that address, or too
+many addresses were tried from the same connection, in a short time. Wait a few
+minutes — up to 15 — and try again.
+
+**"We couldn't send the email just now"** — the email could not be handed to the
+mail system. Try again in a moment; if it keeps happening, an administrator can
+check the outbox (§4.12).
+
 **The link in my email does not work** — links last 15 minutes and work once.
 Requesting a new one cancels the previous, so always use the most recent email.
 Request another.
 
-**No email arrives** — check the spelling, then your spam folder. If neither, an
-administrator can confirm the address on file and check the outbox (§4.12) to
-see whether it was sent at all.
+**No email arrives** — check the spelling, then your Spam or Junk folder. If
+neither, an administrator can confirm the address on file and check the outbox
+(§4.12) to see whether it was sent at all.
 
 ### An item is missing from my list
 
@@ -172,11 +200,16 @@ boxes everywhere (§1.2). If a figure reads in the wrong terms, the usual cause 
 that the category was renamed at some point: renaming relabels history without
 converting it. An administrator can confirm from the audit log (§4.11).
 
-### A grower did not get their reminder
+### A grower or vendor did not get their reminder
 
 Check, in order: the grower has a primary email on file; their schedule is
 enabled; the cadence is what you expect; and the outbox for a Failed row
 (§4.12).
+
+For a vendor, check the same things against its contact email and its active
+users, and that the **All vendors** schedule has been switched on — it starts
+disabled. A vendor is also only reminded while at least one active item is
+mapped to it.
 
 ### An email never arrived
 

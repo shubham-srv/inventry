@@ -106,6 +106,11 @@ export type Field = {
    * the save re-translates instead of keeping a copy of words that changed.
    */
   translationOf?: string
+  /**
+   * Show only while each named select's value is in its list, e.g.
+   * { scope: ["Grower"] }. Hidden fields still post; the server decides.
+   */
+  showWhen?: Record<string, string[]>
 }
 
 type Props = {
@@ -352,10 +357,13 @@ export function EntityFormDialog({
             }
             const err = state.fieldErrors?.[f.name]?.[0]
             const span = f.colSpan ?? (f.type === "textarea" ? 2 : 1)
+            const shown =
+              !f.showWhen ||
+              Object.entries(f.showWhen).every(([k, vals]) => vals.includes(controlled[k] ?? ""))
             return (
               <div
                 key={f.name}
-                className={span === 2 ? "sm:col-span-2" : "sm:col-span-1"}
+                className={cn(span === 2 ? "sm:col-span-2" : "sm:col-span-1", !shown && "hidden")}
               >
                 {f.label && (
                   <Label htmlFor={f.name} className="mb-1.5">

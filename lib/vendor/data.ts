@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db"
 import { ACTIVE_ITEM } from "@/lib/items/active"
 import { loadItemTranslations, localizedItemText } from "@/lib/items/translations"
 import { getLocale } from "@/lib/i18n/server"
+import { type ItemMessageView } from "@/lib/grower/data"
 
 const num = (d: unknown) => (d == null ? 0 : Number(d))
 
@@ -29,6 +30,7 @@ export type VendorSubmitRow = {
   todayQty: number | null
   growers: VendorAllocTarget[]
   todayAllocations: Record<number, number>
+  messages: ItemMessageView[] // admin notices for vendors, under this item
 }
 
 export async function getVendorSubmitData(vendorId: number) {
@@ -40,7 +42,8 @@ export async function getVendorSubmitData(vendorId: number) {
   const itemIds = itemVendors.map((iv) => iv.itemId)
   const todayStart = startOfDay(new Date())
 
-  const [auths, todaySub, prevDetails] = await Promise.all([
+  const now = new Date()
+  const [auths, todaySub, prevDetails, itemMessages] = await Promise.all([
     prisma.growerItemAuthorization.findMany({
       where: { itemId: { in: itemIds }, isActive: true },
       include: { grower: true },
@@ -71,6 +74,21 @@ export async function getVendorSubmitData(vendorId: number) {
       // can disagree about which row is "latest".
       orderBy: [{ submission: { submissionDate: "desc" } }, { id: "desc" }],
     }),
+    // Vendor-facing item messages: everyone mapped, or this vendor picked.
+    prisma.itemMessage.findMany({
+      where: {
+        itemId: { in: itemIds },
+        isActive: true,
+        recipients: { in: ["Vendors", "Both"] },
+        AND: [
+          { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
+          { OR: [{ endsAt: null }, { endsAt: { gte: now } }] },
+        ],
+        OR: [{ audience: "All" }, { vendorTargets: { some: { vendorId } } }],
+      },
+      include: { translations: { select: { locale: true, body: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
   ])
 
   const growersByItem = new Map<string, VendorAllocTarget[]>()
@@ -95,7 +113,18 @@ export async function getVendorSubmitData(vendorId: number) {
   }
 
   const todayDetail = new Map(todaySub?.details.map((d) => [d.itemId, d]) ?? [])
-  const itemTranslations = await loadItemTranslations(itemIds, await getLocale())
+  const locale = await getLocale()
+  const itemTranslations = await loadItemTranslations(itemIds, locale)
+
+  // Note in the vendor's language where translated, else as authored.
+  const messagesByItem = new Map<string, ItemMessageView[]>()
+  for (const m of itemMessages) {
+    const localized = m.translations.find((tr) => tr.locale === locale)?.body
+    messagesByItem.set(m.itemId, [
+      ...(messagesByItem.get(m.itemId) ?? []),
+      { id: m.id, type: m.type, severity: m.severity, body: localized ?? m.body },
+    ])
+  }
 
   const rows: VendorSubmitRow[] = itemVendors.map((iv) => {
     const detail = todayDetail.get(iv.itemId)
@@ -123,6 +152,7 @@ export async function getVendorSubmitData(vendorId: number) {
       todayQty: detail ? num(detail.quantity) : null,
       growers,
       todayAllocations,
+      messages: messagesByItem.get(iv.itemId) ?? [],
     }
   })
 

@@ -33,8 +33,8 @@ type T = Awaited<ReturnType<typeof getT>>
 
 /**
  * The requested delivery date: required, and no sooner than the vendor's
- * minimum lead time after the order date (lib/orders/dates.ts — the dialog's
- * date picker applies the same limit).
+ * minimum lead time for the item after the order date (lib/orders/dates.ts —
+ * the dialog's date picker applies the same limit).
  */
 function checkRequestedDate(
   t: T,
@@ -59,6 +59,23 @@ function checkRequestedDate(
     return { error: fail(message, { expectedDeliveryDate: [message] }) }
   }
   return { date }
+}
+
+/** The vendor's lead time for this item: the item-level value, else their default. */
+async function vendorLead(
+  vendorId: number,
+  itemId: string
+): Promise<{ vendorName: string; leadTimeDays: number | null } | null> {
+  const v = await prisma.vendor.findUnique({
+    where: { id: vendorId },
+    select: {
+      vendorName: true,
+      leadTimeDays: true,
+      itemVendors: { where: { itemId }, select: { leadTimeDays: true } },
+    },
+  })
+  if (!v) return null
+  return { vendorName: v.vendorName, leadTimeDays: v.itemVendors[0]?.leadTimeDays ?? v.leadTimeDays }
 }
 
 /**
@@ -139,7 +156,7 @@ export async function createOrder(_prev: ActionState, fd: FormData): Promise<Act
       where: { id: data.itemId },
       select: { itemName: true, materialCategory: { select: { name: true } } },
     }),
-    prisma.vendor.findUnique({ where: { id: data.vendorId }, select: { vendorName: true, leadTimeDays: true } }),
+    vendorLead(data.vendorId, data.itemId),
   ])
   if (!vendor) return fail(t("grower.orders.actions.invalidVendor"))
   const categoryName = item?.materialCategory?.name ?? null
@@ -229,13 +246,12 @@ export async function updateOrderDelivery(_prev: ActionState, fd: FormData): Pro
   const t = await getT()
   const { data, error } = parseForm(deliverySchema, fd)
   if (error) return error
-  const order = await prisma.order.findUnique({
-    where: { id: data.id },
-    include: { vendor: { select: { vendorName: true, leadTimeDays: true } } },
-  })
+  const order = await prisma.order.findUnique({ where: { id: data.id } })
   if (!order || order.growerId !== growerId) return fail(t("grower.orders.actions.notFound"))
   if (order.status !== ORDER_STATUS.OPEN) return fail(t("grower.orders.actions.alreadyClosed"))
-  const requested = checkRequestedDate(t, data.expectedDeliveryDate, order.orderDate, order.vendor)
+  const vendor = await vendorLead(order.vendorId, order.itemId)
+  if (!vendor) return fail(t("grower.orders.actions.invalidVendor"))
+  const requested = checkRequestedDate(t, data.expectedDeliveryDate, order.orderDate, vendor)
   if ("error" in requested) return requested.error
   await prisma.order.update({
     where: { id: data.id },

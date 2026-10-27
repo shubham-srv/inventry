@@ -12,7 +12,7 @@ import {
 import { ok, fail } from "@/lib/actions/types"
 import { recordAudit } from "@/lib/audit"
 import { CAPABILITIES } from "@/lib/rbac"
-import { AUDIT_ACTIONS } from "@/lib/constants"
+import { AUDIT_ACTIONS, SCHEDULER_SCOPES } from "@/lib/constants"
 import { runReminderCheck } from "@/lib/scheduler/reminders"
 import { dispatchQueuedEmails } from "@/lib/email/dispatch"
 
@@ -23,20 +23,31 @@ const schedulerSchema = z.object({
   id: z.string().trim().optional().default(""),
   scope: z.string().trim().min(1),
   growerId: z.string().trim().optional().default(""),
+  vendorId: z.string().trim().optional().default(""),
   cadenceType: z.string().trim().min(1),
   thresholdDays: z.coerce.number().int().min(1).max(90),
   isEnabled: z.string().trim().optional().default("true"),
 })
 
 function schedulerData(d: z.infer<typeof schedulerSchema>) {
-  const isGrower = d.scope === "Grower"
+  const isGrower = d.scope === SCHEDULER_SCOPES.GROWER
+  const isVendor = d.scope === SCHEDULER_SCOPES.VENDOR
   return {
     scope: d.scope,
     growerId: isGrower && d.growerId ? Number(d.growerId) : null,
+    vendorId: isVendor && d.vendorId ? Number(d.vendorId) : null,
     cadenceType: d.cadenceType,
     thresholdDays: d.thresholdDays,
     isEnabled: d.isEnabled === "true",
   }
+}
+
+/** A one-grower / one-vendor schedule needs its target picked. */
+function missingTarget(p: ReturnType<typeof schedulerData>): ActionState | null {
+  if (!(Object.values(SCHEDULER_SCOPES) as string[]).includes(p.scope)) return fail("Pick a scope.", { scope: ["Required"] })
+  if (p.scope === SCHEDULER_SCOPES.GROWER && !p.growerId) return fail("Select a grower for a one-grower schedule.", { growerId: ["Required"] })
+  if (p.scope === SCHEDULER_SCOPES.VENDOR && !p.vendorId) return fail("Select a vendor for a one-vendor schedule.", { vendorId: ["Required"] })
+  return null
 }
 
 export async function createScheduler(_p: ActionState, fd: FormData): Promise<ActionState> {
@@ -44,7 +55,8 @@ export async function createScheduler(_p: ActionState, fd: FormData): Promise<Ac
   const { data, error } = parseForm(schedulerSchema, fd)
   if (error) return error
   const payload = schedulerData(data)
-  if (payload.scope === "Grower" && !payload.growerId) return fail("Select a grower for a grower-scoped schedule.", { growerId: ["Required"] })
+  const invalid = missingTarget(payload)
+  if (invalid) return invalid
   try {
     const created = await prisma.schedulerSetting.create({ data: { ...payload, createdBy: user.id, updatedBy: user.id } })
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.CREATE, entityType: "SchedulerSetting", entityId: created.id, changes: payload })
@@ -60,6 +72,8 @@ export async function updateScheduler(_p: ActionState, fd: FormData): Promise<Ac
   const { data, error } = parseForm(schedulerSchema, fd)
   if (error) return error
   const payload = schedulerData(data)
+  const invalid = missingTarget(payload)
+  if (invalid) return invalid
   try {
     await prisma.schedulerSetting.update({ where: { id: Number(data.id) }, data: { ...payload, updatedBy: user.id } })
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.UPDATE, entityType: "SchedulerSetting", entityId: data.id, changes: payload })
@@ -88,7 +102,7 @@ export async function runRemindersAction(): Promise<ActionState> {
   await recordAudit({ userId: user.id, action: "RunReminders", entityType: "SchedulerSetting", changes: result })
   revalidatePath("/admin/settings/outbox")
   revalidatePath("/admin/settings/schedulers")
-  return ok(`Checked ${result.checked} grower(s); queued ${result.remindersCreated} reminder(s).`)
+  return ok(`Checked ${result.checked} grower(s) and vendor(s); queued ${result.remindersCreated} reminder(s).`)
 }
 
 /**

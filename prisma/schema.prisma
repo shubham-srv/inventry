@@ -143,7 +143,7 @@ model Vendor {
   primaryContact   String?
   contactEmail     String?
   contactPhone     String?
-  leadTimeDays     Int? // whole days from order to delivery
+  leadTimeDays     Int? // default whole days from order to delivery; ItemVendor.leadTimeDays overrides per item
   paymentTermsDays Int? // "Net N days" — N only; non-numeric terms are not modelled
   ptAccountNumber  String?
   notes            String?
@@ -164,6 +164,8 @@ model Vendor {
   submissions        VendorSubmission[]
   orders             Order[]
   notifications      NotificationLog[]
+  schedulerSettings  SchedulerSetting[]
+  itemMessageTargets ItemMessageVendor[]
 
   @@index([countryId])
 }
@@ -484,6 +486,8 @@ model ItemVendor {
   isActive Boolean @default(true)
 
   packagingChainId Int?
+  // Item-level minimum lead time; null = use Vendor.leadTimeDays.
+  leadTimeDays     Int?
 
   createdBy Int?
   createdAt DateTime @default(now())
@@ -825,10 +829,14 @@ model ItemThreshold {
 // at most one reminder per day, enforced by the NotificationLog check in
 // runReminderCheck. A `reminderFrequency` column used to sit here and was never
 // read by anything — the admin UI offered Daily/Weekly and both behaved daily.
+//
+// Vendors mirror it: "VendorGlobal" is the all-vendors default, a "Vendor" row
+// overrides it for one vendor.
 model SchedulerSetting {
   id            Int     @id @default(autoincrement())
-  scope         String  @default("Global") // Global, Grower
+  scope         String  @default("Global") // Global (all growers), Grower, VendorGlobal (all vendors), Vendor
   growerId      Int?
+  vendorId      Int?
   cadenceType   String  @default("AfterNDays") // Daily, Weekly, Monthly, AfterNDays
   thresholdDays Int     @default(3) // days of no submission before reminders start ("AfterNDays" only)
   isEnabled     Boolean @default(true)
@@ -839,8 +847,10 @@ model SchedulerSetting {
   updatedAt DateTime @updatedAt
 
   grower Grower? @relation(fields: [growerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vendor Vendor? @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([growerId])
+  @@index([vendorId])
 }
 
 // ============================================================
@@ -1004,32 +1014,35 @@ model PowerBiReport {
 
 // ============================================================
 // GLOBAL ITEM MESSAGES
-// Admin-authored notices shown to growers under a specific item on their
-// submit view (e.g. "Retiring", "Increase stock", "Clear inventory"). Targeted
-// at all growers (audience=All) or a selected subset (audience=Selected, via
-// ItemMessageGrower). `type` is a translatable key; `body` is an optional
+// Admin-authored notices shown under a specific item on the grower and/or
+// vendor submit view (`recipients`; e.g. "Retiring", "Increase stock", "Clear
+// inventory"). Targeted at everyone mapped to the item (audience=All) or a
+// selected subset (audience=Selected, via ItemMessageGrower / ItemMessageVendor). `type` is a translatable key; `body` is an optional
 // free-text note shown as-authored. Optional startsAt/endsAt schedule visibility.
 // ============================================================
 
 model ItemMessage {
-  id       Int       @id @default(autoincrement())
-  itemId   String
-  type     String // Retiring, IncreaseStock, ClearInventory, Info (translatable)
-  body     String? // optional free-text note, shown as-authored
-  severity String    @default("info") // info, warning, critical
-  audience String    @default("All") // All, Selected
-  isActive Boolean   @default(true)
-  startsAt DateTime?
-  endsAt   DateTime?
+  id         Int       @id @default(autoincrement())
+  itemId     String
+  type       String // Retiring, IncreaseStock, ClearInventory, Info (translatable)
+  body       String? // optional free-text note, shown as-authored
+  severity   String    @default("info") // info, warning, critical
+  // Who sees it: Growers, Vendors or Both. `audience` then narrows each group.
+  recipients String    @default("Growers")
+  audience   String    @default("All") // All, Selected
+  isActive   Boolean   @default(true)
+  startsAt   DateTime?
+  endsAt     DateTime?
 
   createdBy Int?
   createdAt DateTime @default(now())
   updatedBy Int?
   updatedAt DateTime @updatedAt
 
-  item         Item                     @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  targets      ItemMessageGrower[]
-  translations ItemMessageTranslation[]
+  item          Item                     @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  targets       ItemMessageGrower[]
+  vendorTargets ItemMessageVendor[]
+  translations  ItemMessageTranslation[]
 
   @@index([itemId])
 }
@@ -1069,4 +1082,17 @@ model ItemMessageGrower {
 
   @@unique([itemMessageId, growerId])
   @@index([growerId])
+}
+
+// Vendor targets for audience=Selected, mirroring ItemMessageGrower.
+model ItemMessageVendor {
+  id            Int @id @default(autoincrement())
+  itemMessageId Int
+  vendorId      Int
+
+  message ItemMessage @relation(fields: [itemMessageId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  vendor  Vendor      @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([itemMessageId, vendorId])
+  @@index([vendorId])
 }

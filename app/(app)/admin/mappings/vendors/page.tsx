@@ -1,4 +1,4 @@
-import { Plus, Trash2, ShieldX, ShieldCheck, Package, ChevronRight } from "lucide-react"
+import { Plus, Trash2, ShieldX, ShieldCheck, Package, ChevronRight, Timer } from "lucide-react"
 import { prisma } from "@/lib/db"
 import { ACTIVE_ITEM } from "@/lib/items/active"
 import { requireCapability } from "@/lib/auth/session"
@@ -10,6 +10,7 @@ import {
   setItemVendorActive,
   deleteItemVendor,
   setItemVendorPackaging,
+  setItemVendorLeadTime,
 } from "@/lib/actions/mappings"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -25,7 +26,8 @@ type Row = {
   isActive: boolean
   itemId: string
   packagingChainId: number | null
-  vendor: { vendorName: string }
+  leadTimeDays: number | null
+  vendor: { vendorName: string; leadTimeDays: number | null }
   item: {
     itemName: string
     materialCategoryCode: string | null
@@ -177,6 +179,41 @@ export default async function VendorItemMappingsPage({
           </div>
         )
       },
+    },
+    {
+      key: "lead",
+      header: "Lead time",
+      className: "text-xs whitespace-nowrap",
+      cell: (r) => (
+        <div className="flex items-center gap-1">
+          {r.leadTimeDays != null ? (
+            <span className="font-medium tabular-nums">{r.leadTimeDays} day(s)</span>
+          ) : (
+            <span className="text-muted-foreground">
+              {r.vendor.leadTimeDays != null ? `Vendor default (${r.vendor.leadTimeDays}d)` : "None"}
+            </span>
+          )}
+          <EntityFormDialog
+            title="Item lead time"
+            description={`${r.vendor.vendorName} — ${r.itemId}`}
+            fields={[
+              {
+                name: "leadTimeDays",
+                label: "Minimum lead time (days)",
+                type: "number",
+                min: "0",
+                step: "1",
+                colSpan: 2,
+                description: `Growers can't request delivery sooner than this after ordering this item from this vendor. Leave blank to use the vendor default (${r.vendor.leadTimeDays != null ? `${r.vendor.leadTimeDays} days` : "none set"}).`,
+              },
+            ]}
+            action={setItemVendorLeadTime}
+            values={{ id: r.id, leadTimeDays: r.leadTimeDays ?? "" }}
+            submitLabel="Save lead time"
+            trigger={<Button variant="ghost" size="icon-sm" aria-label="Lead time"><Timer /></Button>}
+          />
+        </div>
+      ),
     },
     { key: "active", header: "Status", cell: (r) => <StatusBadge status={r.isActive ? "Active" : "Inactive"} /> },
     {

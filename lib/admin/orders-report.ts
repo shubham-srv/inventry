@@ -235,7 +235,9 @@ export async function getOrdersReport(
       SELECT
         o.[id], o.[growerId], g.[growerName], o.[itemId], i.[itemName],
         c.[name] AS [commodityName], mc.[name] AS [categoryName],
-        o.[vendorId], v.[vendorName], v.[leadTimeDays],
+        o.[vendorId], v.[vendorName],
+        -- Item-level lead time, else the vendor default.
+        COALESCE(iv.[leadTimeDays], v.[leadTimeDays]) AS [leadTimeDays],
         o.[quantity], o.[receivedQuantity], o.[receiptNote],
         o.[status], o.[orderDate], o.[expectedDeliveryDate], o.[closedAt],
         i.[legacyFamousId] AS [legacyId], i.[notes],
@@ -246,6 +248,7 @@ export async function getOrdersReport(
       INNER JOIN [dbo].[Grower] g ON g.[id] = o.[growerId]
       INNER JOIN [dbo].[Item] i ON i.[id] = o.[itemId]
       INNER JOIN [dbo].[Vendor] v ON v.[id] = o.[vendorId]
+      LEFT JOIN [dbo].[ItemVendor] iv ON iv.[vendorId] = o.[vendorId] AND iv.[itemId] = o.[itemId]
       LEFT JOIN [dbo].[Commodity] c ON c.[code] = i.[commodityCode]
       LEFT JOIN [dbo].[MaterialCategory] mc ON mc.[code] = i.[materialCategoryCode]
       WHERE 1 = 1

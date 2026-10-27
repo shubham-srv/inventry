@@ -24,6 +24,9 @@ export type VendorItemRow = {
   asOf: Date | null
   chain: ChainView | null
   ratios: { level: number; perParent: number }[]
+  /** Item-level lead time; null = the vendor default below applies. */
+  leadTimeDays: number | null
+  defaultLeadTimeDays: number | null
   /** Chains this item can use: those defined for its material category. */
   eligibleChains: ChainView[]
 }
@@ -46,6 +49,7 @@ export async function getVendorItems(vendorId: number, locale: string, q?: strin
     },
     include: {
       item: { include: { commodity: true, materialCategory: true } },
+      vendor: { select: { leadTimeDays: true } },
       packagingChain: { include: { levels: { orderBy: { level: "asc" } } } },
       packRatios: { orderBy: { level: "asc" } },
     },
@@ -104,6 +108,8 @@ export async function getVendorItems(vendorId: number, locale: string, q?: strin
       asOf: l?.submissionDate ?? null,
       chain: m.packagingChain ? view(m.packagingChain) : null,
       ratios: m.packRatios.map((r) => ({ level: r.level, perParent: r.perParent })),
+      leadTimeDays: m.leadTimeDays,
+      defaultLeadTimeDays: m.vendor.leadTimeDays,
       eligibleChains: chains.filter((c) => c.materialCategoryCode === m.item.materialCategoryCode).map(view),
     }
   })

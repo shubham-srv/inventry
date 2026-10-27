@@ -1,5 +1,5 @@
 import Image from "next/image"
-import { AlertCircle } from "lucide-react"
+import { AlertCircle, Building2, Info, Mail } from "lucide-react"
 import { prisma } from "@/lib/db"
 import { loginAs } from "@/lib/auth/dummy"
 import { isDemoLoginEnabled } from "@/lib/auth/demo-gate"
@@ -32,13 +32,12 @@ import { MagicLinkForm } from "@/components/auth/magic-link-form"
  * WHY BOTH ON ONE PAGE. Growers do not have accounts in the client's tenant, and
  * staff should not be emailed links they do not need. Splitting them across two
  * URLs means telling every user which one is theirs; one page with two clearly
- * labelled routes does not. The Microsoft button comes first because internal
- * staff sign in far more often.
+ * labelled routes does not. The email box comes first: growers and vendors are
+ * most of the users and the least used to sign-in screens.
  *
- * NO ACCOUNT ENUMERATION. Neither path reveals whether an address is registered:
- * `requestLink` answers the same either way, and this page never checks the
- * database for it. Do not "improve" that by validating the email against User
- * first — it would hand an attacker the customer list.
+ * The email box says why a link was not sent (unknown address, staff account…).
+ * That reveals which addresses are registered — accepted for usability, and
+ * rate limited in lib/auth/magic-link.ts.
  *
  * The demo picker below is development-only; see lib/auth/demo-gate.ts.
  */
@@ -85,6 +84,8 @@ export default async function LoginPage({
   // configuration failure where re-picking the same account is fine.
   const wrongAccount = error === "unprovisioned" || error === "noidentity"
   const signInHref = microsoftHref(wrongAccount)
+  // A dead or incomplete link: the fix is typing the email again, so start there.
+  const needsNewLink = error === "linkexpired" || error === "nolink"
 
   const demoEnabled = isDemoLoginEnabled()
 
@@ -124,44 +125,32 @@ export default async function LoginPage({
 
         <div className="w-full max-w-sm">
           {error && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertCircle />
-              <AlertTitle>{t("login.error.title")}</AlertTitle>
-              <AlertDescription>{t(`login.error.${error}`)}</AlertDescription>
+            <Alert variant={error === "sessionexpired" ? "default" : "destructive"} className="mb-4">
+              {error === "sessionexpired" ? <Info /> : <AlertCircle />}
+              <AlertTitle>
+                {error === "sessionexpired" ? t("login.error.signedOutTitle") : t("login.error.title")}
+              </AlertTitle>
+              <AlertDescription>
+                <p>{t(`login.error.${error}`)}</p>
+                {wrongAccount && (
+                  <Button asChild size="sm" variant="outline" className="mt-2">
+                    <a href={microsoftHref(true)}>{t("login.error.tryAnotherAccount")}</a>
+                  </Button>
+                )}
+              </AlertDescription>
             </Alert>
           )}
 
           <div className="space-y-5 rounded-xl border bg-card p-6 shadow-sm">
-            {/* A plain link, not a form: /api/auth/login is a GET that mints the
-                state + PKCE verifier and redirects to Entra, and a form post
-                would break the round-trip the callback validates. */}
-            <Button asChild variant="default" className="w-full">
-              <a href={signInHref}>
-                {/* Inline mark rather than an <Image>: four solid squares, no
-                    network request, and it cannot 404 in a locked-down tenant. */}
-                <svg
-                  viewBox="0 0 23 23"
-                  aria-hidden
-                  className="size-4"
-                  fill="currentColor"
-                >
-                  <path d="M0 0h11v11H0z" opacity=".9" />
-                  <path d="M12 0h11v11H12z" opacity=".7" />
-                  <path d="M0 12h11v11H0z" opacity=".7" />
-                  <path d="M12 12h11v11H12z" opacity=".5" />
-                </svg>
-                {t("login.microsoft")}
-              </a>
-            </Button>
-
-            <div className="-mt-2 text-center">
-              <a
-                href={microsoftHref(true)}
-                className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
-              >
-                {t("login.useAnotherAccount")}
-              </a>
-            </div>
+            <section aria-labelledby="partner-signin" className="space-y-3">
+              <div>
+                <h2 id="partner-signin" className="flex items-center gap-2 text-sm font-semibold">
+                  <Mail className="text-muted-foreground size-4" /> {t("login.partner.title")}
+                </h2>
+                <p className="text-muted-foreground mt-0.5 text-xs">{t("login.partner.body")}</p>
+              </div>
+              <MagicLinkForm microsoftHref={microsoftHref(false)} autoFocus={needsNewLink} />
+            </section>
 
             <div className="flex items-center gap-3">
               <span className="h-px flex-1 bg-border" />
@@ -171,7 +160,44 @@ export default async function LoginPage({
               <span className="h-px flex-1 bg-border" />
             </div>
 
-            <MagicLinkForm />
+            <section aria-labelledby="staff-signin" className="space-y-3">
+              <div>
+                <h2 id="staff-signin" className="flex items-center gap-2 text-sm font-semibold">
+                  <Building2 className="text-muted-foreground size-4" /> {t("login.staff.title")}
+                </h2>
+                <p className="text-muted-foreground mt-0.5 text-xs">{t("login.staff.body")}</p>
+              </div>
+              {/* A plain link, not a form: /api/auth/login is a GET that mints the
+                  state + PKCE verifier and redirects to Entra, and a form post
+                  would break the round-trip the callback validates. */}
+              <Button asChild variant="outline" className="w-full">
+                <a href={signInHref}>
+                  {/* Inline mark rather than an <Image>: four solid squares, no
+                      network request, and it cannot 404 in a locked-down tenant. */}
+                  <svg
+                    viewBox="0 0 23 23"
+                    aria-hidden
+                    className="size-4"
+                    fill="currentColor"
+                  >
+                    <path d="M0 0h11v11H0z" opacity=".9" />
+                    <path d="M12 0h11v11H12z" opacity=".7" />
+                    <path d="M0 12h11v11H0z" opacity=".7" />
+                    <path d="M12 12h11v11H12z" opacity=".5" />
+                  </svg>
+                  {t("login.microsoft")}
+                </a>
+              </Button>
+
+              <div className="text-center">
+                <a
+                  href={microsoftHref(true)}
+                  className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                >
+                  {t("login.useAnotherAccount")}
+                </a>
+              </div>
+            </section>
           </div>
 
           <p className="mt-6 text-center text-xs text-muted-foreground">

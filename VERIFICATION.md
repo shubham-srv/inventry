@@ -1553,10 +1553,12 @@ path is exercisable. Keep `AUTH_PROVIDER=local`. Also set
 - [ ] Click that same link again → `/login?error=linkexpired`.
 - [ ] Request a second link, then open the **first** one → also rejected (a new
       request invalidates outstanding links).
-- [ ] Enter an internal address (`admin@demo.local`) → same neutral response, and
-      **no** link in the console. Internal staff use Entra.
-- [ ] Enter an address that does not exist → identical neutral response. The two
-      cases must be indistinguishable from the browser.
+- [ ] ~~Enter an internal address (`admin@demo.local`) → same neutral response, and
+      **no** link in the console.~~ — now answers "Staff sign in with Microsoft,
+      not by email" (Round 25 §2). Still no link; internal staff use Entra.
+- [ ] ~~Enter an address that does not exist → identical neutral response. The two
+      cases must be indistinguishable from the browser.~~ — reversed on purpose:
+      it now says "We couldn't find an account for …" (Round 25 §2).
 - [ ] **Outbox** has a `MagicLink` row: subject and recipient present, body reads
       `[sign-in link — not stored]`, no preview button. The token must not be
       anywhere in the Outbox — that page is readable by every admin.
@@ -2130,7 +2132,8 @@ production).
       in, is sent to `/login` with "Your organization's access … disabled" on the
       next page load.
 - [ ] Dev picker shows that user with an **Access disabled** badge; clicking it
-      lands on the same message. Email sign-in answers neutrally and sends no link.
+      lands on the same message. Email sign-in sends no link and says the
+      organization's access is turned off (Round 25 §2).
 - [ ] Same for a vendor set **Inactive**. Set back to **Active** -> users get in
       again (their own Active flag was never touched).
 
@@ -2227,6 +2230,270 @@ production).
 - [ ] Phone width: open the sidebar, tap an item -> the menu closes.
 - [ ] New user: fill some fields, leave Role empty, submit -> error shown and the
       typed fields are **kept** (applies to every admin form).
+
+## Round 25 — Login help, item lead time, vendor reminders & messages, pagination, commodities (October 2026)
+
+**Setup.** Three additive migrations (`20261025090000`–`…0200`: item lead time,
+vendor reminders, item-message vendors), so nothing changes for existing data
+until the new fields are used: item lead times start blank, existing messages
+stay **Growers only**, vendor reminders start off. Apply with
+`npm run db:migrate:deploy` (the local `inventory_demo` already has all three,
+recorded as applied — `npx prisma migrate status` says up to date), then
+`npx prisma generate` and restart `npm run dev`. The vendor-reminders
+migration inserts the **All vendors** schedule (After 3 days, switched off); the
+seed recreates it the same way. For the email
+sign-in checks set `AUTH_PROVIDER=entra` (anything but `local`) so the demo
+picker is hidden and the page looks as a real user sees it, `EMAIL_PROVIDER=local`
+so each link is printed in the server console (a Mocked `MagicLink` row appears
+in **Outbox**), and any long random `MAGIC_LINK_SECRET`. Seeded users such as
+`james@agribar.local` can request links without the picker. The rate limits live
+in memory, so restarting `npm run dev` resets them. Microsoft sign-in itself is
+unchanged this round.
+
+### 1. Login layout
+- [ ] Signed out, `/login` is one card: **Grower or vendor?** (email box +
+      **Email me a sign-in link**) first, then an "or" divider, then **Company
+      staff?** (**Sign in with Microsoft** and a **Use a different Microsoft
+      account** link). The Microsoft button used to come first.
+- [ ] Switch to Español (top right): both section titles, the buttons and every
+      message below are translated.
+
+### 2. The email box says why no link was sent
+A red box appears under the button. None of these sends mail, prints a link or
+adds an **Outbox** row.
+- [ ] `nobody@example.com` (404 `notfound`) -> "We couldn't find an account for
+      nobody@example.com. Check the spelling, or ask your administrator to add
+      you."
+- [ ] `bob@` (also `bob`) -> "Enter your full email address, like
+      name@company.com." It appears at once, with no request in the Network tab.
+      The server agrees: `curl -s -X POST -H "Content-Type: application/json" -d '{"email":"bob@"}' http://localhost:3000/api/auth/magic/request`
+      -> 400 `{"ok":false,"error":"invalid"}`.
+- [ ] `admin@demo.local` (staff, 409 `internal`) -> "admin@demo.local is a company
+      staff account. Staff sign in with Microsoft, not by email." with a **Sign in
+      with Microsoft** button inside the message. It starts the normal Microsoft
+      flow; with no `AZURE_AD_*` set it ends at "Microsoft sign-in isn't set up on
+      this site yet" — expected locally.
+- [ ] Inactive user (403 `inactive`): Admin → Users, untick **Active** on
+      `maria@agribar.local`, request a link for her -> "The account for
+      maria@agribar.local has been turned off. Contact your administrator." Tick
+      it again afterwards.
+- [ ] Inactive organization (403 `partnerdisabled`): set grower Brigo, and
+      separately vendor LabelWorks, to **Inactive**; request a link for
+      `diago@brigo.local` / `omar@labelworks.local` -> "Your organization's access
+      to this app is turned off. Contact your administrator." (A grower set to
+      **Pending** is blocked too.) Set it back to **Active** -> the link is sent.
+- [ ] `james@agribar.local` (registered, active) -> goes through (section 4).
+
+### 3. Rate limits (best effort, in memory)
+- [ ] Request a link for `james@agribar.local` five times (**Use a different
+      email** -> **Email me a sign-in link** each time, or the `curl` above with
+      his address) -> five successes; the 6th within 15 minutes shows "Too many
+      attempts. Please wait a few minutes and try again." (429 `ratelimited`).
+- [ ] While his address is limited, `maria@agribar.local` still gets a link — the
+      limit is per address.
+- [ ] Lookups: restart `npm run dev` so earlier requests do not count, then from
+      one machine send 21 requests for different unknown addresses —
+      `for i in $(seq 1 21); do curl -s -o /dev/null -w "%{http_code} " -X POST -H "Content-Type: application/json" -d "{\"email\":\"nobody$i@example.com\"}" http://localhost:3000/api/auth/magic/request; done`
+      -> twenty `404`s, then `429`. Malformed addresses (400) do not count.
+- [ ] Restart `npm run dev` -> both counters start from zero again. They are
+      per app replica and reset on restart, so they slow guessing down rather
+      than stop it.
+
+### 4. After the link is sent
+- [ ] Request a link for `james@agribar.local`. The form becomes a green **Check
+      your inbox** panel: the address, "The link works once and expires in 15
+      minutes", and "Can't find it? Check your Spam or Junk folder…". The link is
+      in the server console.
+- [ ] **Resend link** is disabled and reads "Resend in 30s", counting down; at
+      zero it enables. Click it -> "We sent a new link. Use the newest email —
+      older links no longer work." and the countdown restarts.
+- [ ] The first link now opens `/login?error=linkexpired` (a resend invalidates
+      earlier links); the newest one lands on `/grower`.
+- [ ] **Use a different email** returns to the form with the address still in the
+      box and the cursor in it.
+- [ ] Remembered email: after a successful send, reload `/login` -> the box is
+      already filled with that address (kept in this browser's local storage). A
+      refused request (unknown address) does not replace it; a private window
+      starts empty.
+- [ ] With the address already at its limit (section 3), **Resend link** keeps the
+      panel and shows "Too many attempts…" under it rather than dropping back to
+      the form.
+- [ ] Optional, send failure: `EMAIL_PROVIDER=acs` with both
+      `ACS_CONNECTION_STRING=endpoint=https://nowhere.invalid/;accesskey=x` and an
+      `ACS_SENDER_ADDRESS` set (if either is unset, dev pretends the send worked)
+      -> after a few seconds "We couldn't send the email just now. Please try again
+      in a moment." (500 `mailfailed`) and the Outbox `MagicLink` row is
+      **Failed** with a reason.
+
+### 5. Banners at the top of `/login`
+- [ ] `/login?error=linkexpired` -> red box titled "We couldn't sign you in":
+      "That sign-in link has expired or was already used. Enter your email below
+      to get a new one." The cursor is already in the email box. `?error=nolink`
+      does the same ("That sign-in link was incomplete…").
+- [ ] `/login?error=unprovisioned` (also `noidentity`) -> "This account doesn't
+      have access to this app. If you have another work account, try that one;
+      otherwise ask your administrator to add you." plus a **Try a different
+      Microsoft account** button that forces Microsoft's account picker (the
+      authorize URL carries `prompt=select_account`). The email box is not focused.
+- [ ] `?error=config`, `entra`, `state`, `nocode`, `mailfailed` and
+      `partnerdisabled` show their plain-language text with no extra button.
+- [ ] `/login?error=sessionexpired` -> a neutral (not red) notice titled "You've
+      been signed out": "For your security you were signed out. Please sign in
+      again."
+- [ ] An unknown code (`?error=whatever`) shows no banner.
+
+### 6. Item lead time — vendor and admin screens
+Use PackRight (`sam@packright.local`) and an item it supplies.
+- [ ] Sam -> **Orders**: the card reads "Default minimum lead time: N day(s)" with
+      "Applies to every item unless that item has its own lead time on My items."
+      **Edit lead time** is titled "Default minimum lead time". Set it to 5.
+- [ ] Sam -> **My items**: new **Lead time** column (after Conversions) reads
+      "Default (5d)" in grey on every row ("None" if no default is set). Timer
+      icon on one item -> "Item lead time" dialog, "Minimum lead time for this
+      item (days)", hint "…Leave blank to use your default (5 days)." Enter 2,
+      save -> "Lead time saved." and the cell reads **2 day(s)**. Clear it -> back
+      to "Default (5d)". Out-of-range or fractional values (400, 2.5, -1) are
+      refused, by the number field or with "Enter a whole number of days between
+      0 and 365."
+- [ ] **Export** on My items has a **Lead time** column with the days in force: 2
+      for the override, 5 for the rest, blank when neither is set.
+- [ ] Per vendor, never shared: sign in as Lena (`lena@palletpool.local`). For an
+      item both vendors supply, her figure is separate from Sam's — editing one
+      leaves the other's row alone — and each vendor only ever sees and edits
+      their own items.
+- [ ] Admin → Mappings → Vendors: new **Lead time** column before Status: "2
+      day(s)" for Sam's override, "Vendor default (5d)" for the rest, "None" when
+      neither. Timer icon -> "Item lead time" dialog ("Minimum lead time (days)");
+      set 9 on another vendor's row -> "Lead time saved" and that vendor's **My
+      items** shows "9 day(s)". Blank means use the default; 400 is refused.
+- [ ] Admin → Vendors: the field is now **Default minimum lead time (days)**.
+      Changing it moves every "Vendor default (Nd)" / "Default (Nd)" cell but not
+      rows with their own figure. The vendors export header reads "Default lead
+      time (days)".
+- [ ] Audit logs show `ItemVendor` updates (with `leadTimeDays`) for both edits.
+
+### 7. Item lead time — orders and reports
+- [ ] As a grower authorised for two PackRight items, one with its own lead time
+      (2 days) and one on the default (5), open **Submit Inventory** -> item ->
+      **Add order**. The vendor list reads "PackRight (2-day lead time)" for the
+      first item and "PackRight (5-day lead time)" for the second.
+- [ ] With the order date at today, the requested-delivery calendar's earliest
+      day is today + 2 for the first item and today + 5 for the second; the hint
+      reads "PackRight needs at least 2 day(s), so the earliest is <date>."
+- [ ] Server rule: with the dialog still open, raise that item's lead time as Sam
+      or an admin in another window, then save the dialog with a date inside the
+      new minimum -> "PackRight needs at least N day(s) from the order date. The
+      earliest delivery date is …" and no order is created. **Edit requested
+      delivery date** on an open order is refused the same way.
+- [ ] Orders already placed keep their dates; only new orders and new
+      requested-date edits use the current figure.
+- [ ] Admin → Reports → Orders: on a **Received** order the **Lead time** column
+      reads "Nd vs Md SLA", M being the item-level figure if set, else the vendor
+      default. It is the current value, so editing a lead time changes the number
+      on existing orders too. The export's "Vendor SLA (days)" agrees.
+
+### 8. Vendor reminder emails
+- [ ] Settings → **Schedulers**: the subtitle reads "Reminder cadences for growers
+      and vendors who haven't submitted…". The first column is now **Reminds**;
+      existing rows read **All growers** and "Grower: <name>", and an **All
+      vendors** row (After 3 days) is **disabled**.
+- [ ] **Add schedule**: the first field is **Who it reminds** — All growers
+      (default) / One grower / All vendors (default) / One vendor. The **Grower**
+      picker shows only for One grower, the **Vendor** picker only for One vendor.
+      Saving One vendor without a vendor -> "Select a vendor for a one-vendor
+      schedule."; likewise "Select a grower for a one-grower schedule."
+- [ ] Edit **All vendors**: Enabled on, cadence **Daily**. As Sam, submit a
+      report from **Submit Report** so he is current.
+- [ ] **Run reminder check now** -> "Checked N grower(s) and vendor(s); queued M
+      reminder(s)." Outbox, **Type** = `VendorScheduledReminder`: rows for each
+      overdue vendor (one per language) and none for Sam (reported today, 0 days
+      is under Daily's 1). Subject "Reminder: submit your supply report —
+      <vendor>", To = the vendor's contact email plus every active vendor user,
+      and the **Submit report** button opens `/vendor/submit`. With
+      `EMAIL_PROVIDER=local` the rows are **Mocked**.
+- [ ] Run it again at once -> no new `VendorScheduledReminder` rows (at most one
+      per vendor per day).
+- [ ] Cadence rule: overdue means days since the last report reach Daily 1 /
+      Weekly 7 / Monthly 30 / After N days N, and never reported counts. Compare
+      the **Vendor stock** report's "N days ago" with the cadence — at or past it
+      is queued, inside it is not. (The once-a-day guard means each vendor can be
+      tested once per day.)
+- [ ] One-vendor override: add **One vendor** for LabelWorks with Enabled off ->
+      it is skipped even though **All vendors** is on. Enable it with a different
+      cadence -> it follows its own, not the default's.
+- [ ] Skipped vendor: clear a vendor's contact email and deactivate its users, run
+      the check -> not queued, and `npm run reminders` prints "<vendor>: overdue N
+      day(s), but no contact or user email → skipped" (its "Growers checked" count
+      includes vendors; a button run records the same line in the **Audit logs**
+      entry).
+- [ ] Not reminded: an **Inactive** vendor, and a vendor with no live mapped item
+      (every mapping or item inactive, or its commodities disabled).
+- [ ] Growers unaffected: the same run still queues grower reminders
+      (`ScheduledReminder`) per their schedules.
+
+### 9. Numbered pagination
+- [ ] Open a list with many pages (10 rows a page; **Audit logs** or **Outbox**
+      after some testing, or **Items** on a full database). Between **Previous**
+      and **Next** there are page numbers — first, last and the current page ±1,
+      with "…" for gaps. With 20 pages, page 1 reads `1 2 3 4 5 … 20`, page 10
+      `1 … 9 10 11 … 20`, page 20 `1 … 16 17 18 19 20`. The current page is the
+      filled button. (Gaps need 8+ pages; with fewer, every number shows.)
+- [ ] A gap never hides a single page: with 7 pages, page 1 reads
+      `1 2 3 4 5 6 7`, no "…".
+- [ ] Click a number -> that page loads, search and filters stay in the URL
+      (`?page=7&q=…`), and browser Back returns to the previous page. **Previous**
+      is disabled on page 1 and **Next** on the last.
+- [ ] The same control is on card lists (Outbox, grower and vendor **History**,
+      **On Order**) and the reports (Grower stock, Orders, Vendor stock).
+- [ ] Phone width: the numbers wrap onto a second line instead of overflowing.
+
+### 10. Item messages for vendors
+- [ ] Admin → **Item Messages** -> **Add message**: new **Show to** field (Growers
+      only [default] / Vendors only / Growers and vendors) above **Audience**
+      (Everyone (all mapped to the item) / Only selected). The toolbar has a
+      **Show to** filter. Messages from before read **Growers only**, Audience
+      "All growers".
+- [ ] Vendors only + Everyone, on an item PackRight supplies: Audience column "All
+      vendors". As Sam -> **Submit Report**: a banner under that item in the
+      grower banners' style (megaphone, coloured by severity, "Retiring — your
+      note"). A vendor not mapped to the item sees nothing; a grower authorised
+      for it does **not** see it on Submit Inventory.
+- [ ] Vendors only + Only selected: only the **Vendors** picker shows (no Growers
+      picker) and it lists just the vendors mapped to the chosen item — change the
+      item and the list changes. Save with none picked -> "Pick at least one
+      grower or vendor, or set Audience to Everyone." Pick PackRight only: Audience
+      "Vendors only: PackRight"; Sam sees it, a different mapped vendor does not.
+- [ ] Growers and vendors + Only selected: **both** pickers show. Ticking only a
+      grower is accepted and the mapped vendors do not see it; tick both kinds ->
+      both see it.
+- [ ] Growers and vendors + Everyone: Audience "All growers & vendors"; every
+      mapped grower and vendor sees it.
+- [ ] Switch **Show to** back to Growers only -> the Vendors picker hides and its
+      picks are dropped on save; Growers only behaves as before.
+- [ ] **Ends** yesterday, **Starts** tomorrow or **Active** off -> gone from the
+      vendor page.
+- [ ] Spanish: leave the Spanish note blank (with `TRANSLATION_PROVIDER=fake`,
+      `[es] …`), switch a vendor user to Español -> the banner shows the Spanish
+      type label and note, the same translation growers get. With none, the
+      English note shows.
+
+### 11. Commodities: typed disable and the items list
+- [ ] Master data → **Commodities**: power icon on an Active commodity -> "Disable
+      XX?" dialog, still naming its item count. The red **Disable** button stays
+      disabled until you type `disable` (`desactivar` in Español; case and
+      surrounding spaces are ignored). Cancel leaves it Active; typing it and
+      confirming disables it as in Round 24 §2.
+- [ ] Power icon on a disabled commodity -> **Enable**, one click, nothing to type.
+- [ ] **Items** column: the count plus a list icon (greyed out at 0). Click ->
+      "Items in XX — Name" with Item ID, Legacy ID, Name, Category, Sub-category
+      and Status. Status is each item's own: one that is Inactive on its own stays
+      Inactive in an enabled commodity. Search by ID, legacy ID or name; no match
+      -> "No items match your search."
+- [ ] **Open in Items** -> `/admin/items?commodity=XX`, showing only that
+      commodity's items.
+- [ ] On a disabled commodity the dialog says its items are hidden from growers
+      and vendors until it is enabled again.
+- [ ] The list loads fresh each time (rename an item, reopen -> new name).
 
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.

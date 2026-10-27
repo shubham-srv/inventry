@@ -1,11 +1,11 @@
 import { format } from "date-fns"
-import { ChevronRight, Download, Package } from "lucide-react"
+import { ChevronRight, Download, Package, Timer } from "lucide-react"
 import { requireRole } from "@/lib/auth/session"
 import { ROLES } from "@/lib/constants"
 import { getLocale, getT } from "@/lib/i18n/server"
 import { parseListParams } from "@/lib/query"
 import { getVendorItems, type VendorItemRow } from "@/lib/vendor/items"
-import { setMyConversions } from "@/lib/actions/vendor"
+import { setMyConversions, setMyItemLeadTime } from "@/lib/actions/vendor"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -17,8 +17,8 @@ import { ItemImage } from "@/components/item-image"
 
 /**
  * Every item this vendor supplies: what they last reported, and how they ship
- * it (their conversion chain and ratios, which they maintain here). Exportable
- * to Excel with the same numbers.
+ * it (their conversion chain and ratios, and per-item lead time, which they
+ * maintain here). Exportable to Excel with the same numbers.
  */
 export default async function VendorItemsPage({
   searchParams,
@@ -62,6 +62,21 @@ export default async function VendorItemsPage({
     },
   ]
 
+  const leadFields = (r: VendorItemRow): Field[] => [
+    {
+      name: "leadTimeDays",
+      label: t("vendor.items.leadTimeLabel"),
+      type: "number",
+      min: "0",
+      step: "1",
+      colSpan: 2,
+      description:
+        r.defaultLeadTimeDays == null
+          ? t("vendor.items.leadTimeHintNoDefault")
+          : t("vendor.items.leadTimeHint", { days: r.defaultLeadTimeDays }),
+    },
+  ]
+
   return (
     <>
       <PageHeader title={t("vendor.items.title")} description={t("vendor.items.description")}>
@@ -85,13 +100,14 @@ export default async function VendorItemsPage({
                 <TableHead className="text-right">{t("vendor.items.allocated")}</TableHead>
                 <TableHead>{t("vendor.items.lastReported")}</TableHead>
                 <TableHead>{t("vendor.items.conversions")}</TableHead>
+                <TableHead>{t("vendor.items.leadTime")}</TableHead>
                 <TableHead>{t("vendor.items.notes")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-muted-foreground h-24 text-center">
+                  <TableCell colSpan={10} className="text-muted-foreground h-24 text-center">
                     {raw.q ? t("submitList.noMatches") : t("vendor.form.noItems")}
                   </TableCell>
                 </TableRow>
@@ -155,6 +171,34 @@ export default async function VendorItemsPage({
                           trigger={
                             <Button variant="ghost" size="icon-sm" aria-label={t("vendor.items.editTitle")}>
                               <Package />
+                            </Button>
+                          }
+                        />
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs whitespace-nowrap">
+                      <div className="flex items-center gap-1">
+                        {r.leadTimeDays != null ? (
+                          <span className="font-medium tabular-nums">
+                            {t("vendor.items.leadTimeDays", { days: r.leadTimeDays })}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">
+                            {r.defaultLeadTimeDays == null
+                              ? t("vendor.items.leadTimeNone")
+                              : t("vendor.items.leadTimeDefault", { days: r.defaultLeadTimeDays })}
+                          </span>
+                        )}
+                        <EntityFormDialog
+                          title={t("vendor.items.leadTimeTitle")}
+                          description={`${r.itemName} · ${r.itemId}`}
+                          fields={leadFields(r)}
+                          action={setMyItemLeadTime}
+                          values={{ id: r.mappingId, leadTimeDays: r.leadTimeDays ?? "" }}
+                          submitLabel={t("common.save")}
+                          trigger={
+                            <Button variant="ghost" size="icon-sm" aria-label={t("vendor.items.leadTimeTitle")}>
+                              <Timer />
                             </Button>
                           }
                         />

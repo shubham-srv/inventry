@@ -255,6 +255,7 @@ export async function getGrowerSubmitData(growerId: number, locationId: number) 
         where: {
           itemId: { in: itemIds },
           isActive: true,
+          recipients: { in: ["Growers", "Both"] },
           AND: [
             { OR: [{ startsAt: null }, { startsAt: { lte: new Date() } }] },
             { OR: [{ endsAt: null }, { endsAt: { gte: new Date() } }] },
@@ -311,7 +312,8 @@ export async function getGrowerSubmitData(growerId: number, locationId: number) 
   const vendorsByItem = new Map<string, VendorOption[]>()
   for (const iv of itemVendors) {
     const list = vendorsByItem.get(iv.itemId) ?? []
-    list.push({ id: iv.vendorId, name: iv.vendor.vendorName, leadTimeDays: iv.vendor.leadTimeDays })
+    // Item-level lead time wins over the vendor's default.
+    list.push({ id: iv.vendorId, name: iv.vendor.vendorName, leadTimeDays: iv.leadTimeDays ?? iv.vendor.leadTimeDays })
     vendorsByItem.set(iv.itemId, list)
   }
   const allVendorOptions = activeVendors.map((v) => ({ id: v.id, name: v.vendorName, leadTimeDays: v.leadTimeDays }))

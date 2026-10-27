@@ -30,28 +30,37 @@ wrong.
 ## Signing in
 
 There are two ways in, and which one you use depends on who you are. You do not
-choose — the one that applies to you is the one that will work.
+choose — the one that applies to you is the one that will work. The sign-in
+screen is one card with two sections: **Grower or vendor?** at the top and,
+below an *or*, **Company staff?**
 
 ### Staff of the company running the system
 
 Select **Sign in with Microsoft** and use your normal work account. There is no
-separate password for this system.
+separate password for this system. If you have more than one Microsoft account,
+**Use a different Microsoft account** lets you choose which one.
 
-If you see *"That account does not have access to this app"*, your sign-in
-worked but nobody has given you access yet. Ask your administrator to add you.
+If you see *"This account doesn't have access to this app"*, your sign-in worked
+but nobody has given you access yet. Select **Try a different Microsoft
+account** if you have another work account; otherwise ask your administrator to
+add you.
 
 ### Growers and vendors
 
 Enter your email address and select **Email me a sign-in link**. A message
-arrives with a link that signs you in when you select it.
+arrives with a link that signs you in when you select it. The address is
+remembered on that computer and filled in next time.
 
-- The link lasts **15 minutes** and works **once**. Request another whenever you
-  need one; asking for a new link cancels the previous one.
+- The link lasts **15 minutes** and works **once**. Select **Resend link**
+  (available after 30 seconds) whenever you need another; asking for a new link
+  cancels the previous one.
 - Use the most recent email. An older link will no longer work.
-- The screen says a link is on its way whether or not the address is registered.
-  This is deliberate — it stops outsiders discovering who has an account. If
-  nothing arrives, check the spelling, then check your spam folder, then ask
-  your contact whether the address on file is the one you typed.
+- If nothing arrives, check your Spam or Junk folder — it can take a minute —
+  then the spelling, then ask your contact whether the address on file is the
+  one you typed.
+- If a link cannot be sent, the screen says why: the address is not registered,
+  it belongs to company staff (who use the Microsoft button instead), or your
+  account or organisation has been turned off. §5.4 lists each message.
 
 You stay signed in for about a week, and that resets each time you use the
 system, so regular users are rarely asked again. On a shared computer, use

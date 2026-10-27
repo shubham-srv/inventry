@@ -29,6 +29,7 @@ export function ConfirmButton({
   action,
   variant = "destructive",
   typeToConfirm = false,
+  confirmWord = "delete",
 }: {
   trigger: React.ReactNode
   title: string
@@ -37,11 +38,13 @@ export function ConfirmButton({
   action: () => Promise<ActionState>
   variant?: Variant
   /**
-   * Require the word "delete" to be typed before the confirm button enables.
-   * Used for every irreversible delete; plain confirms (cancel an order, revoke
-   * an authorization) keep the single-click flow.
+   * Require a word (see confirmWord) to be typed before the confirm button
+   * enables. Used for every irreversible delete; plain confirms (cancel an
+   * order, revoke an authorization) keep the single-click flow.
    */
   typeToConfirm?: boolean
+  /** The word typeToConfirm asks for, localized. */
+  confirmWord?: "delete" | "disable"
 }) {
   const t = useT()
   const [open, setOpen] = useState(false)
@@ -50,7 +53,7 @@ export function ConfirmButton({
   const router = useRouter()
 
   // The word is localized, so a Spanish user types "eliminar", not "delete".
-  const word = t("common.deleteWord")
+  const word = t(confirmWord === "disable" ? "common.disableWord" : "common.deleteWord")
   const armed = !typeToConfirm || typed.trim().toLowerCase() === word.toLowerCase()
 
   function onOpenChange(next: boolean) {

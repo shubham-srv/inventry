@@ -16,7 +16,7 @@ async function main() {
   const result = await runReminderCheck()
 
   console.log("Reminder check complete.")
-  console.log(`  Growers checked:   ${result.checked}`)
+  console.log(`  Growers + vendors checked: ${result.checked}`)
   console.log(`  Reminders created: ${result.remindersCreated}`)
   for (const m of result.messages) console.log(`   - ${m}`)
 

@@ -10,6 +10,9 @@ import {
   ITEM_MESSAGE_TYPES,
   ITEM_MESSAGE_TYPE_LABELS,
   ITEM_MESSAGE_SEVERITIES,
+  ITEM_MESSAGE_RECIPIENTS,
+  ITEM_MESSAGE_RECIPIENT_LABELS,
+  type ItemMessageRecipients,
 } from "@/lib/constants"
 import { createItemMessage, updateItemMessage, deleteItemMessage } from "@/lib/actions/item-messages"
 import { PageHeader } from "@/components/page-header"
@@ -26,12 +29,14 @@ type Row = {
   type: string
   body: string | null
   severity: string
+  recipients: string
   audience: string
   isActive: boolean
   startsAt: Date | null
   endsAt: Date | null
   item: { itemName: string }
   targets: { growerId: number }[]
+  vendorTargets: { vendorId: number }[]
   translations: { locale: string; body: string; isMachine: boolean }[]
 }
 
@@ -55,16 +60,18 @@ export default async function AdminItemMessagesPage({
   const and: Prisma.ItemMessageWhereInput[] = []
   if (raw.q) and.push({ OR: [{ item: { itemName: { contains: raw.q } } }, { body: { contains: raw.q } }] })
   if (raw.type) and.push({ type: raw.type })
+  if (raw.recipients) and.push({ recipients: raw.recipients })
   if (raw.state === "active") and.push({ isActive: true })
   else if (raw.state === "disabled") and.push({ isActive: false })
   const where: Prisma.ItemMessageWhereInput = and.length ? { AND: and } : {}
 
-  const [rows, total, items, growers, auths] = await Promise.all([
+  const [rows, total, items, growers, auths, vendors, itemVendors] = await Promise.all([
     prisma.itemMessage.findMany({
       where,
       include: {
         item: true,
         targets: { select: { growerId: true } },
+        vendorTargets: { select: { vendorId: true } },
         translations: { select: { locale: true, body: true, isMachine: true } },
       },
       orderBy: { createdAt: "desc" },
@@ -83,19 +90,30 @@ export default async function AdminItemMessagesPage({
       select: { itemId: true, growerId: true },
       orderBy: { grower: { growerName: "asc" } },
     }),
+    prisma.vendor.findMany({ orderBy: { vendorName: "asc" }, select: { id: true, vendorName: true } }),
+    // Same idea for vendors: only those mapped to the item can see it.
+    prisma.itemVendor.findMany({
+      where: { isActive: true },
+      select: { itemId: true, vendorId: true },
+      orderBy: { vendor: { vendorName: "asc" } },
+    }),
   ])
 
   const growerName = new Map(growers.map((g) => [g.id, g.growerName]))
+  const vendorName = new Map(vendors.map((v) => [v.id, v.vendorName]))
+  const recipientLabel = (r: string) => ITEM_MESSAGE_RECIPIENT_LABELS[r as ItemMessageRecipients] ?? r
 
   const fields: Field[] = [
     { name: "itemId", label: "Item", type: "select", required: true, colSpan: 2, placeholder: "Select item", options: items.map((i) => ({ label: `${i.id} — ${i.itemName}`, value: i.id })) },
     { name: "type", label: "Type", type: "select", required: true, options: ITEM_MESSAGE_TYPES.map((t) => ({ label: ITEM_MESSAGE_TYPE_LABELS[t], value: t })) },
     { name: "severity", label: "Severity", type: "select", required: true, options: ITEM_MESSAGE_SEVERITIES.map((s) => ({ label: cap(s), value: s })) },
-    { name: "audience", label: "Audience", type: "select", required: true, options: [{ label: "All growers", value: "All" }, { label: "Selected growers", value: "Selected" }] },
+    { name: "recipients", label: "Show to", type: "select", required: true, options: ITEM_MESSAGE_RECIPIENTS.map((r) => ({ label: recipientLabel(r), value: r })) },
+    { name: "audience", label: "Audience", type: "select", required: true, options: [{ label: "Everyone (all mapped to the item)", value: "All" }, { label: "Only selected", value: "Selected" }] },
     {
       name: "growerIds",
-      label: "Growers (when audience = Selected)",
+      label: "Growers",
       type: "multiselect",
+      showWhen: { audience: ["Selected"], recipients: ["Growers", "Both"] },
       colSpan: 2,
       placeholder: "Select growers",
       // One option per (item, grower) authorization; the dialog filters by the
@@ -109,7 +127,22 @@ export default async function AdminItemMessagesPage({
       description:
         "Only growers authorized for the selected item. Others would never see the message.",
     },
-    { name: "body", label: "Note (optional — shown to growers as typed)", type: "textarea", colSpan: 2 },
+    {
+      name: "vendorIds",
+      label: "Vendors",
+      type: "multiselect",
+      showWhen: { audience: ["Selected"], recipients: ["Vendors", "Both"] },
+      colSpan: 2,
+      placeholder: "Select vendors",
+      dependsOn: "itemId",
+      options: itemVendors.map((m) => ({
+        label: vendorName.get(m.vendorId) ?? String(m.vendorId),
+        value: String(m.vendorId),
+        parent: m.itemId,
+      })),
+      description: "Only vendors mapped to the selected item. Others would never see the message.",
+    },
+    { name: "body", label: "Note (optional — shown as typed)", type: "textarea", colSpan: 2 },
     {
       name: "bodyEs",
       label: "Spanish note",
@@ -117,7 +150,7 @@ export default async function AdminItemMessagesPage({
       colSpan: 2,
       translationOf: "body",
       description:
-        "Leave blank to machine-translate the note on save; changing the English note re-translates it. Anything typed here is used as-is and marked reviewed. Spanish-preference growers see this instead of the English note.",
+        "Leave blank to machine-translate the note on save; changing the English note re-translates it. Anything typed here is used as-is and marked reviewed. Spanish-language growers and vendors see this instead of the English note.",
     },
     { name: "startsAt", label: "Starts (optional)", type: "date" },
     { name: "endsAt", label: "Ends (optional)", type: "date" },
@@ -173,10 +206,19 @@ export default async function AdminItemMessagesPage({
       key: "audience",
       header: "Audience",
       className: "text-xs",
-      cell: (r) =>
-        r.audience === "All"
-          ? "All growers"
-          : r.targets.map((t) => growerName.get(t.growerId) ?? t.growerId).join(", ") || "— none —",
+      cell: (r) => {
+        if (r.audience === "All")
+          return r.recipients === "Vendors" ? "All vendors" : r.recipients === "Both" ? "All growers & vendors" : "All growers"
+        const names = [
+          ...r.targets.map((t) => growerName.get(t.growerId) ?? String(t.growerId)),
+          ...r.vendorTargets.map((t) => vendorName.get(t.vendorId) ?? String(t.vendorId)),
+        ]
+        return (
+          <div>
+            <span className="text-muted-foreground">{recipientLabel(r.recipients)}:</span> {names.join(", ") || "— none —"}
+          </div>
+        )
+      },
     },
     {
       key: "window",
@@ -214,10 +256,12 @@ export default async function AdminItemMessagesPage({
               itemId: r.itemId,
               type: r.type,
               severity: r.severity,
+              recipients: r.recipients,
               audience: r.audience,
               body: r.body ?? "",
               bodyEs: r.translations.find((t) => t.locale === "es")?.body ?? "",
               growerIds: r.targets.map((t) => String(t.growerId)).join(","),
+              vendorIds: r.vendorTargets.map((t) => String(t.vendorId)).join(","),
               startsAt: toDateInput(r.startsAt),
               endsAt: toDateInput(r.endsAt),
               isActive: String(r.isActive),
@@ -239,12 +283,13 @@ export default async function AdminItemMessagesPage({
 
   return (
     <>
-      <PageHeader title="Item messages" description="Notices shown to growers under a specific item — for all growers or a selected subset." />
+      <PageHeader title="Item messages" description="Notices shown under a specific item to growers, vendors or both — everyone mapped to the item, or a selected few." />
       <div className="space-y-4">
         <DataTableToolbar
           searchPlaceholder="Search item or note…"
           filters={[
             { key: "type", label: "Type", options: ITEM_MESSAGE_TYPES.map((t) => ({ label: ITEM_MESSAGE_TYPE_LABELS[t], value: t })) },
+            { key: "recipients", label: "Show to", options: ITEM_MESSAGE_RECIPIENTS.map((r) => ({ label: recipientLabel(r), value: r })) },
             { key: "state", label: "State", options: [{ label: "Active", value: "active" }, { label: "Disabled", value: "disabled" }] },
           ]}
         >
@@ -252,7 +297,7 @@ export default async function AdminItemMessagesPage({
             title="New item message"
             fields={fields}
             action={createItemMessage}
-            values={{ type: "Info", severity: "info", audience: "All", isActive: "true", itemId: "", growerIds: "", body: "", bodyEs: "", startsAt: "", endsAt: "" }}
+            values={{ type: "Info", severity: "info", recipients: "Growers", audience: "All", isActive: "true", itemId: "", growerIds: "", vendorIds: "", body: "", bodyEs: "", startsAt: "", endsAt: "" }}
             submitLabel="Create"
             trigger={<Button size="sm"><Plus className="size-4" /> Add message</Button>}
           />

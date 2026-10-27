@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
         { header: t("vendor.items.allocated"), key: "allocated", width: 12 },
         { header: t("vendor.items.lastReported"), key: "asOf", width: 14 },
         { header: t("vendor.items.conversions"), key: "conversions", width: 32 },
+        { header: t("vendor.items.leadTime"), key: "lead", width: 14 },
         { header: t("vendor.items.notes"), key: "notes", width: 40 },
       ],
       rows: rows.map((r) => {
@@ -46,6 +47,8 @@ export async function GET(request: NextRequest) {
           conversions: r.chain
             ? [r.categoryName ?? "", ...r.chain.levels.map((l) => `×${per.get(l.level) ?? "?"} → ${l.unitName}`)].join(" ")
             : "",
+          // Effective days: the item value, else the vendor default.
+          lead: r.leadTimeDays ?? r.defaultLeadTimeDays ?? "",
           notes: r.notes ?? "",
         }
       }),

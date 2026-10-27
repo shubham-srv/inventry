@@ -125,9 +125,9 @@ Two side channels run alongside it:
   exist in the system yet, they ask for it rather than improvising against a
   similar item. Staff add it, or explain why not.
 - **Item messages.** Staff attach a short notice to an item — *Retiring*,
-  *Increase stock*, *Clear inventory* or a general *Notice* — and the growers it
-  is aimed at see it while counting. Messages can be scheduled to appear and
-  expire on set dates.
+  *Increase stock*, *Clear inventory* or a general *Notice* — and the growers or
+  vendors it is aimed at see it while counting or reporting. Messages can be
+  scheduled to appear and expire on set dates.
 
 ---
 

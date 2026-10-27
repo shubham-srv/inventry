@@ -1,8 +1,8 @@
 # Part 3 — For vendors
 
 How to report the stock you are holding, answer orders with a delivery date, and
-keep your item conversions up to date. Read Part 1 first if you have not — in
-particular §1.2, which explains what the quantities are counted in.
+keep your item conversions and lead times up to date. Read Part 1 first if you
+have not — in particular §1.2, which explains what the quantities are counted in.
 
 ---
 
@@ -41,6 +41,15 @@ means you hold none of it**.
 > **There is no draft.** Unlike the grower count, a supply report is submitted in
 > one go. Finish the figures before you start, or submit again afterwards — a
 > later report supersedes an earlier one.
+
+### Notices on an item
+
+Staff can attach a short notice to an item and aim it at vendors: *Retiring*,
+*Increase stock*, *Clear inventory* or a general *Notice*, often with a note in
+your language. It appears under the item while you report. You only see notices
+meant for vendors — and, where staff chose particular vendors, only those that
+include you. Notices can start and stop on set dates, so one disappearing is
+normal and does not mean anything is wrong.
 
 ### Field reference — the report form
 
@@ -101,19 +110,21 @@ delivery against your date from then on.
 |---|---|---|---|
 | **Delivery date** | Yes | The day you will deliver | Not before the order date. The grower's requested date is shown for reference. |
 
-### Minimum lead time
+### Default minimum lead time
 
-At the top of **Orders**, **Edit lead time** sets the fewest days you need
-between an order and its delivery. Growers cannot request delivery sooner than
-that. Leave it blank for no minimum.
+At the top of **Orders**, **Edit lead time** sets your **default minimum lead
+time**: the fewest days you need between an order and its delivery. Growers
+cannot request delivery sooner than that for any item that does not have its own
+lead time (§3.6). Leave it blank for no default minimum.
 
 ---
 
 ## 3.6 My items and your conversions
 
 **My items** lists everything you supply: your latest reported quantity, how much
-of it is allocated, when you last reported it, and the office's notes about the
-item. **Export** downloads the same list as an Excel file.
+of it is allocated, when you last reported it, the lead time that applies, and
+the office's notes about the item. **Export** downloads the same list as an Excel
+file.
 
 The **Conversions** column shows how you ship each item — for example
 *Bags ×10 → Boxes ×5 → Cases*. Use the box icon to change it:
@@ -125,3 +136,37 @@ The **Conversions** column shows how you ship each item — for example
 
 Conversions only describe what an order occupies on the way. They never change
 how much is ordered or received.
+
+### Lead time per item
+
+The **Lead time** column shows the minimum lead time growers must allow when
+ordering that item from you: *N day(s)* when you have set one for the item,
+*Default (Nd)* when your default from **Orders** applies, or *None* when neither
+is set. Use the timer icon to set or clear it:
+
+| Field | Required | What to enter | Notes |
+|---|---|---|---|
+| **Minimum lead time for this item (days)** | No | The fewest days you need between an order for this item and its delivery | A whole number from 0 to 365. Leave blank to use your default. |
+
+Growers cannot request a delivery date sooner than the order date plus this
+figure. It applies to new orders and to any change a grower makes to a requested
+date; dates you have already confirmed are not touched. It is yours alone —
+another vendor of the same item keeps their own figure. The office also compares
+how long each order took with this figure, as it stands today. The Excel export
+includes the figure that applies to each item.
+
+---
+
+## 3.7 Reminders
+
+The system may email you a reminder to submit your supply report, on a rhythm
+your administrator sets — daily, weekly, monthly, or after a set number of days
+without a report. Reminders are optional: until your administrator switches them
+on for vendors, you will not receive any.
+
+A reminder goes to your organisation's contact email, in the language set on the
+vendor record, and to every active user on that record, in their own language.
+It has a button that opens the report form. You are only reminded while at least
+one active item is mapped to you, and at most once a day. To change how often
+reminders arrive, ask your administrator. If they are not arriving at all, see
+§5.4.

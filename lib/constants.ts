@@ -49,6 +49,14 @@ export const ORDER_STATUS = {
 export const ORDER_STATUSES = Object.values(ORDER_STATUS)
 
 export const CADENCE_TYPES = ["Daily", "Weekly", "Monthly", "AfterNDays"] as const
+
+// SchedulerSetting.scope. "Global" predates vendor reminders and means all growers.
+export const SCHEDULER_SCOPES = {
+  GROWER_DEFAULT: "Global",
+  GROWER: "Grower",
+  VENDOR_DEFAULT: "VendorGlobal",
+  VENDOR: "Vendor",
+} as const
 export type CadenceType = (typeof CADENCE_TYPES)[number]
 
 export const NOTIFICATION_TYPES = {
@@ -58,6 +66,7 @@ export const NOTIFICATION_TYPES = {
   LOW_INVENTORY: "LowInventory",
   LOW_INVENTORY_REVIEWED: "LowInventoryReviewed",
   SCHEDULED_REMINDER: "ScheduledReminder",
+  VENDOR_SCHEDULED_REMINDER: "VendorScheduledReminder",
   ORDER_PLACED: "OrderPlaced",
   VENDOR_ORDER_PLACED: "VendorOrderPlaced", // to the vendor: a new order needs a date
   ORDER_DELIVERY_CONFIRMED: "OrderDeliveryConfirmed", // to the grower: vendor set/changed it
@@ -164,7 +173,7 @@ export const COUNTRIES_OF_ORIGIN = [
 // second, separately-chosen unit could only ever disagree with it. See the
 // MaterialCategory model in prisma/schema.prisma.
 
-// Global item messages shown to growers under an item on their submit view.
+// Global item messages shown to growers and/or vendors under an item on their submit view.
 export const ITEM_MESSAGE_TYPES = [
   "Retiring",
   "IncreaseStock",
@@ -175,6 +184,14 @@ export type ItemMessageType = (typeof ITEM_MESSAGE_TYPES)[number]
 
 export const ITEM_MESSAGE_SEVERITIES = ["info", "warning", "critical"] as const
 export const ITEM_MESSAGE_AUDIENCES = ["All", "Selected"] as const
+// Who an item message is for; `audience` then narrows each group.
+export const ITEM_MESSAGE_RECIPIENTS = ["Growers", "Vendors", "Both"] as const
+export type ItemMessageRecipients = (typeof ITEM_MESSAGE_RECIPIENTS)[number]
+export const ITEM_MESSAGE_RECIPIENT_LABELS: Record<ItemMessageRecipients, string> = {
+  Growers: "Growers only",
+  Vendors: "Vendors only",
+  Both: "Growers and vendors",
+}
 
 // Admin-facing English labels (the grower view translates via i18n instead).
 export const ITEM_MESSAGE_TYPE_LABELS: Record<ItemMessageType, string> = {

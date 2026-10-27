@@ -9,6 +9,7 @@ import { appUrl } from "@/lib/app-url"
 import { INTERNAL_ROLES, type RoleName } from "@/lib/constants"
 import { notifyMagicLink } from "@/lib/email/notify"
 import { PARTNER_STATUS_SELECT, partnerAccessBlocked } from "@/lib/auth/partner-access"
+import { allow } from "@/lib/auth/rate-limit"
 
 /**
  * Passwordless sign-in for EXTERNAL users (growers & vendors).
@@ -26,6 +27,30 @@ import { PARTNER_STATUS_SELECT, partnerAccessBlocked } from "@/lib/auth/partner-
 
 const LINK_TTL_SECONDS = 15 * 60
 const PURPOSE = "magic-link"
+const LIMIT_WINDOW_MS = 15 * 60 * 1000
+const LIMIT_PER_CLIENT = 20 // lookups per IP per window
+const LIMIT_PER_USER = 5 // links per address per window
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/** Why an email sign-in was refused; the login form shows a matching message. */
+export type MagicRequestError =
+  | "invalid"
+  | "notfound"
+  | "inactive"
+  | "internal"
+  | "partnerdisabled"
+  | "ratelimited"
+  | "mailfailed"
+  | "config"
+
+function refuse(error: MagicRequestError, status: number): NextResponse {
+  return NextResponse.json({ ok: false, error }, { status })
+}
+
+function clientIp(req: NextRequest): string {
+  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "unknown"
+}
 
 function secret(): Uint8Array {
   const s = process.env.MAGIC_LINK_SECRET
@@ -40,25 +65,24 @@ function sha256(v: string): string {
 /**
  * POST /api/auth/magic/request  body: { email }
  *
- * Answers identically whether or not the address is registered — anything else
- * hands an attacker a way to enumerate the customer list. The one thing that
- * does change the response is OUR mailer failing, which reveals nothing about
- * the address and which the user needs to know about so they can retry.
+ * Says plainly why a link was NOT sent (unknown address, staff account,
+ * deactivated…) — a product decision for usability. That does reveal which
+ * addresses are registered, so lookups are rate limited per client and links
+ * per address.
  */
 export async function requestLink(req: NextRequest): Promise<NextResponse> {
   if (!process.env.MAGIC_LINK_SECRET) {
     console.error("[magic-link] MAGIC_LINK_SECRET is not set")
-    return NextResponse.json({ ok: false, error: "config" }, { status: 500 })
+    return refuse("config", 500)
   }
 
   const { email } = (await req.json().catch(() => ({}))) as { email?: string }
   const normalized = email?.trim().toLowerCase()
+  if (!normalized || !EMAIL_RE.test(normalized)) return refuse("invalid", 400)
 
-  const neutral = NextResponse.json({
-    ok: true,
-    message: "If that email is registered, a sign-in link is on its way.",
-  })
-  if (!normalized) return neutral
+  if (!allow(`magic-ip:${clientIp(req)}`, LIMIT_PER_CLIENT, LIMIT_WINDOW_MS)) {
+    return refuse("ratelimited", 429)
+  }
 
   const user = await prisma.user.findUnique({
     where: { email: normalized },
@@ -66,15 +90,14 @@ export async function requestLink(req: NextRequest): Promise<NextResponse> {
   })
 
   // Only active EXTERNAL users of an Active grower/vendor get links; internal
-  // staff authenticate via Entra. A disabled partner gets the same neutral
-  // answer as an unknown address — saying so here would leak who is registered.
-  if (
-    !user ||
-    !user.isActive ||
-    partnerAccessBlocked(user) ||
-    INTERNAL_ROLES.includes(user.role.roleName as RoleName)
-  ) {
-    return neutral
+  // staff authenticate via Entra.
+  if (!user) return refuse("notfound", 404)
+  if (!user.isActive) return refuse("inactive", 403)
+  if (INTERNAL_ROLES.includes(user.role.roleName as RoleName)) return refuse("internal", 409)
+  if (partnerAccessBlocked(user)) return refuse("partnerdisabled", 403)
+  // Stops anyone flooding a real inbox.
+  if (!allow(`magic-user:${user.id}`, LIMIT_PER_USER, LIMIT_WINDOW_MS)) {
+    return refuse("ratelimited", 429)
   }
 
   // A random nonce ties the signed JWT to one DB row we can invalidate/burn.
@@ -115,10 +138,10 @@ export async function requestLink(req: NextRequest): Promise<NextResponse> {
     })
   } catch (e) {
     console.error("[magic-link] send failed", e)
-    return NextResponse.json({ ok: false, error: "mailfailed" }, { status: 500 })
+    return refuse("mailfailed", 500)
   }
 
-  return neutral
+  return NextResponse.json({ ok: true })
 }
 
 /**

@@ -8,7 +8,7 @@ import { guard, parseForm, prismaErrorMessage, revalidateNavBadges, type ActionS
 import { ok, fail } from "@/lib/actions/types"
 import { recordAudit } from "@/lib/audit"
 import { CAPABILITIES } from "@/lib/rbac"
-import { AUDIT_ACTIONS } from "@/lib/constants"
+import { AUDIT_ACTIONS, ITEM_MESSAGE_RECIPIENTS } from "@/lib/constants"
 import { TRANSLATABLE_LOCALES } from "@/lib/i18n/machine-translate"
 import { applyTranslation, planTranslation } from "@/lib/i18n/text-translation"
 
@@ -23,7 +23,7 @@ const parseDate = (s: string): Date | null => {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
-const parseGrowerIds = (s?: string): number[] =>
+const parseIds = (s?: string): number[] =>
   (s ?? "")
     .split(",")
     .map((x) => Number(x.trim()))
@@ -34,13 +34,15 @@ const schema = z.object({
   itemId: z.string().trim().min(1, "Select an item"),
   type: z.string().trim().min(1),
   severity: z.string().trim().min(1).default("info"),
+  recipients: z.enum(ITEM_MESSAGE_RECIPIENTS).default("Growers"),
   audience: z.string().trim().min(1).default("All"),
   body: z.string().trim().optional().default(""),
   // Spanish note. Left blank => machine-translated from `body` on save; typed in
   // => stored as authored and marked reviewed.
   bodyEs: z.string().trim().optional().default(""),
-  // Comma-joined grower ids from the multi-select (used when audience=Selected).
+  // Comma-joined ids from the multi-selects (used when audience=Selected).
   growerIds: z.string().trim().optional().default(""),
+  vendorIds: z.string().trim().optional().default(""),
   startsAt: z.string().trim().optional().default(""),
   endsAt: z.string().trim().optional().default(""),
   isActive: z.string().optional().default("true"),
@@ -53,6 +55,7 @@ function messageData(d: Input) {
     itemId: d.itemId,
     type: d.type,
     severity: d.severity,
+    recipients: d.recipients,
     audience: d.audience,
     body: d.body || null,
     startsAt: parseDate(d.startsAt),
@@ -100,17 +103,36 @@ async function syncTranslations(
   }
 }
 
-// Selected audience => sync targets to the chosen growers; All => clear them.
-async function syncTargets(
-  tx: Prisma.TransactionClient,
-  messageId: number,
-  audience: string,
-  growerIds: number[]
-) {
+/** The grower / vendor targets this message keeps: only for Selected, only for included groups. */
+function targetsOf(d: Input) {
+  const selected = d.audience === "Selected"
+  return {
+    growerIds: selected && d.recipients !== "Vendors" ? parseIds(d.growerIds) : [],
+    vendorIds: selected && d.recipients !== "Growers" ? parseIds(d.vendorIds) : [],
+  }
+}
+
+function noTargets(d: Input): ActionState | null {
+  if (d.audience !== "Selected") return null
+  const { growerIds, vendorIds } = targetsOf(d)
+  if (growerIds.length || vendorIds.length) return null
+  const message = "Pick at least one grower or vendor, or set Audience to Everyone."
+  return fail(message, { growerIds: [message], vendorIds: [message] })
+}
+
+// Replace the targets with the chosen growers / vendors (none when audience=All).
+async function syncTargets(tx: Prisma.TransactionClient, messageId: number, d: Input) {
+  const { growerIds, vendorIds } = targetsOf(d)
   await tx.itemMessageGrower.deleteMany({ where: { itemMessageId: messageId } })
-  if (audience === "Selected" && growerIds.length) {
+  await tx.itemMessageVendor.deleteMany({ where: { itemMessageId: messageId } })
+  if (growerIds.length) {
     await tx.itemMessageGrower.createMany({
       data: growerIds.map((growerId) => ({ itemMessageId: messageId, growerId })),
+    })
+  }
+  if (vendorIds.length) {
+    await tx.itemMessageVendor.createMany({
+      data: vendorIds.map((vendorId) => ({ itemMessageId: messageId, vendorId })),
     })
   }
 }
@@ -119,6 +141,7 @@ function revalidate() {
   revalidatePath("/admin/item-messages")
   revalidatePath("/grower")
   revalidatePath("/grower/submit")
+  revalidatePath("/vendor/submit")
   revalidateNavBadges()
 }
 
@@ -126,12 +149,14 @@ export async function createItemMessage(_p: ActionState, fd: FormData): Promise<
   const user = await guard(CAP)
   const { data, error } = parseForm(schema, fd)
   if (error) return error
+  const invalid = noTargets(data)
+  if (invalid) return invalid
   try {
     const created = await prisma.$transaction(async (tx) => {
       const msg = await tx.itemMessage.create({
         data: { ...messageData(data), createdBy: user.id, updatedBy: user.id },
       })
-      await syncTargets(tx, msg.id, data.audience, parseGrowerIds(data.growerIds))
+      await syncTargets(tx, msg.id, data)
       return msg
     })
     await syncTranslations(created.id, null, data.body, data.bodyEs, user.id)
@@ -147,13 +172,15 @@ export async function updateItemMessage(_p: ActionState, fd: FormData): Promise<
   const user = await guard(CAP)
   const { data, error } = parseForm(schema, fd)
   if (error) return error
+  const invalid = noTargets(data)
+  if (invalid) return invalid
   try {
     const id = Number(data.id)
     // Read before the update: whether the English changed decides the Spanish.
     const before = await prisma.itemMessage.findUnique({ where: { id }, select: { body: true } })
     await prisma.$transaction(async (tx) => {
       await tx.itemMessage.update({ where: { id }, data: { ...messageData(data), updatedBy: user.id } })
-      await syncTargets(tx, id, data.audience, parseGrowerIds(data.growerIds))
+      await syncTargets(tx, id, data)
     })
     await syncTranslations(id, before?.body ?? "", data.body, data.bodyEs, user.id)
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.UPDATE, entityType: "ItemMessage", entityId: data.id, changes: data })

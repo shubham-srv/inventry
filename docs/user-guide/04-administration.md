@@ -6,6 +6,10 @@ Much of what follows changes what other people see and can do. Where an action
 is hard to undo, this part says so at the point you would take it, rather than
 assuming you already know.
 
+Long lists are split into pages. Page numbers sit between **Previous** and
+**Next** — the first, the last and the ones around the page you are on — so you
+can jump straight to a page, and your search and filters are kept as you move.
+
 ---
 
 ## 4.1 Roles — who can do what
@@ -104,22 +108,28 @@ back as the same request next week.
 
 ### 4.2.4 Item messages
 
-Notices attached to an item that the relevant growers see while counting. **Grey
-badge** — it counts what is currently live, and is not a to-do list.
+Notices attached to an item that the relevant growers see while counting and the
+relevant vendors see while reporting. **Grey badge** — it counts what is
+currently live, and is not a to-do list.
 
 | Field | Required | What to enter | Notes |
 |---|---|---|---|
 | **Item** | Yes | The item the notice is about | |
-| **Kind** | Yes | Retiring / Increase stock / Clear inventory / Notice | Sets how it reads to the grower — see the table in §2.7 |
+| **Kind** | Yes | Retiring / Increase stock / Clear inventory / Notice | Sets how it reads to the grower or vendor — see the table in §2.7 |
 | **Message** | Yes | The notice itself | Keep it to a sentence or two; it is read on a phone, mid-count |
-| **Spanish message** | No | The Spanish wording | **Leave blank and it is translated automatically.** Type one in and yours is used as written |
-| **Audience** | Yes | All growers, or a chosen few | |
-| **Growers** | Only when the audience is a chosen few | Which growers see it | |
+| **Spanish message** | No | The Spanish wording | **Leave blank and it is translated automatically.** Type one in and yours is used as written. Spanish-language growers and vendors see it |
+| **Show to** | Yes | Growers only / Vendors only / Growers and vendors | Existing messages are *Growers only*. Vendors see theirs under the item on **Submit Report** |
+| **Audience** | Yes | Everyone (all mapped to the item), or Only selected | *Everyone* means every grower authorised for the item and/or every vendor mapped to it, depending on **Show to** |
+| **Growers** | Only when the audience is *Only selected* and **Show to** includes growers | Which growers see it | Only growers authorised for the item are offered |
+| **Vendors** | Only when the audience is *Only selected* and **Show to** includes vendors | Which vendors see it | Only vendors mapped to the item are offered. With *Only selected*, pick at least one grower or vendor |
 | **Starts / Ends** | No | The window to show it in | Blank start = immediately; blank end = until you deactivate it |
 | **Active** | Yes | Whether it shows at all | Turn off rather than deleting when you may want it back |
 
+The list can be filtered by **Show to**, and its **Audience** column reads, for
+example, *All vendors* or *Vendors only: PackRight*.
+
 A message that has passed its end date stops appearing. That is the mechanism
-working, not a fault — growers will not be told why it went.
+working, not a fault — growers and vendors will not be told why it went.
 
 ---
 
@@ -181,6 +191,14 @@ a long way.
 | **Countries** | Origins and locations | A country marked as not selectable stays valid as an item origin but disappears from the location and vendor pickers |
 | **Locations** | Physical sites | A site's type gates who can use it — some are grower-only, some vendor-only, some either |
 
+**Disabling a commodity** asks you to type *disable* (*desactivar* on the Spanish
+screens) before the button works, because it takes every item in the commodity
+out of circulation at once. Enabling it again is one click. The **Items** count
+has a list button that opens that commodity's items — ID, legacy ID, name,
+category, sub-category and each item's own status — with a search box and an
+**Open in Items** link. For a disabled commodity the list says its items are
+hidden from growers and vendors until it is enabled again.
+
 > **Renaming a category relabels history; it does not convert it.** A count of
 > 340 taken when the category was *Boxes* still reads 340 after a rename to
 > *Pallets* — it now simply claims to be 340 pallets. Nothing recalculates,
@@ -221,7 +239,7 @@ The organisations on the other side of the system.
 | **Headquarters country** | No | Where the vendor is based | Not the same as where it ships from |
 | **Locations** | No | The sites it operates from | |
 | **Primary contact / Email / Phone** | No | Who to reach | |
-| **Lead time (days)** | No | Whole days from order to delivery | Informational |
+| **Default minimum lead time (days)** | No | Whole days from order to delivery | Growers cannot request delivery sooner than this after ordering, unless the item has its own lead time (§4.6). The vendor can also change it on their Orders page |
 | **Payment terms (days)** | No | The number from "Net N days" | The number only |
 | **Account number** | No | Your account reference with them | |
 | **Status** | Yes | Active / Inactive | Inactive signs the vendor's users out and stops them signing in, until set back to Active |
@@ -242,6 +260,16 @@ retrospective and never deletes history.
 **Which vendors supply which items.** This is what populates the vendor list
 when a grower places an order. A grower cannot order an item from a vendor that
 is not mapped to it, and will see *"No vendors mapped to this item"*.
+
+**How soon a vendor can deliver.** Each vendor has a default minimum lead time
+(§4.5), and each vendor–item pair can override it. On **Mappings → Vendors** the
+**Lead time** column shows *N day(s)* for an override, *Vendor default (Nd)* when
+the default applies, or *None*; the timer icon edits it, and leaving it blank
+means use the default. Vendors can set the figure for their own items on **My
+items**. A grower's order screen offers no delivery date sooner than the order
+date plus the figure for that item, and the Orders report (§4.10) compares each
+order's actual lead time with it as it stands now — so changing a figure also
+changes how past orders read.
 
 > When a grower reports a missing item, check the authorisation before assuming
 > the item does not exist. The two look identical from their side.
@@ -306,24 +334,34 @@ screen while they type.
 
 ## 4.9 Reminder schedules
 
-How often growers are prompted to submit.
+How often growers and vendors are prompted to submit.
 
 | Field | Required | What to enter | Notes |
 |---|---|---|---|
-| **Scope** | Yes | Global, or a single grower | Global is the default everyone follows |
-| **Grower** | Only when the scope is a grower | Which grower this overrides for | |
+| **Who it reminds** | Yes | All growers (default), One grower, All vendors (default) or One vendor | The two *default* schedules are the ones everyone of that kind follows |
+| **Grower** | Only for *One grower* | Which grower this overrides for | |
+| **Vendor** | Only for *One vendor* | Which vendor this overrides for | |
 | **Cadence** | Yes | Daily / Weekly / Monthly / After N days | *After N days* prompts only when they have not submitted for that long |
 | **Days** | Yes | The number of days for *After N days* | Between 1 and 90 |
 | **Enabled** | Yes | Whether it runs | Turn off to pause reminders without losing the setting |
 
-A grower-specific schedule replaces the global one for that grower.
+A one-grower or one-vendor schedule replaces the default for that grower or
+vendor.
+
+**Vendor reminders start switched off.** The *All vendors* schedule exists
+already (after 3 days) but is disabled, so no vendor is emailed until you enable
+it. A vendor is overdue when the days since its last supply report reach the
+cadence — Daily 1, Weekly 7, Monthly 30, or your own number of days — and one
+that has never reported counts as overdue. Only Active vendors with at least one
+active mapped item are reminded, and at most once a day.
 
 There is a button to **run the check immediately** rather than waiting for the
 next scheduled run — useful for confirming a change does what you expected.
 Running it sends real emails to real people, so use it deliberately.
 
 Reminders go to the grower's **primary email** (§4.5). A grower without one is
-silently never reminded.
+silently never reminded. A vendor's reminder goes to its contact email and to
+every active user on the vendor; a vendor with neither is skipped.
 
 ---
 
@@ -342,7 +380,9 @@ Grower stock, orders and vendor stock, each filterable.
   allocated and unallocated for vendors.
 - **Orders** shows each order's **Requested** date (the grower's) and the
   **Vendor's date** once they confirm it — or *Awaiting vendor*. On time, late
-  and overdue are measured against the vendor's date when there is one.
+  and overdue are measured against the vendor's date when there is one. The
+  **Lead time** column compares how long the order took with the vendor's lead
+  time for that item as it stands now (*Nd vs Md SLA*).
 
 The stock exports contain two sheets: the per-grower (or per-vendor) summary and
 the item rows.

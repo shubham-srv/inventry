@@ -128,7 +128,7 @@ async function vendorsSheet(sp: SP): Promise<ExcelSheet> {
       { header: "Material categories", key: "categories", width: 28 },
       { header: "Contact", key: "contact", width: 20 },
       { header: "Email", key: "email", width: 26 },
-      { header: "Lead time (days)", key: "lead", width: 16 },
+      { header: "Default lead time (days)", key: "lead", width: 18 },
       { header: "Payment terms (days)", key: "terms", width: 20 },
       { header: "Status", key: "status", width: 12 },
     ],

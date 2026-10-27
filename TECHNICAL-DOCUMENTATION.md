@@ -144,7 +144,7 @@ reviewer can read the whole permission model in under a minute.
 |---|---|
 | **Daily inventory submission** | Enter on-hand quantities for every item the grower is authorised for, at a chosen location. Supports **Draft** (saved, does not count) and **Submit** (counts, writes the ledger, notifies, updates progress). Submitting with items still blank asks for confirmation ("enter 0 if you have none"). Item notes are shown under each item in the grower's language. |
 | **Low-stock flagging** | Tick an item during submission to raise a flag for internal review. Growers can also clear their own flag. **Flag history** lists every flag they raised and how it ended. |
-| **Orders** | Raise an order for an item against any of that item's mapped vendors. Multiple open orders per item are allowed. The grower gives an order date (today or earlier) and a **requested** delivery date, which cannot be earlier than the order date plus the vendor's minimum lead time. The vendor answers with a confirmed date. |
+| **Orders** | Raise an order for an item against any of that item's mapped vendors. Multiple open orders per item are allowed. The grower gives an order date (today or earlier) and a **requested** delivery date, which cannot be earlier than the order date plus the vendor's minimum lead time **for that item** (the item-level value when set, else the vendor's default). The vendor answers with a confirmed date. |
 | **My items** | Every authorised item with on-hand per location and in total, on order, last counted and notes; exportable to Excel. |
 | **Receiving** | Mark an order **Received** (optionally recording a quantity mismatch as Short / Damaged / Over) or **Cancelled**. Same-day closures stay visible for the rest of the day, then drop off. |
 | **Missing-item requests** | Ask internal staff to add an item that does not exist yet, with a commodity/category hint and free-text notes. Track the outcome. |
@@ -156,9 +156,9 @@ reviewer can read the whole permission model in under a minute.
 
 | Capability | Detail |
 |---|---|
-| **Stock reporting** | Report quantity held per item, with an optional per-grower allocation breakdown showing how much of that stock is earmarked for whom. |
-| **Orders** | Emailed on every new order; confirm or change the delivery date (the grower is emailed). The sidebar badge counts open orders still awaiting a date. Also where the vendor sets their **minimum lead time**. |
-| **My items** | Supplied items with latest reported / allocated stock and notes; the vendor maintains their own **conversions** (chain and ratios) here. Exportable to Excel. |
+| **Stock reporting** | Report quantity held per item, with an optional per-grower allocation breakdown showing how much of that stock is earmarked for whom. Item messages aimed at vendors show under the item; an overdue vendor can be reminded by email ([§8.5](#85-scheduled-jobs)). |
+| **Orders** | Emailed on every new order; confirm or change the delivery date (the grower is emailed). The sidebar badge counts open orders still awaiting a date. Also where the vendor sets their **default minimum lead time**. |
+| **My items** | Supplied items with latest reported / allocated stock and notes; the vendor maintains their own **conversions** (chain and ratios) and a per-item **lead time** (blank = use the default) here. Exportable to Excel. |
 | **History** | Past reports and their allocations. |
 | **Dashboard** | Trends and totals for the vendor's own reported stock. |
 
@@ -170,7 +170,7 @@ reviewer can read the whole permission model in under a minute.
 | **Low inventory → Current** | A live computed report of every (grower, item) pair below its effective threshold — no queue, no state, always current. |
 | **Low inventory → Flag history** | Every flag ever raised: who raised and cleared it and when, on-hand then vs now, outcome and review notes. |
 | **Item requests** | Missing-item requests, moved through Open → Reviewed / Fulfilled / Rejected with review notes. |
-| **Item messages** | Author, schedule (start/end dates), target (all growers or a selected subset) and translate the notices growers see against an item. |
+| **Item messages** | Author, schedule (start/end dates), choose who sees them (growers, vendors or both; everyone mapped to the item or a selected subset) and translate the notices shown against an item. |
 
 Each of these carries a live badge count in the navigation. Queues that need action are
 styled to draw attention; ambient status counts deliberately stay quiet, so that an
@@ -184,8 +184,10 @@ Regions · Growers · Vendors · Conversion chains (formerly "Packaging").
 A commodity can be **disabled**: its items then count as inactive everywhere
 (grower/vendor screens, pickers, current reports, server-side checks) while their
 own status is untouched, so re-enabling restores them exactly. The single rule
-lives in `lib/items/active.ts`. Items also carry an optional **legacy ID** (unique
-when filled) and **notes**, which are translated for Spanish-language users.
+lives in `lib/items/active.ts`. Disabling needs the word *disable* typed to confirm
+(localised, as deletes need *delete*), and the commodities table's **Items** count opens
+a searchable list of that commodity's items. Items also carry an optional **legacy ID**
+(unique when filled) and **notes**, which are translated for Spanish-language users.
 
 Items are the centre of gravity. An item carries its commodity, material category,
 sub-category, country of origin, application method and status — and, editable from the
@@ -206,7 +208,7 @@ every count, order and ledger row references.
 | **Users** | Onboard internal and external users; map a user to exactly one grower or vendor; set role, language and active status. |
 | **Authorisations** | Which growers may count which items; which vendors supply which items, categories, countries and locations. |
 | **Thresholds** | Per-item low-stock thresholds, with optional per-grower overrides that take precedence. |
-| **Schedulers** | Reminder cadence (Daily / Weekly / Monthly / After *N* days) globally, with per-grower overrides. Includes a "run the check now" button. |
+| **Schedulers** | Reminder cadence (Daily / Weekly / Monthly / After *N* days) for all growers and for all vendors, with per-grower and per-vendor overrides. Includes a "run the check now" button. |
 | **Audit logs** | Every create/update/delete/export, with actor, entity, timestamp and a before/after diff. |
 | **Outbox** | Every notification the system produced, its status (Queued / Sending / Sent / Failed / Mocked), retry count, last error, and an HTML preview of the message. |
 
@@ -345,8 +347,8 @@ diagram at [dbdiagram.io](https://dbdiagram.io) if you want the visual form.
 
 `Item` is the hub: commodity, material category, sub-category, country of origin,
 application method, status. `Location` carries a type that gates where it may be used.
-`Vendor` records lead time, payment terms (as "Net *N* days"), a home country and contact
-details.
+`Vendor` records a default lead time, payment terms (as "Net *N* days"), a home country
+and contact details.
 
 ### 6.3 Relationships and authorisation
 
@@ -354,7 +356,7 @@ details.
 |---|---|
 | `GrowerItemAuthorization` | Which items a grower may count |
 | `GrowerLocation` | Which sites a grower operates |
-| `ItemVendor` | Which vendors supply an item (and the packaging chain used) |
+| `ItemVendor` | Which vendors supply an item, the packaging chain used, and an optional item-level `leadTimeDays` (null falls back to `Vendor.leadTimeDays`) |
 | `VendorMaterialCategory` | Which categories a vendor deals in |
 | `VendorCountry` | Which countries a vendor supplies **to** (distinct from where they are based) |
 | `VendorLocation` | Which sites a vendor serves |
@@ -390,13 +392,13 @@ ledger and the submission can never disagree.
 | Table | Holds |
 |---|---|
 | `ItemThreshold` | Low-stock threshold per item; `growerId = NULL` is the global default, a grower row overrides it |
-| `SchedulerSetting` | Reminder cadence, global or per grower. A grower row replaces the global one wholesale — there is no field-level merge |
+| `SchedulerSetting` | Reminder cadence by `scope`: `Global` (all growers), `Grower`, `VendorGlobal` (all vendors) or `Vendor` (with `vendorId`). A grower or vendor row replaces its default wholesale — there is no field-level merge |
 | `PackagingChain` / `PackagingChainLevel` / `VendorPackRatio` | The conversion (packaging) hierarchy and each vendor's ratios |
 | `ItemTranslation` | Translated item text per (item, field, locale) — `notes` today; item names later are a new `field` value, not a new table |
 | `AuditLog` | Actor, action, entity, and a JSON before/after diff |
 | `NotificationLog` | The email **outbox** — see [§8](#8-notifications-and-scheduled-jobs) |
 | `PowerBiReport` | Registry of BI reports and their embed URLs |
-| `ItemMessage` / `ItemMessageTranslation` / `ItemMessageGrower` | Item notices, their translations, and their targeting |
+| `ItemMessage` / `ItemMessageTranslation` / `ItemMessageGrower` / `ItemMessageVendor` | Item notices (`recipients`: Growers, Vendors or Both), their translations, and their grower and vendor targeting |
 
 ### 6.7 Schema conventions
 
@@ -427,15 +429,21 @@ stored. **Entra never creates users.** An account that is not already provisione
 administrator is refused, so directory membership alone grants nothing.
 
 **Growers and vendors — passwordless email link.** The user enters their email; if it
-matches an active user, a signed, single-use link valid for **15 minutes** is emailed.
-Following it establishes the session.
+matches an active user, a signed, single-use link valid for **15 minutes** is emailed;
+otherwise the login page says why not. Following the link establishes the session.
 
-Three properties of the link flow are worth a security reviewer's attention:
+Three properties of the link flow are worth a security reviewer's attention, the second
+being a deliberate trade-off:
 
 1. **Only a SHA-256 hash of the token nonce is stored.** A database compromise yields
    nothing that can be replayed as a sign-in.
-2. **The response is neutral.** Requesting a link returns the same result whether or not
-   the address exists, so the endpoint cannot be used to enumerate users.
+2. **The response says why no link was sent.** Requesting a link answers plainly when the
+   address is unknown, belongs to a staff account, or is switched off (the user, or their
+   grower or vendor), instead of returning one neutral reply. That reveals whether an
+   address is registered — a product decision made for usability — so the endpoint is
+   rate limited: 20 lookups per client IP and 5 links per address in any 15 minutes
+   (`lib/auth/rate-limit.ts`). The counters are in memory, per replica, and reset on
+   restart, so they slow enumeration rather than prevent it.
 3. **The link secret is separate from the session secret.** A 15-minute single-use
    sign-in token and a 7-day session cookie must never be interchangeable.
 
@@ -522,6 +530,7 @@ user.
 | Low-inventory flag reviewed | The flagging grower |
 | Order placed | The vendor |
 | Submission overdue | The grower |
+| Supply report overdue | The vendor (contact email and active vendor users) |
 
 Every message is rendered as localised HTML **and** plaintext, in the **recipient's**
 stored language — not the sender's, and not a browser cookie's, because most of these are
@@ -586,12 +595,20 @@ Two Container Apps Jobs authenticate to the application with the shared cron sec
 
 | Job | Endpoint | Cadence | Does |
 |---|---|---|---|
-| Reminders | `POST /api/cron/reminders` | Daily | Finds growers who are overdue against their cadence and **enqueues** one reminder each |
+| Reminders | `POST /api/cron/reminders` | Daily | Finds growers and vendors who are overdue against their cadence and **enqueues** one reminder each |
 | Email dispatch | `POST /api/cron/email-dispatch` | Frequent | Drains the outbox; a safety net if the in-process loop is not running |
 
-The reminder check enqueues only, so it returns in milliseconds however many growers are
-overdue and never approaches a job timeout. Overdue growers receive **at most one
-reminder per day**, enforced by checking what was already sent.
+The reminder check enqueues only, so it returns in milliseconds however many growers and
+vendors are overdue and never approaches a job timeout. Overdue growers and vendors
+receive **at most one reminder per day**, enforced by checking what was already sent.
+
+Vendor reminders (`VendorScheduledReminder`) use a simpler clock than growers' — a vendor
+is overdue when the days since its last supply report reach the cadence (never having
+reported counts) — and consider only Active vendors with at least one live mapped item.
+They go to the vendor's contact email plus every active vendor user, one message per
+language; a vendor with no address at all is skipped and the run's result says so. The
+migration seeds an **All vendors** schedule (After 3 days) switched **off**, so no vendor
+is emailed until an administrator enables it.
 
 The same reminder logic is reachable from an administrator button in-app and from a
 command-line script, so it can be exercised without waiting for a schedule.
@@ -615,6 +632,12 @@ across locations — a naive "latest row per item" would silently report only wh
 location was written last — and the effective threshold is the grower-specific one when
 present, otherwise the global default, resolved per row. Doing this in the ORM would mean
 pulling the entire ledger into memory.
+
+Every paged list — admin tables, grower and vendor history, the outbox, these reports —
+shares one URL-driven pager (`components/pager.tsx`). Between **Previous** and **Next** it
+shows page numbers: the first and last, the current page and its neighbours, and "…" for
+gaps (a gap never hides a single page). Because the page lives in the URL, a position
+survives a reload or a shared link.
 
 ### 9.2 Excel export
 
@@ -949,12 +972,16 @@ The user signs in immediately via a passwordless link; no password is ever issue
 
 ### 16.3 Adding a vendor
 
-1. **Admin → Vendors** — create the vendor with contact details, home country, lead time
-   and payment terms.
-2. **Mappings → Vendors** — items supplied, material categories, supply countries,
-   locations served.
-3. *(Optional)* **Admin → Conversions** — conversion chains; vendors can set their own ratios from **My items**.
+1. **Admin → Vendors** — create the vendor with contact details, home country, default
+   lead time and payment terms.
+2. **Mappings → Vendors** — items supplied (optionally with an item-level lead time),
+   material categories, supply countries, locations served.
+3. *(Optional)* **Admin → Conversions** — conversion chains; vendors can set their own ratios
+   and item lead times from **My items**.
 4. **Admin → Users** — create the user with role `VendorUser`, mapped to this vendor.
+5. *(Optional)* **Settings → Schedulers** — enable the **All vendors** reminder schedule
+   (seeded switched off), or give this vendor its own. Like growers, a vendor row replaces
+   the default wholesale.
 
 ### 16.4 Adding an internal user
 
@@ -1040,7 +1067,8 @@ master-data-template.xlsx   the blank master-data workbook (Appendix A)
 | **Flag** | A grower-raised shortage marker awaiting internal review |
 | **Packaging chain** | The container hierarchy an ordered quantity occupies in transit — descriptive only |
 | **Outbox** | The `NotificationLog` table, used as a real send queue |
-| **Item message** | An administrator-authored notice shown to growers against an item |
+| **Item message** | An administrator-authored notice shown to growers, vendors or both against an item |
+| **Lead time** | The fewest days between an order and its requested delivery: the item-level value for that vendor and item, else the vendor's default |
 | **Capability** | A named permission held by a role and demanded by a page or action |
 
 ---
@@ -1425,8 +1453,9 @@ Configured in the application, not the workbook:
 | What | Where |
 |---|---|
 | **Thresholds** | `/admin/settings/thresholds` — a quantity only, in the item's category |
-| **Reminder schedules** | `/admin/settings/schedulers` — a Global row is created by the bootstrap |
+| **Reminder schedules** | `/admin/settings/schedulers` — the bootstrap creates no schedule, so add an *All growers* row here (or load the workbook's ReminderSchedules sheet); the migration adds an *All vendors* row, switched off, to enable when vendors should be reminded |
 | **Conversion chains and pack ratios** | `/admin/conversions`, then per vendor-item on `/admin/mappings/vendors` (or by the vendor on `/vendor/items`) |
+| **Item-level lead times** | Per vendor-item on `/admin/mappings/vendors` (or by the vendor on `/vendor/items`); the workbook's `LeadTimeDays` is only the vendor's default |
 | **Item messages** | `/admin/item-messages` |
 
 Reference data the bootstrap creates by itself, whether or not it appears in the

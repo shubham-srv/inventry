@@ -15,6 +15,7 @@ import { CAPABILITIES } from "@/lib/rbac"
 import { AUDIT_ACTIONS } from "@/lib/constants"
 import { getT } from "@/lib/i18n/server"
 import { saveConversions } from "@/lib/packaging/save"
+import { parseLeadDays } from "@/lib/orders/dates"
 
 const CAP = CAPABILITIES.MANAGE_GROWERS_VENDORS
 const PATH = "/admin/mappings/vendors"
@@ -149,6 +150,33 @@ export async function setItemVendorPackaging(
       revalidatePath("/vendor/items")
     }
     return result
+  } catch (e) {
+    return fail(prismaErrorMessage(e))
+  }
+}
+
+const leadSchema = z.object({
+  id: z.string().trim().min(1),
+  leadTimeDays: z.string().trim().optional().default(""),
+})
+
+/** Item-level lead time for a vendor↔item mapping. Blank = use the vendor's default. */
+export async function setItemVendorLeadTime(_p: ActionState, fd: FormData): Promise<ActionState> {
+  const user = await guard(CAP)
+  const { data, error } = parseForm(leadSchema, fd)
+  if (error) return error
+  const id = Number(data.id)
+  if (!id) return fail("Missing mapping id.")
+  const days = parseLeadDays(data.leadTimeDays)
+  if (days === undefined)
+    return fail("Enter a whole number of days between 0 and 365, or leave blank.", { leadTimeDays: ["0–365, or blank"] })
+  try {
+    await prisma.itemVendor.update({ where: { id }, data: { leadTimeDays: days, updatedBy: user.id } })
+    await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.UPDATE, entityType: "ItemVendor", entityId: id, changes: { leadTimeDays: days } })
+    revalidatePath(PATH)
+    revalidatePath("/vendor/items")
+    revalidatePath("/grower/submit")
+    return ok("Lead time saved")
   } catch (e) {
     return fail(prismaErrorMessage(e))
   }

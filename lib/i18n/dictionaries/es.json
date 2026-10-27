@@ -38,7 +38,10 @@
     },
     "more": "más",
     "less": "menos",
-    "willRetranslate": "Esto se traducirá automáticamente del texto de arriba al guardar. Escribe aquí para usar tu propia traducción."
+    "willRetranslate": "Esto se traducirá automáticamente del texto de arriba al guardar. Escribe aquí para usar tu propia traducción.",
+    "disableWord": "desactivar",
+    "pagination": "Paginación",
+    "goToPage": "Ir a la página {page}"
   },
   "submitList": {
     "search": "Buscar artículos…",
@@ -120,30 +123,53 @@
     "demoOnly": "Solo para desarrollo",
     "demoDesc": "Esta lista no aparece en producción. Define AUTH_PROVIDER=entra para ocultarla localmente.",
     "magic": {
-      "label": "¿Eres productor o proveedor? Inicia sesión con tu correo",
-      "placeholder": "tu@empresa.com",
+      "label": "Tu correo electrónico",
+      "placeholder": "nombre@empresa.com",
       "submit": "Enviarme un enlace de acceso",
       "sending": "Enviando…",
       "sentTitle": "Revisa tu bandeja de entrada",
-      "sentBody": "Si {email} está registrado, el enlace de acceso ya va en camino. Caduca en 15 minutos y solo se puede usar una vez.",
-      "useDifferent": "Usar otra dirección",
-      "error": "No se pudo enviar el enlace. Inténtalo de nuevo o avisa a tu administrador si el problema continúa."
+      "sentBody": "Enviamos un enlace de acceso a {email}. Haz clic en el botón de ese correo para entrar. El enlace funciona una sola vez y caduca en 15 minutos.",
+      "useDifferent": "Usar otro correo",
+      "error": "No se pudo enviar el enlace. Inténtalo de nuevo o avisa a tu administrador si el problema continúa.",
+      "resent": "Enviamos un enlace nuevo. Usa el correo más reciente: los enlaces anteriores ya no funcionan.",
+      "spamHint": "¿No lo encuentras? Revisa la carpeta de spam o correo no deseado. Puede tardar un minuto en llegar.",
+      "resend": "Reenviar enlace",
+      "resendIn": "Reenviar en {seconds} s",
+      "errors": {
+        "invalid": "Escribe tu correo completo, por ejemplo nombre@empresa.com.",
+        "notfound": "No encontramos ninguna cuenta para {email}. Revisa cómo lo escribiste o pide a tu administrador que te dé de alta.",
+        "internal": "{email} es una cuenta del personal de la empresa. El personal inicia sesión con Microsoft, no por correo.",
+        "inactive": "La cuenta de {email} está desactivada. Contacta a tu administrador.",
+        "partnerdisabled": "El acceso de tu organización a esta aplicación está desactivado. Contacta a tu administrador.",
+        "ratelimited": "Demasiados intentos. Espera unos minutos y vuelve a intentarlo.",
+        "mailfailed": "No pudimos enviar el correo en este momento. Inténtalo de nuevo en un momento."
+      }
     },
     "error": {
       "title": "No pudimos iniciar tu sesión",
-      "config": "El inicio de sesión con Microsoft no está configurado en este entorno. Contacta a tu administrador.",
-      "entra": "Microsoft rechazó el inicio de sesión. Contacta a tu administrador si continúa.",
-      "state": "Ese intento de inicio de sesión caducó o no coincidió. Inténtalo de nuevo.",
-      "nocode": "Microsoft no devolvió un código de inicio de sesión. Inténtalo de nuevo.",
+      "config": "El inicio de sesión con Microsoft aún no está configurado en este sitio. Contacta a tu administrador.",
+      "entra": "Microsoft no pudo completar el inicio de sesión. Inténtalo de nuevo; si sigue pasando, contacta a tu administrador.",
+      "state": "Ese inicio de sesión tardó demasiado o se empezó en otra pestaña. Inténtalo de nuevo.",
+      "nocode": "Microsoft no terminó el inicio de sesión. Inténtalo de nuevo.",
       "noidentity": "Microsoft no devolvió una identidad que podamos reconocer. Contacta a tu administrador.",
-      "unprovisioned": "Esa cuenta no tiene acceso a esta aplicación. Pide a un administrador que te dé de alta o inicia sesión con otra cuenta.",
-      "nolink": "Ese enlace de acceso estaba incompleto. Solicita uno nuevo abajo.",
-      "linkexpired": "Ese enlace de acceso caducó o ya se usó. Solicita uno nuevo abajo.",
+      "unprovisioned": "Esta cuenta no tiene acceso a esta aplicación. Si tienes otra cuenta del trabajo, prueba con ella; si no, pide a tu administrador que te dé de alta.",
+      "nolink": "Ese enlace de acceso estaba incompleto. Escribe tu correo abajo para recibir uno nuevo.",
+      "linkexpired": "Ese enlace de acceso caducó o ya se usó. Escribe tu correo abajo para recibir uno nuevo.",
       "mailfailed": "No pudimos enviar el correo de acceso. Inténtalo de nuevo en un momento.",
-      "sessionexpired": "Tu sesión finalizó. Vuelve a iniciar sesión.",
-      "partnerdisabled": "El acceso de tu organización a esta aplicación está desactivado. Contacta a tu administrador."
+      "sessionexpired": "Por seguridad se cerró tu sesión. Vuelve a iniciar sesión.",
+      "partnerdisabled": "El acceso de tu organización a esta aplicación está desactivado. Contacta a tu administrador.",
+      "signedOutTitle": "Se cerró tu sesión",
+      "tryAnotherAccount": "Probar con otra cuenta de Microsoft"
     },
-    "accessDisabled": "Acceso desactivado"
+    "accessDisabled": "Acceso desactivado",
+    "partner": {
+      "title": "¿Eres productor o proveedor?",
+      "body": "Escribe el correo que tu administrador registró para ti. Te enviaremos un enlace para entrar, sin contraseña."
+    },
+    "staff": {
+      "title": "¿Eres personal de la empresa?",
+      "body": "Inicia sesión con tu cuenta de Microsoft del trabajo."
+    }
   },
   "grower": {
     "dash": {
@@ -407,13 +433,13 @@
         "cancelled": "Cancelados",
         "all": "Todos"
       },
-      "leadTimeLabel": "Plazo mínimo de entrega (días)",
-      "leadTimeHint": "Los productores no pueden pedir la entrega antes de este número de días desde la fecha del pedido. Déjalo en blanco para no fijar mínimo.",
-      "leadTimeTitle": "Plazo mínimo de entrega",
+      "leadTimeLabel": "Plazo mínimo de entrega predeterminado (días)",
+      "leadTimeHint": "Los productores no pueden pedir la entrega antes de este número de días desde la fecha del pedido. Cada artículo puede tener su propio plazo en Mis artículos. Déjalo en blanco para no fijar mínimo.",
+      "leadTimeTitle": "Plazo mínimo de entrega predeterminado",
       "leadTimeEdit": "Editar plazo",
-      "leadTimeNone": "Sin plazo mínimo de entrega",
-      "leadTimeValue": "Plazo mínimo de entrega: {days} día(s)",
-      "leadTimeExplain": "Los productores no pueden pedir la entrega antes de este plazo desde la fecha del pedido.",
+      "leadTimeNone": "Sin plazo predeterminado",
+      "leadTimeValue": "Plazo mínimo predeterminado: {days} día(s)",
+      "leadTimeExplain": "Se aplica a todos los artículos salvo los que tengan su propio plazo en Mis artículos.",
       "actions": {
         "notFound": "Pedido no encontrado.",
         "closed": "Ese pedido ya no está abierto.",
@@ -447,7 +473,16 @@
       "chainHint": "Cómo empacas este artículo para el envío. Nunca cambia la cantidad pedida.",
       "noChainsDefined": "Aún no hay una cadena de conversión para {category}. Pide a un administrador que la cree.",
       "ratios": "Cantidades por nivel",
-      "ratiosHint": "Separadas por comas, de dentro hacia fuera: cuántos {base} caben en el primer nivel y luego cuántos de esos en el siguiente."
+      "ratiosHint": "Separadas por comas, de dentro hacia fuera: cuántos {base} caben en el primer nivel y luego cuántos de esos en el siguiente.",
+      "leadTime": "Plazo de entrega",
+      "leadTimeTitle": "Plazo de entrega del artículo",
+      "leadTimeLabel": "Plazo mínimo de entrega para este artículo (días)",
+      "leadTimeHint": "Los productores no pueden pedir la entrega antes de este número de días tras pedir este artículo. Déjalo en blanco para usar tu plazo predeterminado ({days} días).",
+      "leadTimeHintNoDefault": "Los productores no pueden pedir la entrega antes de este número de días tras pedir este artículo. Déjalo en blanco para no fijar mínimo.",
+      "leadTimeDays": "{days} día(s)",
+      "leadTimeDefault": "Predeterminado ({days} d)",
+      "leadTimeNone": "Ninguno",
+      "leadTimeSaved": "Plazo guardado."
     }
   },
   "email": {
@@ -538,6 +573,12 @@
       "heading": "Fecha de entrega cambiada",
       "intro": "{vendor} cambió la fecha de entrega de tu pedido de {item} al {date} (antes era el {previous}).",
       "cta": "Ver pedidos"
+    },
+    "vendorScheduledReminder": {
+      "subject": "Recordatorio: envía tu informe de suministro — {vendor}",
+      "heading": "Es hora de enviar tu informe de suministro",
+      "intro": "{vendor} no ha enviado un informe de suministro en {overdue}. Informa tus cantidades actuales para que el inventario esté al día.",
+      "cta": "Enviar informe"
     }
   },
   "itemMessage": {

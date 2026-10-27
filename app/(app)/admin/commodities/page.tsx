@@ -20,6 +20,7 @@ import {
   type Field,
 } from "@/components/crud/entity-form-dialog"
 import { ConfirmButton } from "@/components/crud/confirm-button"
+import { CommodityItemsDialog } from "@/components/commodities/commodity-items-dialog"
 
 const fields: Field[] = [
   {
@@ -69,7 +70,13 @@ export default async function CommoditiesPage({
       header: "Name",
       cell: (r) => <span className="font-medium">{r.name}</span>,
     },
-    { key: "items", header: "Items", cell: (r) => r._count.items },
+    {
+      key: "items",
+      header: "Items",
+      cell: (r) => (
+        <CommodityItemsDialog code={r.code} name={r.name} count={r._count.items} isActive={r.isActive} />
+      ),
+    },
     {
       key: "status",
       header: "Status",
@@ -91,6 +98,8 @@ export default async function CommoditiesPage({
             }
             confirmLabel={r.isActive ? "Disable" : "Enable"}
             variant={r.isActive ? "destructive" : "default"}
+            typeToConfirm={r.isActive}
+            confirmWord="disable"
             action={setCommodityActive.bind(null, r.code, !r.isActive)}
             trigger={
               <Button variant="ghost" size="icon-sm" aria-label={r.isActive ? "Disable" : "Enable"}>

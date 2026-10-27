@@ -86,16 +86,60 @@ Security properties, all of which are load-bearing:
   outstanding one.
 - **Only a hash is stored.** `MagicToken.tokenHash` is the SHA-256 of a nonce;
   the database never sees anything redeemable.
-- **No account enumeration.** The request endpoint answers identically whether
-  or not the address exists. The only different answer is a 500 when *our*
-  mailer fails, which reveals nothing about the address and which the user needs
-  in order to retry. Do not "improve" the login page by validating the address
-  against `User` first — that hands over the customer list.
-- **External roles only.** Internal staff are refused; they have Entra.
+- **Account existence is revealed, on purpose.** The request endpoint says why
+  a link was *not* sent — unknown address, staff account, deactivated user or
+  organisation — instead of answering the same way every time. That was a
+  product decision for usability (someone who mistypes an address, or uses the
+  email box as staff, is otherwise left waiting for a message that never
+  arrives), and the cost is that anyone can learn whether an address is
+  registered. It is mitigated, not closed, by two in-memory limits per 15
+  minutes: **20 lookups per client IP** and **5 sign-in links per address**
+  (`lib/auth/rate-limit.ts`, applied in `requestLink`). They are per app
+  replica, reset on restart, and the client key is the first `x-forwarded-for`
+  entry (then `x-real-ip`; with neither, all callers share one bucket), so they
+  are a speed bump rather than a security boundary: enumeration is slowed, not
+  prevented. To restore a neutral answer, collapse the refusals in `requestLink`
+  and the form's message map together.
+- **External roles only.** Internal staff are refused (`internal`) and the login
+  page offers the Microsoft button instead. They have Entra.
 - **The link is never persisted.** See §2.
 
 Locally, with no mail provider configured, the link is printed to the server
 console — the flow is fully testable without Azure.
+
+### The login page and the email box's answers
+
+`/login` is one card with two labelled sections: **Grower or vendor?** (the
+email box) first, then **or**, then **Company staff?** (the Microsoft button and
+a *Use a different Microsoft account* link). The Entra flow itself is unchanged.
+
+`POST /api/auth/magic/request` takes `{ email }` and returns `{ ok: true }` or
+`{ ok: false, error }`. Checks run top to bottom, so the per-address limit only
+applies once the account checks have passed:
+
+| `error` | HTTP | When | The page says |
+|---|---|---|---|
+| `config` | 500 | `MAGIC_LINK_SECRET` is unset | the generic "Something went wrong…" |
+| `invalid` | 400 | not shaped like an address | "Enter your full email address…" |
+| `ratelimited` | 429 | client IP over 20 lookups | "Too many attempts…" |
+| `notfound` | 404 | no `User` with that email | "We couldn't find an account for …" |
+| `inactive` | 403 | `User.isActive` is false | "The account for … has been turned off." |
+| `internal` | 409 | an internal role | "… is a company staff account…", plus a **Sign in with Microsoft** button |
+| `partnerdisabled` | 403 | the user's grower or vendor is not Active | "Your organization's access … is turned off." |
+| `ratelimited` | 429 | address over 5 links | "Too many attempts…" |
+| `mailfailed` | 500 | the inline send failed | "We couldn't send the email just now…" |
+
+After a send the form becomes a **Check your inbox** panel: the address, a
+once-only / 15-minute note, a Spam/Junk hint, **Resend link** (a 30-second
+cooldown enforced in the browser; a resend invalidates the earlier link) and
+**Use a different email**. The last address that got a link is kept in the
+browser's `localStorage` (`login.lastEmail`) and prefilled next time.
+
+`/login?error=<code>` banners (`lib/auth/errors.ts`) are worded in plain
+language. `sessionexpired` is a neutral notice rather than an error, the
+"no access" Microsoft errors (`unprovisioned`, `noidentity`) add a *Try a
+different Microsoft account* button, and an expired or incomplete link
+(`linkexpired`, `nolink`) focuses the email box.
 
 ### Sliding sessions
 
@@ -154,9 +198,9 @@ lib/email/dispatch-loop.ts the 30s timer, started from instrumentation.ts
 
 ## 3. Scheduling
 
-Reminder rules — global and per-grower cadences — stay configured in-app under
-**Settings → Schedulers**. The Container Apps jobs only decide how often things
-*run*:
+Reminder rules — cadences for all growers or one grower, and for all vendors or
+one vendor — stay configured in-app under **Settings → Schedulers**. The
+Container Apps jobs only decide how often things *run*:
 
 | Job | Cron | Endpoint |
 |---|---|---|
@@ -168,9 +212,17 @@ unset secret denies rather than allows. Setup is in
 [azure-staging-setup.md §9](azure-staging-setup.md).
 
 The reminder job only enqueues, so it returns in milliseconds however many
-growers are overdue — its replica timeout is never in play. The dispatch job is
-a safety net: the running app drains the queue every 30 seconds on its own, and
-this catches the case where that process is not up.
+growers or vendors are overdue — its replica timeout is never in play. The
+dispatch job is a safety net: the running app drains the queue every 30 seconds
+on its own, and this catches the case where that process is not up.
+
+Vendors follow the same rules on a simpler clock: a vendor is overdue when the
+days since its last supply report reach the cadence (never having reported
+counts), and only Active vendors with at least one live mapped item are
+considered. At most one `VendorScheduledReminder` per vendor per day is queued,
+to the contact email plus every active vendor user, one message per language.
+The migration seeds an **All vendors** schedule switched **off**, so no vendor
+is emailed until an admin enables it.
 
 Locally:
 

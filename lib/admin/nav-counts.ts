@@ -30,7 +30,7 @@ export async function getNavCounts(roleName: RoleName, vendorId?: number | null)
     // Grower-raised flags still awaiting an admin review.
     prisma.lowInventoryFlag.count({ where: { isActive: true } }),
     prisma.missingItemRequest.count({ where: { status: REQUEST_STATUS.OPEN } }),
-    // Notices growers can currently see (active and inside any date window).
+    // Notices growers or vendors can currently see (active and inside any date window).
     prisma.itemMessage.count({
       where: {
         isActive: true,

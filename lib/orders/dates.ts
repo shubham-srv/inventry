@@ -19,6 +19,13 @@ export function toDayInput(d: Date): string {
   return format(d, "yyyy-MM-dd")
 }
 
+/** Lead-time box: "" -> null (cleared), whole 0–365 -> number, else undefined (invalid). */
+export function parseLeadDays(raw: string): number | null | undefined {
+  if (raw.trim() === "") return null
+  const n = Number(raw)
+  return Number.isInteger(n) && n >= 0 && n <= 365 ? n : undefined
+}
+
 /** Earliest delivery a vendor accepts for an order placed on `orderDay`. */
 export function earliestDelivery(orderDay: Date, leadTimeDays: number | null | undefined): Date {
   return addDays(startOfDay(orderDay), Math.max(0, leadTimeDays ?? 0))

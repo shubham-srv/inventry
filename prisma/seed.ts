@@ -519,6 +519,8 @@ async function main() {
     data: [
       { scope: "Global", cadenceType: "AfterNDays", thresholdDays: 3, isEnabled: true, createdBy: adminId },
       { scope: "Grower", growerId: pdg.id, cadenceType: "Weekly", thresholdDays: 7, isEnabled: true, createdBy: adminId },
+      // Off, as migration 20261025090100 seeds it.
+      { scope: "VendorGlobal", cadenceType: "AfterNDays", thresholdDays: 3, isEnabled: false, createdBy: adminId },
     ],
   })
 
