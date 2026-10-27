@@ -37,7 +37,18 @@ const ITEM_STATUSES = [ENTITY_STATUS.ACTIVE, ENTITY_STATUS.INACTIVE, ENTITY_STAT
 const GROWER_STATUSES = [ENTITY_STATUS.ACTIVE, ENTITY_STATUS.INACTIVE, ENTITY_STATUS.PENDING] as const
 const VENDOR_STATUSES = [ENTITY_STATUS.ACTIVE, ENTITY_STATUS.INACTIVE] as const
 
-export type SheetSpec = { name: string; purpose: string; cols: Col[]; example: unknown[] }
+export type SheetSpec = {
+  name: string
+  purpose: string
+  cols: Col[]
+  example: unknown[]
+  /** Columns other sheets use to refer to a row here. */
+  key?: string[]
+  /** Sheets this one refers to; `cols` line up with that sheet's `key`. */
+  refs?: { sheet: string; cols: string[] }[]
+}
+
+const ref = (sheet: string, ...cols: string[]) => ({ sheet, cols })
 
 /** Sheets in LOAD ORDER — each depends only on the ones before it. */
 export const SHEETS: SheetSpec[] = [
@@ -46,6 +57,7 @@ export const SHEETS: SheetSpec[] = [
     purpose: "Geographic groupings. Used by locations only.",
     cols: [{ key: "RegionName", width: 24, required: true, help: "Unique. e.g. West" }],
     example: ["West"],
+    key: ["RegionName"],
   },
   {
     name: "2-Countries",
@@ -61,6 +73,7 @@ export const SHEETS: SheetSpec[] = [
       },
     ],
     example: ["USA", "Yes"],
+    key: ["CountryName"],
   },
   {
     name: "3-Commodities",
@@ -71,6 +84,7 @@ export const SHEETS: SheetSpec[] = [
       { key: "CommodityName", width: 30, required: true, help: "e.g. Asparagus" },
     ],
     example: ["AP", "Asparagus"],
+    key: ["CommodityCode"],
   },
   {
     name: "4-MaterialCategories",
@@ -81,6 +95,7 @@ export const SHEETS: SheetSpec[] = [
       { key: "MaterialCategoryName", width: 30, required: true, help: "e.g. Boxes" },
     ],
     example: ["BX", "Boxes"],
+    key: ["MaterialCategoryCode"],
   },
   {
     name: "5-SubCategories",
@@ -90,6 +105,8 @@ export const SHEETS: SheetSpec[] = [
       { key: "SubCategoryName", width: 30, required: true, help: "Unique within its category. e.g. Cardboard Boxes" },
     ],
     example: ["BX", "Cardboard Boxes"],
+    key: ["MaterialCategoryCode", "SubCategoryName"],
+    refs: [ref("4-MaterialCategories", "MaterialCategoryCode")],
   },
   {
     name: "6-Locations",
@@ -111,6 +128,8 @@ export const SHEETS: SheetSpec[] = [
       { key: "Notes", width: 40, help: "" },
     ],
     example: ["Salinas Packing House", "Packing House", "West", "USA", "Asparagus", "A. Reyes", ""],
+    key: ["LocationName"],
+    refs: [ref("1-Regions", "RegionName"), ref("2-Countries", "CountryName")],
   },
   {
     name: "7-Items",
@@ -145,6 +164,13 @@ export const SHEETS: SheetSpec[] = [
       "AP-BX-000001", "Corrugated Box 40x30", "AP", "BX", "Cardboard Boxes",
       "USA", "Machine", "Active", "FAM-10023", "", "AP-BX-000001.jpg",
     ],
+    key: ["ItemID"],
+    refs: [
+      ref("2-Countries", "CountryOfOrigin"),
+      ref("3-Commodities", "CommodityCode"),
+      ref("4-MaterialCategories", "MaterialCategoryCode"),
+      ref("5-SubCategories", "MaterialCategoryCode", "SubCategoryName"),
+    ],
   },
   {
     name: "8-Growers",
@@ -156,6 +182,7 @@ export const SHEETS: SheetSpec[] = [
       { key: "PreferredLocale", width: 18, required: true, list: LOCALES, help: "Language for emails to PrimaryEmail" },
     ],
     example: ["Agribar", "ops@agribar.example", "Active", "en"],
+    key: ["GrowerName"],
   },
   {
     name: "9-Vendors",
@@ -178,6 +205,8 @@ export const SHEETS: SheetSpec[] = [
       "PackRight Manufacturing", "Manufacturer", "USA", "Sam Carter",
       "sam@packright.example", "+1-555-0101", 5, 30, "", "Active", "en", "",
     ],
+    key: ["VendorName"],
+    refs: [ref("2-Countries", "HeadquartersCountry")],
   },
   {
     name: "10-Users",
@@ -199,6 +228,7 @@ export const SHEETS: SheetSpec[] = [
       { key: "PreferredLocale", width: 18, required: true, list: LOCALES, help: "This person's UI and email language" },
     ],
     example: ["James", "Ortiz", "james@agribar.example", "GrowerUser", "Agribar", "", "Yes", "en"],
+    refs: [ref("8-Growers", "GrowerName"), ref("9-Vendors", "VendorName")],
   },
   {
     name: "11-GrowerLocations",
@@ -209,6 +239,7 @@ export const SHEETS: SheetSpec[] = [
       { key: "LocationName", width: 30, required: true, help: "Must exist in 6-Locations and be a grower-usable type" },
     ],
     example: ["Agribar", "Salinas Packing House"],
+    refs: [ref("8-Growers", "GrowerName"), ref("6-Locations", "LocationName")],
   },
   {
     name: "12-GrowerItems",
@@ -219,6 +250,7 @@ export const SHEETS: SheetSpec[] = [
       { key: "ItemID", width: 18, required: true, help: "Must exist in 7-Items" },
     ],
     example: ["Agribar", "AP-BX-000001"],
+    refs: [ref("8-Growers", "GrowerName"), ref("7-Items", "ItemID")],
   },
   {
     name: "13-VendorItems",
@@ -228,6 +260,8 @@ export const SHEETS: SheetSpec[] = [
       { key: "ItemID", width: 18, required: true, help: "Must exist in 7-Items" },
     ],
     example: ["PackRight Manufacturing", "AP-BX-000001"],
+    key: ["VendorName", "ItemID"],
+    refs: [ref("9-Vendors", "VendorName"), ref("7-Items", "ItemID")],
   },
   {
     name: "14-VendorCategories",
@@ -238,6 +272,7 @@ export const SHEETS: SheetSpec[] = [
       { key: "MaterialCategoryCode", width: 24, required: true, help: "Must exist in 4-MaterialCategories" },
     ],
     example: ["PackRight Manufacturing", "BX"],
+    refs: [ref("9-Vendors", "VendorName"), ref("4-MaterialCategories", "MaterialCategoryCode")],
   },
   {
     name: "15-VendorSupplyCountries",
@@ -248,6 +283,7 @@ export const SHEETS: SheetSpec[] = [
       { key: "CountryName", width: 24, required: true, help: "Must exist in 2-Countries and be Selectable" },
     ],
     example: ["PackRight Manufacturing", "Canada"],
+    refs: [ref("9-Vendors", "VendorName"), ref("2-Countries", "CountryName")],
   },
   {
     // Appended rather than slotted next to 11-GrowerLocations so the existing
@@ -261,6 +297,7 @@ export const SHEETS: SheetSpec[] = [
       { key: "LocationName", width: 30, required: true, help: "Must exist in 6-Locations and be a vendor-usable type" },
     ],
     example: ["PackRight Manufacturing", "PackRight Plant"],
+    refs: [ref("9-Vendors", "VendorName"), ref("6-Locations", "LocationName")],
   },
 
   // ---- 17-20: optional setup -------------------------------------------
@@ -300,6 +337,8 @@ export const SHEETS: SheetSpec[] = [
       { key: "IsActive", width: 12, list: YES_NO, help: "Default Yes." },
     ],
     example: ["Bags → Boxes → Cases", "BG", "Boxes, Cases", "Yes"],
+    key: ["ChainName"],
+    refs: [ref("4-MaterialCategories", "MaterialCategoryCode")],
   },
   {
     name: "18-VendorPackaging",
@@ -327,6 +366,12 @@ export const SHEETS: SheetSpec[] = [
       },
     ],
     example: ["PackRight Manufacturing", "AP-BG-000002", "Bags → Boxes → Cases", "10, 5"],
+    refs: [
+      ref("9-Vendors", "VendorName"),
+      ref("7-Items", "ItemID"),
+      ref("17-PackagingChains", "ChainName"),
+      ref("13-VendorItems", "VendorName", "ItemID"),
+    ],
   },
   {
     name: "19-ItemThresholds",
@@ -347,6 +392,7 @@ export const SHEETS: SheetSpec[] = [
       },
     ],
     example: ["AP-BX-000001", "", 500],
+    refs: [ref("7-Items", "ItemID"), ref("8-Growers", "GrowerName")],
   },
   {
     name: "20-ReminderSchedules",
@@ -379,6 +425,7 @@ export const SHEETS: SheetSpec[] = [
       },
     ],
     example: ["", "AfterNDays", 3, "Yes"],
+    refs: [ref("8-Growers", "GrowerName")],
   },
 ]
 

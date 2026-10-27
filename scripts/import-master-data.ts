@@ -31,8 +31,8 @@
 import path from "node:path"
 import ExcelJS from "exceljs"
 import { PrismaClient, Prisma } from "@prisma/client"
-import { SHEETS, type SheetSpec } from "./master-data-spec"
-import { LOCATION_TYPE_SEED } from "../lib/constants"
+import { SHEETS, YES_NO, type SheetSpec } from "./master-data-spec"
+import { LOCATION_TYPE_SEED, ROLES } from "../lib/constants"
 
 const prisma = new PrismaClient()
 
@@ -66,6 +66,12 @@ const err = (sheet: string, row: number | null, message: string) =>
 const warn = (sheet: string, row: number | null, message: string) =>
   warnings.push({ sheet, row, message })
 
+/** Rows that look like the template's example, held back until keepReferencedExamples() decides. */
+const examples: { sheet: string; row: Row }[] = []
+
+/** Text pasted from the web carries zero-width characters and non-breaking spaces. */
+const clean = (s: string) => s.replace(/[​-‍⁠﻿]/g, "").replace(/ /g, " ").trim()
+
 /**
  * A cell as text.
  *
@@ -77,16 +83,18 @@ const warn = (sheet: string, row: number | null, message: string) =>
  */
 function cellText(value: ExcelJS.CellValue): string {
   if (value === null || value === undefined) return ""
-  if (typeof value === "string") return value.trim()
+  if (typeof value === "string") return clean(value)
   if (typeof value === "number" || typeof value === "boolean") return String(value)
   if (value instanceof Date) return value.toISOString()
   if (typeof value === "object") {
-    const v = value as { result?: unknown; richText?: { text: string }[]; text?: string }
-    if (Array.isArray(v.richText)) return v.richText.map((r) => r.text).join("").trim()
-    if (v.text !== undefined) return String(v.text).trim()
-    if (v.result !== undefined) return String(v.result).trim()
+    const v = value as { result?: unknown; richText?: { text: string }[]; text?: unknown; error?: string }
+    if (Array.isArray(v.richText)) return clean(v.richText.map((r) => r.text).join(""))
+    // Hyperlink text and formula results can themselves be rich text, numbers or errors.
+    if (v.text !== undefined) return cellText(v.text as ExcelJS.CellValue)
+    if (v.result !== undefined) return cellText(v.result as ExcelJS.CellValue)
+    if (v.error !== undefined) return String(v.error)
   }
-  return String(value).trim()
+  return clean(String(value))
 }
 
 /**
@@ -157,25 +165,88 @@ function readSheet(wb: ExcelJS.Workbook, spec: SheetSpec): Row[] | null {
     // obvious case, and the failure is vicious: the row vanishes, and every
     // later sheet that references it fails with "region not found". Styling
     // alone is no good either, because a client who typed over the example row
-    // inherits its formatting. Together they are specific enough.
+    // inherits its formatting. Even together they misfire when that client's
+    // real row equals the example ("USA"), so the row is held back, not dropped.
     const matchesExample = spec.cols.every((col, i) => {
       const expected = spec.example[i]
       const got = values.get(col.key) ?? ""
       return String(expected ?? "").trim() === got
     })
-    if (matchesExample && raw.getCell(1).font?.italic) {
-      warn(spec.name, r, "example row was left in the sheet — skipped, not imported")
-      continue
-    }
-
-    rows.push({
+    const row: Row = {
       row: r,
       get: (k) => values.get(k) ?? "",
       has: (k) => !!values.get(k),
-    })
+    }
+    if (matchesExample && raw.getCell(1).font?.italic) {
+      examples.push({ sheet: spec.name, row })
+      continue
+    }
+
+    // Dropdowns don't stop pasted values (or anything typed on row 3), so
+    // check them here. Case is forgiven and normalised.
+    for (const col of spec.cols) {
+      const v = values.get(col.key)!
+      if (!v || !col.list) continue
+      if (col.list === YES_NO) {
+        if (!/^(y|yes|true|1|n|no|false|0)$/i.test(v)) err(spec.name, r, `${col.key}: "${v}" must be Yes or No`)
+        continue
+      }
+      const hit = col.list.find((o) => o.toLowerCase() === v.toLowerCase())
+      if (hit) values.set(col.key, hit)
+      else err(spec.name, r, `${col.key}: "${v}" is not one of ${col.list.join(", ")}`)
+    }
+
+    rows.push(row)
   }
   return rows
 }
+
+/**
+ * Restores a held-back example row when real rows refer to it.
+ *
+ * A client whose own first row happened to equal the example looks exactly
+ * like one who left the example in — except that their other sheets use it.
+ * Loops until stable, so a restored location also restores the example
+ * region and country it names. Anything nothing refers to is still skipped.
+ */
+function keepReferencedExamples(sheets: Map<string, Row[]>) {
+  const keyOf = (r: Row, cols: string[]) =>
+    cols.every((c) => r.has(c)) ? cols.map((c) => r.get(c).toLowerCase()).join("|") : null
+
+  const usedBy = (target: string, key: string) => {
+    for (const s of SHEETS)
+      for (const f of s.refs ?? [])
+        if (f.sheet === target)
+          for (const r of sheets.get(s.name) ?? []) if (keyOf(r, f.cols) === key) return `${s.name} row ${r.row}`
+    return null
+  }
+
+  for (let changed = true; changed; ) {
+    changed = false
+    for (const ex of [...examples]) {
+      const spec = SHEETS.find((s) => s.name === ex.sheet)!
+      const key = spec.key && keyOf(ex.row, spec.key)
+      const user = key && usedBy(ex.sheet, key)
+      if (!user) continue
+      const rows = sheets.get(ex.sheet)!
+      rows.push(ex.row)
+      rows.sort((a, b) => a.row - b.row)
+      examples.splice(examples.indexOf(ex), 1)
+      warn(ex.sheet, ex.row.row, `matches the template's example row, but ${user} uses it — imported as data`)
+      changed = true
+    }
+  }
+  for (const ex of examples) warn(ex.sheet, ex.row.row, "example row was left in the sheet — skipped, not imported")
+}
+
+// A typo in the spec's key/refs would silently stop examples being restored.
+for (const s of SHEETS)
+  for (const f of s.refs ?? [])
+    if (
+      SHEETS.find((t) => t.name === f.sheet)?.key?.length !== f.cols.length ||
+      f.cols.some((c) => !s.cols.some((col) => col.key === c))
+    )
+      throw new Error(`master-data-spec: ${s.name} refs ${f.sheet} by ${f.cols.join("+")}, which does not match its key`)
 
 // ---------------------------------------------------------------------------
 // Value helpers
@@ -281,6 +352,7 @@ async function main() {
     const rows = readSheet(wb, spec)
     if (rows) sheets.set(spec.name, rows)
   }
+  keepReferencedExamples(sheets)
   const rowsOf = (name: string): Row[] => sheets.get(name) ?? []
 
   if (errors.length) return report() // a missing sheet makes the rest meaningless
@@ -408,14 +480,11 @@ async function main() {
   // 6-Locations
   {
     const dup = seen("6-Locations")
-    const typeNames = new Set<string>(LOCATION_TYPE_SEED.map((t) => t.name))
     for (const r of rowsOf("6-Locations")) {
       const name = r.get("LocationName")
       const type = r.get("LocationType")
       if (!name) { err("6-Locations", r.row, "LocationName is required"); continue }
-      if (!type || !typeNames.has(type)) {
-        err("6-Locations", r.row, `LocationType: "${type}" is not one of ${[...typeNames].join(", ")}`)
-      }
+      if (!type) err("6-Locations", r.row, "LocationType is required") // values checked in readSheet
       if (r.has("RegionName")) resolve(regions, "6-Locations", r.row, "RegionName", r.get("RegionName"), "region")
       if (r.has("CountryName")) {
         const c = resolve(countries, "6-Locations", r.row, "CountryName", r.get("CountryName"), "country")
@@ -518,6 +587,8 @@ async function main() {
         err("10-Users", r.row, `Email: "${r.get("Email")}" is not a valid address`)
       if (!r.get("FirstName") || !r.get("LastName"))
         err("10-Users", r.row, "FirstName and LastName are required")
+      if (!role) { err("10-Users", r.row, "Role is required"); continue }
+      if (!(Object.values(ROLES) as string[]).includes(role)) continue // reported by readSheet
       if (!resolve(roles, "10-Users", r.row, "Role", role, "role")) continue
 
       // The two scoping rules the app relies on: a grower user without a grower
@@ -678,6 +749,7 @@ async function main() {
       const cadence = r.get("CadenceType")
       if (!g) globals++
       else resolve(growers, "20-ReminderSchedules", r.row, "GrowerName", g, "grower")
+      if (!cadence) err("20-ReminderSchedules", r.row, "CadenceType is required")
 
       if (cadence === "AfterNDays") {
         if (!r.has("ThresholdDays")) err("20-ReminderSchedules", r.row, "ThresholdDays is required when CadenceType is AfterNDays")
@@ -1002,9 +1074,11 @@ async function main() {
 // ---------------------------------------------------------------------------
 
 function report(counts?: Record<string, number>) {
+  const order = (sheet: string) => SHEETS.findIndex((s) => s.name === sheet)
   const group = (list: Problem[]) => {
     const by = new Map<string, Problem[]>()
-    for (const p of list) by.set(p.sheet, [...(by.get(p.sheet) ?? []), p])
+    for (const p of [...list].sort((a, b) => order(a.sheet) - order(b.sheet)))
+      by.set(p.sheet, [...(by.get(p.sheet) ?? []), p])
     for (const [sheet, ps] of by) {
       console.log(`\n  ${sheet}`)
       for (const p of ps) console.log(`    ${p.row ? `row ${p.row}: ` : ""}${p.message}`)

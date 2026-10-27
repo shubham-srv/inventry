@@ -42,7 +42,12 @@ one is treated as blank. Leave optional cells blank rather than writing "N/A" or
 The importer finds the header by its text rather than by counting rows, so an
 inserted row does not break it, and it skips the example row if it was left in —
 saying so in the output rather than importing "PackRight Manufacturing" as real
-data.
+data. The exception is an example-identical row that other rows refer to (a
+client who typed `USA` over the example and then used it on 6-Locations): that
+is real data, so it is imported, with a warning.
+
+Cells are trimmed, and zero-width characters and non-breaking spaces (common in
+text pasted from the web) are removed. Dropdown values are matched ignoring case.
 
 Sheets reference each other **by name** (grower name, location name, category
 code), not by database id — the one exception is items, which are referenced by
@@ -553,7 +558,8 @@ Everything the importer checks before writing anything:
 **Advisory (warn, don't fail)**
 - rows naming a photo in `ImageFile` — the importer does not upload photos, so
   those items load without one
-- the example row left in a sheet — skipped, not imported
+- the example row left in a sheet — skipped, not imported (unless another row
+  refers to it, in which case it is imported)
 - an optional column deleted from a sheet — treated as blank
 - an active grower with no `GrowerLocations` row — they cannot submit
 - an active grower with no `GrowerItems` rows — they will see an empty form
