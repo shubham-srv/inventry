@@ -1,7 +1,7 @@
 /**
  * Loads a filled-in master-data workbook into the database.
  *
- *   npx tsx scripts/import-master-data.ts <workbook.xlsx> [--dry-run] [--quiet]
+ *   npx tsx scripts/import-master-data.ts <workbook.xlsx> [--dry-run] [--partial] [--quiet]
  *
  * The workbook's shape comes from ./master-data-spec, the same definition
  * generate-master-data-template.ts writes from — so the file this reads and the
@@ -14,6 +14,9 @@
  * than one mistake on the first attempt, and half-imported master data is
  * miserable to unpick — a list of all forty problems is worth far more than
  * stopping at the first.
+ *
+ * --partial relaxes that: rows with errors, and rows that depend on them, are
+ * skipped and listed; everything else is imported. Fix and re-run the whole file.
  *
  * IT IS RE-RUNNABLE. Every write is an upsert keyed on the same natural key the
  * workbook uses (item id, grower name, vendor+item, ...), so fixing a row and
@@ -44,9 +47,10 @@ const args = process.argv.slice(2)
 const FILE = args.find((a) => !a.startsWith("--"))
 const DRY_RUN = args.includes("--dry-run")
 const QUIET = args.includes("--quiet")
+const PARTIAL = args.includes("--partial")
 
 if (!FILE) {
-  console.error("Usage: npx tsx scripts/import-master-data.ts <workbook.xlsx> [--dry-run]")
+  console.error("Usage: npx tsx scripts/import-master-data.ts <workbook.xlsx> [--dry-run] [--partial] [--quiet]")
   process.exit(2)
 }
 
@@ -61,8 +65,15 @@ type Problem = { sheet: string; row: number | null; message: string }
 const errors: Problem[] = []
 const warnings: Problem[] = []
 
-const err = (sheet: string, row: number | null, message: string) =>
+/** Rows with at least one error — what --partial skips. */
+const badRows = new Set<string>()
+const rowKey = (sheet: string, row: number) => `${sheet}|${row}`
+let skippedRows = 0
+
+const err = (sheet: string, row: number | null, message: string) => {
   errors.push({ sheet, row, message })
+  if (row !== null) badRows.add(rowKey(sheet, row))
+}
 const warn = (sheet: string, row: number | null, message: string) =>
   warnings.push({ sheet, row, message })
 
@@ -143,6 +154,7 @@ function readSheet(wb: ExcelJS.Workbook, spec: SheetSpec): Row[] | null {
     if (c.required) err(spec.name, headerRow, `required column "${c.key}" is missing`)
     else warn(spec.name, headerRow, `optional column "${c.key}" is missing — treated as blank`)
   }
+  if (missing.some((c) => c.required)) return null // --partial skips the whole sheet
 
   const rows: Row[] = []
   for (let r = headerRow + 1; r <= ws.rowCount; r++) {
@@ -297,10 +309,18 @@ const ITEM_ID = /^([A-Z]{2})-([A-Z]{2})-(\d{6})$/
 class Index<T> {
   private map = new Map<string, T>()
   private display = new Map<string, string>()
+  private skipped = new Set<string>()
 
   set(name: string, value: T) {
     this.map.set(name.toLowerCase(), value)
     this.display.set(name.toLowerCase(), name)
+  }
+  /** --partial: named in the workbook, but its row has errors. */
+  skip(name: string) {
+    this.skipped.add(name.toLowerCase())
+  }
+  isSkipped(name: string): boolean {
+    return this.skipped.has(name.trim().toLowerCase())
   }
   get(name: string): T | undefined {
     return this.map.get(name.trim().toLowerCase())
@@ -332,9 +352,22 @@ function resolve<T>(
 ): T | undefined {
   const hit = index.get(name)
   if (hit !== undefined) return hit
+  if (index.isSkipped(name)) {
+    err(sheet, row, `${key}: ${what} "${name}" is skipped — its own row has errors`)
+    return undefined
+  }
   const near = index.suggest(name)
   err(sheet, row, `${key}: ${what} "${name}" not found${near ? ` — did you mean "${near}"?` : ""}`)
   return undefined
+}
+
+/**
+ * Indexes a workbook row. Under --partial a row with errors is left out, so
+ * every row that refers to it fails too and is skipped with it.
+ */
+function add<T>(index: Index<T>, sheet: string, row: number, name: string, value: T) {
+  if (PARTIAL && badRows.has(rowKey(sheet, row))) index.skip(name)
+  else index.set(name, value)
 }
 
 // ---------------------------------------------------------------------------
@@ -355,7 +388,8 @@ async function main() {
   keepReferencedExamples(sheets)
   const rowsOf = (name: string): Row[] => sheets.get(name) ?? []
 
-  if (errors.length) return report() // a missing sheet makes the rest meaningless
+  // A missing sheet makes the rest meaningless — unless --partial, which skips it.
+  if (errors.length && !PARTIAL) return report()
 
   // ---- indexes of what already exists in the database --------------------
   // Seeded from the database FIRST so a re-run, or a workbook that references
@@ -419,7 +453,7 @@ async function main() {
       const name = r.get("RegionName")
       if (!name) { err("1-Regions", r.row, "RegionName is required"); continue }
       if (!dup(r.row, name.toLowerCase())) continue
-      regions.set(name, -1)
+      add(regions, "1-Regions", r.row, name, -1)
     }
   }
 
@@ -430,7 +464,7 @@ async function main() {
       const name = r.get("CountryName")
       if (!name) { err("2-Countries", r.row, "CountryName is required"); continue }
       if (!dup(r.row, name.toLowerCase())) continue
-      countries.set(name, { id: -1, selectable: yes(r.get("SelectableAsRealCountry")) })
+      add(countries, "2-Countries", r.row, name, { id: -1, selectable: yes(r.get("SelectableAsRealCountry")) })
     }
   }
 
@@ -445,7 +479,7 @@ async function main() {
       }
       if (!r.get("CommodityName")) err("3-Commodities", r.row, "CommodityName is required")
       if (!dup(r.row, code.toLowerCase())) continue
-      commodities.set(code, code)
+      add(commodities, "3-Commodities", r.row, code, code)
     }
   }
 
@@ -460,7 +494,7 @@ async function main() {
       }
       if (!r.get("MaterialCategoryName")) err("4-MaterialCategories", r.row, "MaterialCategoryName is required")
       if (!dup(r.row, code.toLowerCase())) continue
-      categories.set(code, code)
+      add(categories, "4-MaterialCategories", r.row, code, code)
     }
   }
 
@@ -473,7 +507,7 @@ async function main() {
       if (!code || !name) { err("5-SubCategories", r.row, "MaterialCategoryCode and SubCategoryName are required"); continue }
       if (!resolve(categories, "5-SubCategories", r.row, "MaterialCategoryCode", code, "material category")) continue
       if (!dup(r.row, `${code}|${name}`.toLowerCase(), "sub-category")) continue
-      subCategories.set(`${code}|${name}`, -1)
+      add(subCategories, "5-SubCategories", r.row, `${code}|${name}`, -1)
     }
   }
 
@@ -491,7 +525,7 @@ async function main() {
         if (c && !c.selectable) err("6-Locations", r.row, `CountryName: "${r.get("CountryName")}" is not selectable — it is a placeholder, valid only as an item's origin`)
       }
       if (!dup(r.row, name.toLowerCase(), "location")) continue
-      locations.set(name, { id: -1, type })
+      add(locations, "6-Locations", r.row, name, { id: -1, type })
     }
   }
 
@@ -538,14 +572,16 @@ async function main() {
 
       const sub = r.get("SubCategoryName")
       if (sub && category && !subCategories.has(`${category}|${sub}`))
-        err("7-Items", r.row, `SubCategoryName: "${sub}" is not a sub-category of ${category} (see 5-SubCategories)`)
+        err("7-Items", r.row, subCategories.isSkipped(`${category}|${sub}`)
+          ? `SubCategoryName: "${sub}" is skipped — its own row has errors`
+          : `SubCategoryName: "${sub}" is not a sub-category of ${category} (see 5-SubCategories)`)
 
       resolve(countries, "7-Items", r.row, "CountryOfOrigin", r.get("CountryOfOrigin"), "country")
 
       if (r.has("ImageFile")) photos++
 
       if (!dup(r.row, id.toLowerCase(), "ItemID")) continue
-      items.set(id, { id, categoryCode: category || null })
+      add(items, "7-Items", r.row, id, { id, categoryCode: category || null })
     }
     if (photos)
       warn("7-Items", null, `${photos} row(s) name a photo in ImageFile — this script does not upload photos, so those items will import without one`)
@@ -558,7 +594,7 @@ async function main() {
       const name = r.get("GrowerName")
       if (!name) { err("8-Growers", r.row, "GrowerName is required"); continue }
       if (!dup(r.row, name.toLowerCase(), "grower")) continue
-      growers.set(name, -1)
+      add(growers, "8-Growers", r.row, name, -1)
     }
   }
 
@@ -573,13 +609,16 @@ async function main() {
       if (r.has("LeadTimeDays")) asInt("9-Vendors", r.row, "LeadTimeDays", r.get("LeadTimeDays"), 0)
       if (r.has("PaymentTermsDays")) asInt("9-Vendors", r.row, "PaymentTermsDays", r.get("PaymentTermsDays"), 0)
       if (!dup(r.row, name.toLowerCase(), "vendor")) continue
-      vendors.set(name, -1)
+      add(vendors, "9-Vendors", r.row, name, -1)
     }
   }
 
   // 10-Users
   {
     const dup = seen("10-Users")
+    // Roles come from db:bootstrap, not the workbook.
+    if (!roles.size && rowsOf("10-Users").length)
+      err("10-Users", null, "the database has no roles — run `npm run db:bootstrap` first, then import again")
     for (const r of rowsOf("10-Users")) {
       const email = r.get("Email").toLowerCase()
       const role = r.get("Role")
@@ -589,6 +628,7 @@ async function main() {
         err("10-Users", r.row, "FirstName and LastName are required")
       if (!role) { err("10-Users", r.row, "Role is required"); continue }
       if (!(Object.values(ROLES) as string[]).includes(role)) continue // reported by readSheet
+      if (!roles.size) { badRows.add(rowKey("10-Users", r.row)); continue } // reported once above
       if (!resolve(roles, "10-Users", r.row, "Role", role, "role")) continue
 
       // The two scoping rules the app relies on: a grower user without a grower
@@ -685,7 +725,7 @@ async function main() {
         continue
       }
       if (!dup(r.row, name.toLowerCase(), "chain name")) continue
-      chains.set(name, { id: -1, categoryCode: code, levels: levels.length })
+      add(chains, "17-PackagingChains", r.row, name, { id: -1, categoryCode: code, levels: levels.length })
     }
   }
 
@@ -695,8 +735,10 @@ async function main() {
     // Vendor/item pairs this workbook maps, so we can insist packaging hangs
     // off an actual mapping rather than creating one as a side effect.
     const pairs = new Set<string>()
+    const skippedPairs = new Set<string>()
     for (const r of rowsOf("13-VendorItems"))
-      pairs.add(`${r.get("VendorName")}|${r.get("ItemID")}`.toLowerCase())
+      (PARTIAL && badRows.has(rowKey("13-VendorItems", r.row)) ? skippedPairs : pairs)
+        .add(`${r.get("VendorName")}|${r.get("ItemID")}`.toLowerCase())
     for (const iv of await prisma.itemVendor.findMany({ include: { vendor: true } }))
       pairs.add(`${iv.vendor.vendorName}|${iv.itemId}`.toLowerCase())
 
@@ -711,8 +753,11 @@ async function main() {
       const it = resolve(items, "18-VendorPackaging", r.row, "ItemID", item, "item")
       const chain = resolve(chains, "18-VendorPackaging", r.row, "ChainName", chainName, "packaging chain")
 
-      if (!pairs.has(`${v}|${item}`.toLowerCase()))
-        err("18-VendorPackaging", r.row, `"${v}" does not supply ${item} — add the pair to 13-VendorItems first`)
+      const pair = `${v}|${item}`.toLowerCase()
+      if (!pairs.has(pair))
+        err("18-VendorPackaging", r.row, skippedPairs.has(pair)
+          ? `its 13-VendorItems row ("${v}" / ${item}) is skipped — that row has errors`
+          : `"${v}" does not supply ${item} — add the pair to 13-VendorItems first`)
 
       if (chain && it && it.categoryCode && chain.categoryCode !== it.categoryCode)
         err("18-VendorPackaging", r.row, `chain "${chainName}" is for category ${chain.categoryCode} but ${item} is ${it.categoryCode}`)
@@ -762,7 +807,18 @@ async function main() {
     if (globals > 1) err("20-ReminderSchedules", null, `${globals} rows have a blank GrowerName — there can be only one global setting`)
   }
 
-  if (errors.length || DRY_RUN) return report()
+  // --partial: drop every row with an error. Pass 1 already kept them out of
+  // the indexes, so nothing left behind refers to one.
+  if (PARTIAL)
+    for (const [name, rows] of sheets) {
+      const kept = rows.filter((r) => !badRows.has(rowKey(name, r.row)))
+      skippedRows += rows.length - kept.length
+      sheets.set(name, kept)
+    }
+
+  if (errors.length && !PARTIAL) return report()
+  if (DRY_RUN)
+    return report(Object.fromEntries(SHEETS.map((s) => [s.name, rowsOf(s.name).length] as const).filter(([, n]) => n)))
 
   // =========================================================================
   // PASS 2 — write. Everything below is an upsert on the workbook's own key.
@@ -1090,20 +1146,23 @@ function report(counts?: Record<string, number>) {
     group(warnings)
   }
 
-  if (errors.length) {
+  if (errors.length && !PARTIAL) {
     console.log(`\n${errors.length} error(s) — NOTHING was imported:`)
     group(errors)
-    console.log("\nFix these in the workbook and run again. The import is re-runnable.")
+    console.log("\nFix these in the workbook and run again, or pass --partial to import everything else.")
+    console.log("The import is re-runnable.")
     process.exitCode = 1
     return
   }
 
-  if (DRY_RUN) {
-    console.log("\n✅ The workbook is valid. Nothing was written (--dry-run).")
-    return
+  if (errors.length) {
+    console.log(`\n${errors.length} error(s) — ${skippedRows} row(s) ${DRY_RUN ? "would be" : "were"} SKIPPED (--partial):`)
+    group(errors)
   }
 
-  console.log("\n✅ Imported:")
+  if (DRY_RUN) {
+    console.log(errors.length ? "\nWould import (nothing written, --dry-run):" : "\n✅ The workbook is valid. Nothing was written (--dry-run). Would import:")
+  } else console.log("\n✅ Imported:")
   for (const [k, n] of Object.entries(counts ?? {})) console.log(`   ${String(n).padStart(6)}  ${k}`)
 }
 

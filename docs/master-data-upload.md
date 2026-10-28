@@ -14,7 +14,15 @@ and load the filled-in file back with:
 ```bash
 npm run data:import -- <file.xlsx> --dry-run   # validate only, writes nothing
 npm run data:import -- <file.xlsx>             # validate, then import
+npm run data:import -- <file.xlsx> --partial   # import valid rows, skip rows with errors
 ```
+
+By default one error anywhere imports nothing. `--partial` instead skips each
+row with an error **and every row that depends on it** (a location naming a
+skipped country, a mapping naming a skipped grower) and imports the rest. A
+missing sheet, or one missing a required column, is skipped whole. Combine it
+with `--dry-run` to see what would be skipped and what would load before
+choosing; fix the skipped rows and re-run the whole file later — it converges.
 
 This document is the reference; the workbook carries the same rules as column
 notes and dropdowns, so the client can mostly work from the file alone.
