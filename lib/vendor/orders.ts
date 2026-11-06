@@ -2,17 +2,19 @@ import "server-only"
 import { type Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { ORDER_STATUS } from "@/lib/constants"
+import { loadNameLocalizer } from "@/lib/i18n/names"
 
 export const VENDOR_ORDER_VIEWS = ["awaiting", "open", "received", "cancelled", "all"] as const
 
 /**
  * A vendor's orders. Default view is everything still open, with orders that
  * have no delivery date from this vendor first — SQL Server sorts NULL first
- * ascending, which is exactly "awaiting" before "confirmed".
+ * ascending, which is exactly "awaiting" before "confirmed". Item and category
+ * names come back in `locale`.
  */
 export async function getVendorOrders(
   vendorId: number,
-  filters: { view?: string; q?: string },
+  filters: { view?: string; q?: string; locale: string },
   page: { skip: number; take: number }
 ) {
   const view = (VENDOR_ORDER_VIEWS as readonly string[]).includes(filters.view ?? "") ? filters.view : "open"
@@ -26,6 +28,7 @@ export async function getVendorOrders(
       OR: [
         { itemId: { contains: filters.q } },
         { item: { itemName: { contains: filters.q } } },
+        { item: { translations: { some: { field: "itemName", locale: filters.locale, text: { contains: filters.q } } } } },
         { grower: { growerName: { contains: filters.q } } },
       ],
     })
@@ -37,7 +40,9 @@ export async function getVendorOrders(
       where,
       include: {
         grower: { select: { growerName: true } },
-        item: { select: { itemName: true, legacyFamousId: true, materialCategory: { select: { name: true } } } },
+        item: {
+          select: { itemName: true, legacyFamousId: true, materialCategoryCode: true, materialCategory: { select: { name: true } } },
+        },
         packLines: { orderBy: { level: "asc" } },
       },
       orderBy: openView
@@ -48,5 +53,14 @@ export async function getVendorOrders(
     }),
     prisma.order.count({ where }),
   ])
-  return { orders, total, view: view as (typeof VENDOR_ORDER_VIEWS)[number] }
+  const names = await loadNameLocalizer(filters.locale, orders.map((o) => o.itemId))
+  const localized = orders.map((o) => ({
+    ...o,
+    item: {
+      ...o.item,
+      itemName: names.item(o.itemId, o.item.itemName),
+      categoryName: names.category(o.item.materialCategoryCode, o.item.materialCategory?.name),
+    },
+  }))
+  return { orders: localized, total, view: view as (typeof VENDOR_ORDER_VIEWS)[number] }
 }

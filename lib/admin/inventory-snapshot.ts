@@ -1,6 +1,6 @@
 import "server-only"
 import { Prisma } from "@prisma/client"
-import { startOfDay } from "date-fns"
+import { dayStart } from "@/lib/dates"
 import { prisma } from "@/lib/db"
 import { sqlPage } from "@/lib/admin/sql"
 import { activeItemSql } from "@/lib/items/active"
@@ -248,7 +248,7 @@ export async function getInventorySnapshot(
   filters: SnapshotFilters,
   page?: { skip: number; take: number }
 ): Promise<{ rows: InventorySnapshotRow[]; total: number }> {
-  const base = prelude(filters, startOfDay(new Date()))
+  const base = prelude(filters, dayStart())
   // The stock filter predicates on computed columns, so it can only be applied
   // outside the CTE that defines them.
   const stock = stockFilter(filters.stock)
@@ -299,7 +299,7 @@ export async function getGrowerStockSummary(
   sort: PartnerSort,
   page?: { skip: number; take: number }
 ): Promise<{ rows: GrowerStockSummaryRow[]; total: number }> {
-  const today = startOfDay(new Date())
+  const today = dayStart()
   const base = prelude(filters, today)
   const stock = stockFilter(filters.stock)
   const order = partnerOrderSql(sort, Prisma.sql`b.[lastSubmittedAt]`, Prisma.sql`b.[growerName]`)

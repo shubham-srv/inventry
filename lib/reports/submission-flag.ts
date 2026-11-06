@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client"
-import { differenceInCalendarDays, subDays } from "date-fns"
+import { calendarDaysBetween, subAppDays } from "@/lib/dates"
 
 /**
  * How overdue a grower's or vendor's last submission is. One rule for both:
@@ -18,7 +18,7 @@ export const SUBMISSION_FLAG_FILTERS = [
 
 export function submissionFlag(last: Date | null, today: Date): { flag: SubmissionFlag; daysSince: number | null } {
   if (!last) return { flag: "Never", daysSince: null }
-  const daysSince = differenceInCalendarDays(today, last)
+  const daysSince = calendarDaysBetween(today, last)
   if (daysSince >= SUBMISSION_FLAG_DAYS.ALERT) return { flag: "Week", daysSince }
   if (daysSince >= SUBMISSION_FLAG_DAYS.WARN) return { flag: "ThreeDays", daysSince }
   return { flag: "Ok", daysSince }
@@ -26,12 +26,12 @@ export function submissionFlag(last: Date | null, today: Date): { flag: Submissi
 
 /**
  * SQL twin of `submissionFlag` for the flag filter. "N+ calendar days ago" is
- * "before the start of the day N-1 days back", so `today` must be startOfDay —
- * the same boundary differenceInCalendarDays draws.
+ * "before the start of the day N-1 days back", so `today` must be dayStart —
+ * the same boundary calendarDaysBetween draws.
  */
 export function submissionFlagSql(column: Prisma.Sql, flag: string | undefined, today: Date): Prisma.Sql {
-  const warn = subDays(today, SUBMISSION_FLAG_DAYS.WARN - 1)
-  const alert = subDays(today, SUBMISSION_FLAG_DAYS.ALERT - 1)
+  const warn = subAppDays(today, SUBMISSION_FLAG_DAYS.WARN - 1)
+  const alert = subAppDays(today, SUBMISSION_FLAG_DAYS.ALERT - 1)
   switch (flag) {
     case "never":
       return Prisma.sql`AND ${column} IS NULL`

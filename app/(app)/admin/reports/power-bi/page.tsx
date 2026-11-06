@@ -56,12 +56,8 @@ export default async function PowerBiReportsPage() {
         <Alert className="mb-4">
           <BarChart3 className="size-4" />
           <AlertTitle>
-            {unconfigured} of {reports.length} reports are not connected yet
+            {unconfigured} of {reports.length} reports are not available yet
           </AlertTitle>
-          <AlertDescription>
-            Each panel renders whatever Power BI URL is stored against it, so connecting one
-            is a URL change rather than a code change.
-          </AlertDescription>
         </Alert>
       )}
 
@@ -102,9 +98,7 @@ export default async function PowerBiReportsPage() {
                   />
                 ) : kind === "secure" && src && !reportId ? (
                   <Unavailable>
-                    This URL has no <code className="font-mono">reportId</code>. Copy it from
-                    Power BI&rsquo;s <strong>Embed report → Website or portal</strong> menu
-                    rather than the browser address bar.
+                    This report can&rsquo;t be shown right now. Please contact your administrator.
                   </Unavailable>
                 ) : kind === "secure" ? (
                   <Unavailable>Sign in with Microsoft to view this report.</Unavailable>
@@ -120,7 +114,7 @@ export default async function PowerBiReportsPage() {
 
         {reports.length === 0 && (
           <p className="text-muted-foreground text-sm">
-            No reports are configured. Add rows to PowerBiReport to have them appear here.
+            No reports are available yet.
           </p>
         )}
       </div>
@@ -143,26 +137,27 @@ function Unavailable({ children }: { children: React.ReactNode }) {
 function TokenProblem({ reason }: { reason: PowerBiTokenError }) {
   const copy: Record<PowerBiTokenError, { title: string; body: React.ReactNode; signIn?: boolean }> =
     {
+      // Plain wording only; the setup details live in docs/azure-staging-setup.md §10d.
       "entra-not-configured": {
-        title: "Microsoft sign-in is not configured on this environment",
-        body: "Reports that need a Power BI token cannot load here. Publish-to-web panels still work.",
+        title: "Some reports are not available",
+        body: "Microsoft sign-in is not set up here, so secured reports cannot load. Please contact your administrator.",
       },
       "cache-not-configured": {
-        title: "Power BI embedding is not configured",
-        body: "TOKEN_CACHE_SECRET is not set, so no Microsoft token can be stored for your session. See the deployment guide, section 10d.",
+        title: "Some reports are not available",
+        body: "Secured reports are not set up yet. Please contact your administrator.",
       },
       "no-session": {
         title: "Sign in with Microsoft to view these reports",
-        body: "Your current session was not created through Microsoft sign-in, so there is no Power BI access to draw on.",
+        body: "You signed in without Microsoft, so secured reports cannot load.",
         signIn: true,
       },
       "consent-required": {
         title: "Power BI access has not been approved yet",
-        body: "An administrator needs to grant admin consent for this app's Power BI permission. Until then, signing in again will not help. See the deployment guide, section 10d.",
+        body: "Your administrator needs to approve this app's access to Power BI.",
       },
       failed: {
         title: "Could not reach Power BI",
-        body: "The reports below could not be loaded. If this persists, the details are in the server logs.",
+        body: "The reports below could not be loaded. Please try again later, or contact your administrator if this continues.",
       },
     }
 

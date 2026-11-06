@@ -4,6 +4,7 @@ import * as React from "react"
 import { startTransition, useActionState, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
+import { X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -101,7 +102,7 @@ export type Field = {
   /** `suggest` fields only: heading over the list of existing values. */
   suggestTitle?: string
   /**
-   * `textarea` only: name of the source-language field this one translates.
+   * `textarea` or `text`: name of the source-language field this one translates.
    * Editing the source empties this box (unless the user has typed in it), so
    * the save re-translates instead of keeping a copy of words that changed.
    */
@@ -300,6 +301,10 @@ export function EntityFormDialog({
     return complete ? filled : null
   }
 
+  function selectDisabled(f: Field) {
+    return (isEdit && !!f.lockOnEdit) || (!!f.dependsOn && !controlled[f.dependsOn])
+  }
+
   /** Options of a dependent field, narrowed against the committed state. */
   function optionsFor(f: Field) {
     return optionsIn(controlled, f)
@@ -363,7 +368,8 @@ export function EntityFormDialog({
             return (
               <div
                 key={f.name}
-                className={cn(span === 2 ? "sm:col-span-2" : "sm:col-span-1", !shown && "hidden")}
+                // min-w-0: a long option label must not widen the dialog.
+                className={cn("min-w-0", span === 2 ? "sm:col-span-2" : "sm:col-span-1", !shown && "hidden")}
               >
                 {f.label && (
                   <Label htmlFor={f.name} className="mb-1.5">
@@ -372,7 +378,20 @@ export function EntityFormDialog({
                   </Label>
                 )}
 
-                {f.type === "text" || f.type === "number" || f.type === "date" ? (
+                {f.type === "text" && f.translationOf ? (
+                  <Input
+                    id={f.name}
+                    name={f.name}
+                    placeholder={f.placeholder}
+                    value={controlled[f.name] ?? ""}
+                    onChange={(e) => {
+                      translationEdited.current[f.name] = true
+                      setStaleTranslation((s) => ({ ...s, [f.name]: false }))
+                      setControlled((c) => ({ ...c, [f.name]: e.target.value }))
+                    }}
+                    aria-invalid={!!err}
+                  />
+                ) : f.type === "text" || f.type === "number" || f.type === "date" ? (
                   // A locked field is READ-ONLY, never `disabled`: disabled
                   // inputs are omitted from the FormData, which made every edit
                   // fail validation on its own primary key.
@@ -385,6 +404,7 @@ export function EntityFormDialog({
                     required={f.required}
                     placeholder={f.placeholder}
                     defaultValue={String(values?.[f.name] ?? "")}
+                    onChange={f.type === "text" ? (e) => onSourceChange(f.name, e.target.value) : undefined}
                     readOnly={f.readOnly || (isEdit && f.lockOnEdit)}
                     className={
                       f.readOnly || (isEdit && f.lockOnEdit)
@@ -435,25 +455,37 @@ export function EntityFormDialog({
                 ) : f.type === "select" ? (
                   <>
                     <input type="hidden" name={f.name} value={controlled[f.name] ?? ""} />
-                    <Select
-                      value={controlled[f.name] ?? ""}
-                      onValueChange={(v) => selectValue(f.name, v)}
-                      disabled={
-                        (isEdit && f.lockOnEdit) ||
-                        (!!f.dependsOn && !controlled[f.dependsOn])
-                      }
-                    >
-                      <SelectTrigger id={f.name} aria-invalid={!!err} className="w-full">
-                        <SelectValue placeholder={f.placeholder ?? t("common.select")} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {optionsFor(f).map((o) => (
-                          <SelectItem key={o.value} value={o.value}>
-                            {o.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="flex items-center gap-1">
+                      <Select
+                        value={controlled[f.name] ?? ""}
+                        onValueChange={(v) => selectValue(f.name, v)}
+                        disabled={selectDisabled(f)}
+                      >
+                        <SelectTrigger id={f.name} aria-invalid={!!err} className="w-full min-w-0 flex-1">
+                          <SelectValue placeholder={f.placeholder ?? t("common.select")} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {optionsFor(f).map((o) => (
+                            <SelectItem key={o.value} value={o.value}>
+                              {o.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {/* Optional selects can be emptied again. */}
+                      {!f.required && !!controlled[f.name] && !selectDisabled(f) && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={t("common.clear")}
+                          title={t("common.clear")}
+                          onClick={() => selectValue(f.name, "")}
+                        >
+                          <X />
+                        </Button>
+                      )}
+                    </div>
                   </>
                 ) : f.type === "multiselect" ? (
                   <>

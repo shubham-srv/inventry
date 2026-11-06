@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { format } from "date-fns"
+import { formatDate } from "@/lib/dates"
 import {
   Package,
   TriangleAlert,
@@ -13,7 +13,7 @@ import {
 import { requireRole } from "@/lib/auth/session"
 import { ROLES } from "@/lib/constants"
 import { getGrowerDashboard, getTodayProgress } from "@/lib/grower/data"
-import { getT } from "@/lib/i18n/server"
+import { getLocale, getT } from "@/lib/i18n/server"
 import { PageHeader } from "@/components/page-header"
 import { StatCard } from "@/components/stat-card"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -25,7 +25,7 @@ export default async function GrowerDashboard() {
   const user = await requireRole([ROLES.GROWER_USER])
   if (!user.growerId) return <p className="text-sm">Your account is not mapped to a grower.</p>
 
-  const t = await getT()
+  const [t, locale] = await Promise.all([getT(), getLocale()])
   // Progress is summed over every location the grower counts at — the submit
   // page shows one site at a time, the dashboard shows the day as a whole.
   const [d, progress] = await Promise.all([
@@ -70,7 +70,7 @@ export default async function GrowerDashboard() {
         </Badge>
         {d.lastSubmissionDate && (
           <Badge variant="secondary">
-            {t("grower.dash.lastSubmitted", { date: format(d.lastSubmissionDate, "MMM d") })}
+            {t("grower.dash.lastSubmitted", { date: formatDate(d.lastSubmissionDate, "MMM d", locale) })}
           </Badge>
         )}
       </div>

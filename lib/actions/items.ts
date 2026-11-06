@@ -40,8 +40,9 @@ const baseSchema = z.object({
   applicationMethod: z.string().trim().optional().default(""),
   status: z.string().trim().min(1, "Status is required"),
   notes: z.string().trim().optional().default(""),
-  // Spanish notes box: typed = reviewed translation; blank = machine-translate.
+  // Spanish boxes: typed = reviewed translation; blank = machine-translate.
   notesEs: z.string().trim().optional().default(""),
+  itemNameEs: z.string().trim().optional().default(""),
   // Comma-joined id lists from the mapping multi-selects.
   growerIds: z.string().trim().optional().default(""),
   vendorIds: z.string().trim().optional().default(""),
@@ -84,17 +85,22 @@ async function subCategoryMismatch(d: ItemInput): Promise<ActionState | null> {
 }
 
 /**
- * Keep the item's translated notes in step with the English. `notesBefore` is
- * null on create. A failure here is logged, never fails the save — readers
- * fall back to the English notes.
+ * Keep the item's translated notes and name in step with the English. `before`
+ * is null on create. A failure here is logged, never fails the save — readers
+ * fall back to the English.
  */
-async function translateNotes(itemId: string, notesBefore: string | null, d: ItemInput, userId: number) {
+async function translateItemText(
+  itemId: string,
+  before: { notes: string | null; itemName: string } | null,
+  d: ItemInput,
+  userId: number
+) {
   try {
     await syncItemTranslations({
       itemId,
-      before: notesBefore == null ? null : { notes: notesBefore },
-      after: { notes: d.notes },
-      posted: { notesEs: d.notesEs },
+      before,
+      after: { notes: d.notes, itemName: d.itemName },
+      posted: { notesEs: d.notesEs, itemNameEs: d.itemNameEs },
       userId,
     })
   } catch (e) {
@@ -232,7 +238,7 @@ export async function createItem(
         entityId: id,
         changes: toData(data),
       })
-      await translateNotes(id, null, data, user.id)
+      await translateItemText(id, null, data, user.id)
 
       // The photo is stored AFTER the item exists, because its key contains the
       // generated id. A storage failure therefore cannot roll back an item that
@@ -280,8 +286,8 @@ export async function updateItem(
 
   const existing = await prisma.item.findUnique({
     where: { id: data.id },
-    // notes: whether the English changed decides whether Spanish is redone.
-    select: { imageKey: true, notes: true },
+    // notes/name: whether the English changed decides whether Spanish is redone.
+    select: { imageKey: true, notes: true, itemName: true },
   })
   const previousKey = existing?.imageKey ?? null
 
@@ -318,7 +324,7 @@ export async function updateItem(
       entityId: data.id,
       changes: { ...toData(data), ...(imageKey !== undefined ? { imageKey } : {}) },
     })
-    await translateNotes(data.id, existing?.notes ?? "", data, user.id)
+    await translateItemText(data.id, { notes: existing?.notes ?? "", itemName: existing?.itemName ?? "" }, data, user.id)
     // Only once the new key is committed, so a crash in between orphans a blob
     // rather than leaving a row pointing at bytes that are gone.
     if (imageKey !== undefined && previousKey && previousKey !== imageKey) {

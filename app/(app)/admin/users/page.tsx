@@ -50,8 +50,8 @@ export default async function UsersPage({
     { name: "email", label: "Email", type: "text", required: true, colSpan: 2 },
     { name: "roleId", label: "Role", type: "select", required: true, placeholder: "Select role", options: roles.map((r) => ({ label: r.roleName, value: String(r.id) })) },
     { name: "isActive", label: "Active", type: "switch" },
-    { name: "growerId", label: "Grower (grower users only)", type: "select", placeholder: "Select grower", options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })), description: "Applies only when role is GrowerUser" },
-    { name: "vendorId", label: "Vendor (vendor users only)", type: "select", placeholder: "Select vendor", options: vendors.map((v) => ({ label: v.vendorName, value: String(v.id) })), description: "Applies only when role is VendorUser" },
+    { name: "growerId", label: "Grower", type: "select", placeholder: "No grower", options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })), description: "Required for grower users. Leave empty for any other role." },
+    { name: "vendorId", label: "Vendor", type: "select", placeholder: "No vendor", options: vendors.map((v) => ({ label: v.vendorName, value: String(v.id) })), description: "Required for vendor users. Leave empty for any other role." },
   ]
 
   const columns: Column<Row>[] = [

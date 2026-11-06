@@ -1,4 +1,4 @@
-import { format } from "date-fns"
+import { formatDate } from "@/lib/dates"
 import { ChevronRight, Download, Package, Timer } from "lucide-react"
 import { requireRole } from "@/lib/auth/session"
 import { ROLES } from "@/lib/constants"
@@ -117,7 +117,7 @@ export default async function VendorItemsPage({
                 return (
                   <TableRow key={r.mappingId}>
                     <TableCell className="w-0">
-                      <ItemImage itemId={r.itemId} hasImage={r.hasImage} alt={r.itemName} />
+                      <ItemImage itemId={r.itemId} version={r.imageVersion} alt={r.itemName} />
                     </TableCell>
                     <TableCell>
                       <span className="font-medium">{r.itemName}</span>
@@ -137,7 +137,7 @@ export default async function VendorItemsPage({
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{r.allocated ?? dash}</TableCell>
                     <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
-                      {r.asOf ? format(r.asOf, "MMM d") : "—"}
+                      {r.asOf ? formatDate(r.asOf, "MMM d", locale) : "—"}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">

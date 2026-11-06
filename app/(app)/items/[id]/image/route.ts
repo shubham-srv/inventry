@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db"
 import { requireUser } from "@/lib/auth/session"
 import { imageStore } from "@/lib/storage"
+import { imageVersion } from "@/lib/items/image"
 
 /**
  * GET /items/<itemId>/image — an item's photo.
@@ -18,7 +19,7 @@ import { imageStore } from "@/lib/storage"
  * private — there is no public blob URL and no SAS token anywhere.
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   await requireUser()
@@ -41,13 +42,16 @@ export async function GET(
     return new Response("Not found", { status: 404 })
   }
 
+  // Cache for a year only when the URL names THIS photo (?v= from imageVersion).
+  // A bare or stale URL would otherwise pin an old photo in the browser.
+  const current = new URL(request.url).searchParams.get("v") === imageVersion(item.imageKey)
+
   return new Response(new Uint8Array(stored.body), {
     headers: {
       "Content-Type": stored.contentType,
-      // The key embeds a uuid that changes on every replace, so these bytes are
-      // final. `private` keeps them out of shared caches — they are only ever
-      // served to a signed-in user.
-      "Cache-Control": "private, max-age=31536000, immutable",
+      // `private` keeps them out of shared caches — they are only ever served
+      // to a signed-in user.
+      "Cache-Control": current ? "private, max-age=31536000, immutable" : "private, no-cache",
       ETag: `"${item.imageKey}"`,
     },
   })

@@ -5,6 +5,7 @@ import { getLocale, getT } from "@/lib/i18n/server"
 import { getGrowerItems } from "@/lib/grower/items"
 import { buildWorkbook } from "@/lib/export/excel"
 import { recordAudit } from "@/lib/audit"
+import { toDayInput } from "@/lib/dates"
 
 /** The grower's "My items" list as .xlsx — same rows and numbers as the page. */
 export async function GET(request: NextRequest) {
@@ -40,7 +41,7 @@ export async function GET(request: NextRequest) {
         // Blank, never 0, for an item nobody has counted.
         onHand: r.onHand ?? "",
         onOrder: r.onOrder,
-        asOf: r.asOf ? r.asOf.toISOString().slice(0, 10) : "",
+        asOf: r.asOf ? toDayInput(r.asOf) : "",
         notes: r.notes ?? "",
       })),
     },
@@ -53,7 +54,7 @@ export async function GET(request: NextRequest) {
     changes: { growerId: user.growerId, rows: rows.length },
   })
 
-  const date = new Date().toISOString().slice(0, 10)
+  const date = toDayInput(new Date())
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

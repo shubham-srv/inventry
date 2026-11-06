@@ -71,20 +71,21 @@ export function MultiSelect({
           variant="outline"
           id={id}
           aria-invalid={invalid}
-          className="h-auto min-h-9 w-full justify-between px-3 py-1.5 font-normal"
+          className="h-auto min-h-9 w-full min-w-0 justify-between px-3 py-1.5 font-normal"
         >
-          <span className="flex flex-1 flex-wrap gap-1 overflow-hidden">
+          <span className="flex min-w-0 flex-1 flex-wrap gap-1 overflow-hidden">
             {value.length === 0 ? (
-              <span className="text-muted-foreground">{placeholder}</span>
+              <span className="text-muted-foreground truncate">{placeholder}</span>
             ) : (
               value.map((v) => (
-                <Badge key={v} variant="secondary" className="gap-1">
-                  {labelByValue.get(v) ?? v}
+                // Long names truncate instead of widening the dialog.
+                <Badge key={v} variant="secondary" className="max-w-full gap-1" title={labelByValue.get(v) ?? v}>
+                  <span className="truncate">{labelByValue.get(v) ?? v}</span>
                   <span
                     role="button"
                     tabIndex={-1}
                     aria-label={`Remove ${labelByValue.get(v) ?? v}`}
-                    className="hover:text-destructive"
+                    className="hover:text-destructive shrink-0"
                     onClick={(e) => {
                       e.preventDefault()
                       e.stopPropagation()
@@ -134,7 +135,7 @@ export function MultiSelect({
                   checked={selected.has(o.value)}
                   onCheckedChange={() => toggle(o.value)}
                 />
-                <span className="flex-1">{o.label}</span>
+                <span className="min-w-0 flex-1 break-words">{o.label}</span>
               </label>
             ))
           )}

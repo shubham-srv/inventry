@@ -1,10 +1,10 @@
 import Link from "next/link"
-import { format } from "date-fns"
+import { formatDate } from "@/lib/dates"
 import { Package, Users, Boxes, CalendarCheck, CheckCircle2, TriangleAlert } from "lucide-react"
 import { requireRole } from "@/lib/auth/session"
 import { ROLES } from "@/lib/constants"
 import { getVendorDashboard } from "@/lib/vendor/data"
-import { getT } from "@/lib/i18n/server"
+import { getLocale, getT } from "@/lib/i18n/server"
 import { PageHeader } from "@/components/page-header"
 import { StatCard } from "@/components/stat-card"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,7 +15,7 @@ export default async function VendorDashboard() {
   const user = await requireRole([ROLES.VENDOR_USER])
   if (!user.vendorId) return <p className="text-sm">Your account is not mapped to a vendor.</p>
 
-  const t = await getT()
+  const [t, locale] = await Promise.all([getT(), getLocale()])
   const d = await getVendorDashboard(user.vendorId)
 
   return (
@@ -44,7 +44,7 @@ export default async function VendorDashboard() {
         )}
         {d.lastSubmissionDate && (
           <Badge variant="secondary">
-            {t("vendor.dash.lastReported", { date: format(d.lastSubmissionDate, "MMM d") })}
+            {t("vendor.dash.lastReported", { date: formatDate(d.lastSubmissionDate, "MMM d", locale) })}
           </Badge>
         )}
       </div>

@@ -166,6 +166,7 @@ instead, set `AUTH_PROVIDER=entra` and fill in the Entra variables.
 | `npm run db:migrate:deploy` | Apply migrations (what CI/CD runs) |
 | `npm run db:bootstrap` | Create roles, lookups and the first admin on an empty DB |
 | `npm run reminders` | Run the scheduled-reminder check locally |
+| `npm run data:translate-names` | Machine-translate item, commodity and category names that have no Spanish yet (needs the Azure Translator key) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
 | `npm run format` | Prettier |

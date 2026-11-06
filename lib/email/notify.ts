@@ -2,11 +2,11 @@
 // Apps cron job, which run headless with no request/cookie context — which is
 // exactly why the recipient's language must come from stored data, never a cookie.)
 import * as React from "react"
-import { format } from "date-fns"
-import { enUS, es } from "date-fns/locale"
 import { render } from "@react-email/render"
 import { prisma } from "@/lib/db"
 import { makeT, type TFunction } from "@/lib/i18n/translate"
+import { loadNameLocalizer } from "@/lib/i18n/names"
+import { formatDate } from "@/lib/dates"
 import { isLocale, DEFAULT_LOCALE, type Locale } from "@/lib/i18n/config"
 import {
   NOTIFICATION_TYPES,
@@ -43,6 +43,19 @@ const MAX_RECIPIENTS_PER_MESSAGE = 20
 
 function toLocale(v: string | null | undefined): Locale {
   return isLocale(v) ? v : DEFAULT_LOCALE
+}
+
+/** An item's name and its category (the unit) in the recipient's language. */
+async function itemNames(
+  locale: Locale,
+  item: { itemId?: string; itemName: string; categoryCode?: string | null; categoryName?: string | null }
+) {
+  if (!item.itemId) return { itemName: item.itemName, categoryName: item.categoryName ?? null }
+  const names = await loadNameLocalizer(locale, [item.itemId])
+  return {
+    itemName: names.item(item.itemId, item.itemName),
+    categoryName: names.category(item.categoryCode, item.categoryName),
+  }
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -466,18 +479,20 @@ export async function notifyLowInventoryReviewed(opts: {
   growerId: number
   toEmail: string | null
   locale: string | null
+  itemId?: string
   itemName: string
   reviewNotes?: string | null
 }): Promise<void> {
   if (!opts.toEmail) return
   const locale = toLocale(opts.locale)
   const t = makeT(locale)
-  const details = [{ label: t("email.detail.item"), value: opts.itemName }]
+  const { itemName } = await itemNames(locale, opts)
+  const details = [{ label: t("email.detail.item"), value: itemName }]
   if (opts.reviewNotes) details.push({ label: t("email.detail.reviewNotes"), value: opts.reviewNotes })
   const { html, text } = await renderNotification(t, locale, {
     preview: t("email.lowInventoryReviewed.heading"),
     heading: t("email.lowInventoryReviewed.heading"),
-    intro: t("email.lowInventoryReviewed.intro", { item: opts.itemName }),
+    intro: t("email.lowInventoryReviewed.intro", { item: itemName }),
     details,
     cta: { label: t("email.lowInventoryReviewed.cta"), href: appUrl("/grower/submit") },
     variant: "info",
@@ -486,16 +501,16 @@ export async function notifyLowInventoryReviewed(opts: {
     type: NOTIFICATION_TYPES.LOW_INVENTORY_REVIEWED,
     toEmail: opts.toEmail,
     growerId: opts.growerId,
-    subject: t("email.lowInventoryReviewed.subject", { item: opts.itemName }),
+    subject: t("email.lowInventoryReviewed.subject", { item: itemName }),
     body: text,
     html,
     relatedEntity: "LowInventoryFlag",
   })
 }
 
-/** A calendar date in the recipient's language ("Oct 11, 2026" / "11 oct 2026"). */
+/** An Arizona calendar date in the recipient's language ("Oct 11, 2026" / "11 oct 2026"). */
 function emailDate(d: Date, locale: Locale): string {
-  return format(d, "PP", { locale: locale === "es" ? es : enUS })
+  return formatDate(d, "PP", locale)
 }
 
 /**
@@ -511,6 +526,7 @@ export async function notifyVendorOrderPlaced(opts: {
   itemName: string
   itemId: string
   quantity: number
+  categoryCode?: string | null
   categoryName?: string | null
   orderDate: Date
   requestedDate: Date
@@ -540,19 +556,20 @@ export async function notifyVendorOrderPlaced(opts: {
 
   for (const [locale, recipients] of byLocale) {
     const t = makeT(locale)
-    const qty = opts.categoryName ? `${opts.quantity} ${opts.categoryName}` : String(opts.quantity)
+    const { itemName, categoryName } = await itemNames(locale, opts)
+    const qty = categoryName ? `${opts.quantity} ${categoryName}` : String(opts.quantity)
     const { html, text } = await renderNotification(t, locale, {
       preview: t("email.vendorOrderPlaced.heading"),
       heading: t("email.vendorOrderPlaced.heading"),
       intro: t("email.vendorOrderPlaced.intro", {
         grower: opts.growerName,
         vendor: vendor.vendorName,
-        item: opts.itemName,
+        item: itemName,
       }),
       details: [
         { label: t("email.detail.order"), value: `#${opts.orderId}` },
         { label: t("email.detail.grower"), value: opts.growerName },
-        { label: t("email.detail.item"), value: `${opts.itemName} (${opts.itemId})` },
+        { label: t("email.detail.item"), value: `${itemName} (${opts.itemId})` },
         { label: t("email.detail.quantity"), value: qty },
         { label: t("email.detail.orderedOn"), value: emailDate(opts.orderDate, locale) },
         { label: t("email.detail.requestedDelivery"), value: emailDate(opts.requestedDate, locale) },
@@ -566,7 +583,7 @@ export async function notifyVendorOrderPlaced(opts: {
         toEmail: group.join(","),
         vendorId: opts.vendorId,
         growerId: opts.growerId,
-        subject: t("email.vendorOrderPlaced.subject", { item: opts.itemName, grower: opts.growerName }),
+        subject: t("email.vendorOrderPlaced.subject", { item: itemName, grower: opts.growerName }),
         body: text,
         html,
         relatedEntity: "Order",
@@ -581,9 +598,11 @@ export async function notifyOrderDeliveryConfirmed(opts: {
   vendorId: number
   toEmail: string | null
   locale: string | null
+  itemId?: string
   itemName: string
   vendorName: string
   quantity: number
+  categoryCode?: string | null
   categoryName?: string | null
   requestedDate: Date | null
   confirmedDate: Date
@@ -594,9 +613,10 @@ export async function notifyOrderDeliveryConfirmed(opts: {
   const locale = toLocale(opts.locale)
   const t = makeT(locale)
   const key = opts.previousDate ? "orderDateChanged" : "orderConfirmed"
-  const qty = opts.categoryName ? `${opts.quantity} ${opts.categoryName}` : String(opts.quantity)
+  const { itemName, categoryName } = await itemNames(locale, opts)
+  const qty = categoryName ? `${opts.quantity} ${categoryName}` : String(opts.quantity)
   const details = [
-    { label: t("email.detail.item"), value: opts.itemName },
+    { label: t("email.detail.item"), value: itemName },
     { label: t("email.detail.vendor"), value: opts.vendorName },
     { label: t("email.detail.quantity"), value: qty },
   ]
@@ -609,7 +629,7 @@ export async function notifyOrderDeliveryConfirmed(opts: {
     heading: t(`email.${key}.heading`),
     intro: t(`email.${key}.intro`, {
       vendor: opts.vendorName,
-      item: opts.itemName,
+      item: itemName,
       date: emailDate(opts.confirmedDate, locale),
       previous: opts.previousDate ? emailDate(opts.previousDate, locale) : "",
     }),
@@ -622,7 +642,7 @@ export async function notifyOrderDeliveryConfirmed(opts: {
     toEmail: opts.toEmail,
     growerId: opts.growerId,
     vendorId: opts.vendorId,
-    subject: t(`email.${key}.subject`, { item: opts.itemName }),
+    subject: t(`email.${key}.subject`, { item: itemName }),
     body: text,
     html,
     relatedEntity: "Order",
@@ -633,24 +653,27 @@ export async function notifyOrderPlaced(opts: {
   growerId: number
   toEmail: string | null
   locale: string | null
+  itemId?: string
   itemName: string
   vendorName: string
   quantity: number
   /** The item's material category — what the quantity is counted in. */
+  categoryCode?: string | null
   categoryName?: string | null
 }): Promise<void> {
   if (!opts.toEmail) return
   const locale = toLocale(opts.locale)
   const t = makeT(locale)
-  const qty = opts.categoryName
-    ? `${opts.quantity} ${opts.categoryName}`
+  const { itemName, categoryName } = await itemNames(locale, opts)
+  const qty = categoryName
+    ? `${opts.quantity} ${categoryName}`
     : String(opts.quantity)
   const { html, text } = await renderNotification(t, locale, {
     preview: t("email.orderPlaced.heading"),
     heading: t("email.orderPlaced.heading"),
-    intro: t("email.orderPlaced.intro", { item: opts.itemName, vendor: opts.vendorName }),
+    intro: t("email.orderPlaced.intro", { item: itemName, vendor: opts.vendorName }),
     details: [
-      { label: t("email.detail.item"), value: opts.itemName },
+      { label: t("email.detail.item"), value: itemName },
       { label: t("email.detail.vendor"), value: opts.vendorName },
       { label: t("email.detail.quantity"), value: qty },
     ],
@@ -661,7 +684,7 @@ export async function notifyOrderPlaced(opts: {
     type: NOTIFICATION_TYPES.ORDER_PLACED,
     toEmail: opts.toEmail,
     growerId: opts.growerId,
-    subject: t("email.orderPlaced.subject", { item: opts.itemName }),
+    subject: t("email.orderPlaced.subject", { item: itemName }),
     body: text,
     html,
     relatedEntity: "Order",

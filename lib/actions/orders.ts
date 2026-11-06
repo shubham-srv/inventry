@@ -1,7 +1,6 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
-import { format, startOfDay } from "date-fns"
 import { z } from "zod"
 import { prisma } from "@/lib/db"
 import { ACTIVE_ITEM } from "@/lib/items/active"
@@ -10,7 +9,8 @@ import { ROLES, ORDER_STATUS } from "@/lib/constants"
 import { ok, fail, type ActionState } from "@/lib/actions/types"
 import { parseForm, revalidateNavBadges } from "@/lib/actions/_shared"
 import { describePack, type PackLine } from "@/lib/packaging/resolve"
-import { getT } from "@/lib/i18n/server"
+import { getLocale, getT } from "@/lib/i18n/server"
+import { dayStart, formatDate } from "@/lib/dates"
 import { notifyOrderPlaced, notifyVendorOrderPlaced } from "@/lib/email/notify"
 import { earliestDelivery, parseDay } from "@/lib/orders/dates"
 
@@ -38,6 +38,7 @@ type T = Awaited<ReturnType<typeof getT>>
  */
 function checkRequestedDate(
   t: T,
+  locale: string,
   raw: string,
   orderDay: Date,
   vendor: { vendorName: string; leadTimeDays: number | null }
@@ -48,12 +49,12 @@ function checkRequestedDate(
     return { error: fail(message, { expectedDeliveryDate: [message] }) }
   }
   const earliest = earliestDelivery(orderDay, vendor.leadTimeDays)
-  if (startOfDay(date) < earliest) {
+  if (dayStart(date) < earliest) {
     const message = vendor.leadTimeDays
       ? t("grower.orders.actions.deliveryTooSoon", {
           vendor: vendor.vendorName,
           days: vendor.leadTimeDays,
-          date: format(earliest, "MMM d, yyyy"),
+          date: formatDate(earliest, "MMM d, yyyy", locale),
         })
       : t("grower.orders.actions.deliveryBeforeOrder")
     return { error: fail(message, { expectedDeliveryDate: [message] }) }
@@ -122,6 +123,7 @@ const createSchema = z.object({
 export async function createOrder(_prev: ActionState, fd: FormData): Promise<ActionState> {
   const { user, growerId } = await requireGrower()
   const t = await getT()
+  const locale = await getLocale()
   const { data, error } = parseForm(createSchema, fd)
   if (error) return error
 
@@ -154,7 +156,7 @@ export async function createOrder(_prev: ActionState, fd: FormData): Promise<Act
     }),
     prisma.item.findUnique({
       where: { id: data.itemId },
-      select: { itemName: true, materialCategory: { select: { name: true } } },
+      select: { itemName: true, materialCategoryCode: true, materialCategory: { select: { name: true } } },
     }),
     vendorLead(data.vendorId, data.itemId),
   ])
@@ -162,20 +164,20 @@ export async function createOrder(_prev: ActionState, fd: FormData): Promise<Act
   const categoryName = item?.materialCategory?.name ?? null
 
   // Order date: today by default; earlier is fine, the future is not.
-  const today = startOfDay(new Date())
+  const today = dayStart()
   const pickedDay = data.orderDate ? parseDay(data.orderDate) : null
   if (data.orderDate && !pickedDay) {
     const message = t("grower.orders.actions.orderDateInvalid")
     return fail(message, { orderDate: [message] })
   }
-  if (pickedDay && startOfDay(pickedDay) > today) {
+  if (pickedDay && dayStart(pickedDay) > today) {
     const message = t("grower.orders.actions.orderDateFuture")
     return fail(message, { orderDate: [message] })
   }
   // Today keeps the real time, so same-day orders still sort by when they came in.
-  const orderDate = pickedDay && startOfDay(pickedDay) < today ? pickedDay : new Date()
+  const orderDate = pickedDay && dayStart(pickedDay) < today ? pickedDay : new Date()
 
-  const requested = checkRequestedDate(t, data.expectedDeliveryDate, orderDate, vendor)
+  const requested = checkRequestedDate(t, locale, data.expectedDeliveryDate, orderDate, vendor)
   if ("error" in requested) return requested.error
 
   // Describe the vendor's packaging for this item. The per-level breakdown is
@@ -210,9 +212,11 @@ export async function createOrder(_prev: ActionState, fd: FormData): Promise<Act
     growerId,
     toEmail: grower?.primaryEmail ?? null,
     locale: grower?.preferredLocale ?? null,
+    itemId: data.itemId,
     itemName: item?.itemName ?? data.itemId,
     vendorName: vendor.vendorName,
     quantity: data.quantity,
+    categoryCode: item?.materialCategoryCode,
     categoryName,
   })
   await notifyVendorOrderPlaced({
@@ -223,6 +227,7 @@ export async function createOrder(_prev: ActionState, fd: FormData): Promise<Act
     itemName: item?.itemName ?? data.itemId,
     itemId: data.itemId,
     quantity: data.quantity,
+    categoryCode: item?.materialCategoryCode,
     categoryName,
     orderDate,
     requestedDate: requested.date,
@@ -244,6 +249,7 @@ const deliverySchema = z.object({
 export async function updateOrderDelivery(_prev: ActionState, fd: FormData): Promise<ActionState> {
   const { user, growerId } = await requireGrower()
   const t = await getT()
+  const locale = await getLocale()
   const { data, error } = parseForm(deliverySchema, fd)
   if (error) return error
   const order = await prisma.order.findUnique({ where: { id: data.id } })
@@ -251,7 +257,7 @@ export async function updateOrderDelivery(_prev: ActionState, fd: FormData): Pro
   if (order.status !== ORDER_STATUS.OPEN) return fail(t("grower.orders.actions.alreadyClosed"))
   const vendor = await vendorLead(order.vendorId, order.itemId)
   if (!vendor) return fail(t("grower.orders.actions.invalidVendor"))
-  const requested = checkRequestedDate(t, data.expectedDeliveryDate, order.orderDate, vendor)
+  const requested = checkRequestedDate(t, locale, data.expectedDeliveryDate, order.orderDate, vendor)
   if ("error" in requested) return requested.error
   await prisma.order.update({
     where: { id: data.id },

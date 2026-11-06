@@ -1,11 +1,11 @@
-import { formatDistanceToNow } from "date-fns"
+import { timeAgo } from "@/lib/dates"
 import { Plus } from "lucide-react"
 import { requireRole } from "@/lib/auth/session"
 import { ROLES } from "@/lib/constants"
 import { prisma } from "@/lib/db"
 import { createMissingItemRequest } from "@/lib/actions/grower"
 import { parseListParams } from "@/lib/query"
-import { getT } from "@/lib/i18n/server"
+import { getLocale, getT } from "@/lib/i18n/server"
 import { PageHeader } from "@/components/page-header"
 import { Pager } from "@/components/pager"
 import { Button } from "@/components/ui/button"
@@ -21,7 +21,7 @@ export default async function GrowerRequestsPage({
   const user = await requireRole([ROLES.GROWER_USER])
   if (!user.growerId) return <p className="text-sm">Your account is not mapped to a grower.</p>
 
-  const t = await getT()
+  const [t, locale] = await Promise.all([getT(), getLocale()])
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 10 })
   // Previously an unbounded findMany — this list only grows.
   const where = { growerId: user.growerId }
@@ -82,7 +82,7 @@ export default async function GrowerRequestsPage({
                 )}
               </div>
               <span className="text-muted-foreground shrink-0 text-xs">
-                {formatDistanceToNow(r.createdAt, { addSuffix: true })}
+                {timeAgo(r.createdAt, locale)}
               </span>
             </CardContent>
           </Card>

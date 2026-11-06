@@ -2495,5 +2495,95 @@ Use PackRight (`sam@packright.local`) and an item it supplies.
       and vendors until it is enabled again.
 - [ ] The list loads fresh each time (rename an item, reopen -> new name).
 
+## Round 26 — Spanish names & dates, Arizona time, form and submit fixes (November 2026)
+
+**Setup.** One additive migration (`20261106090000_name_translations`: Spanish
+commodity and category names). Run `npm run db:migrate:deploy`, then
+`npx prisma generate`, then restart `npm run dev`. Item names need no migration:
+they are `ItemTranslation` rows with `field = 'itemName'`. Set
+`TRANSLATION_PROVIDER=fake` locally so translations come out as `[es] …`
+without a key (`azure` and a key give real Spanish). Use a grower and a vendor
+whose language is **Español** for the reader-side checks.
+
+### 1. Spanish names (admin)
+- [ ] **Items** → edit an item: a **Spanish name** box sits under **Name**. Leave
+      it blank and save: the Name column shows an amber **ES auto** badge, and
+      reopening shows `[es] <name>`. Type your own Spanish and save: **ES reviewed**.
+- [ ] Change only the English name and the Spanish box empties, with the
+      "will be machine-translated" hint. Save: it is re-translated (still **ES auto**).
+- [ ] **Commodities** and **Material categories**: the same **Spanish name** box
+      and badge. New ones get a translation on create.
+- [ ] With no translator configured (`TRANSLATION_PROVIDER` unset), saving still
+      works and the badge says **ES missing**.
+
+### 2. Spanish names (growers and vendors)
+- [ ] As a Spanish grower: **Submit** cards show the Spanish item name, commodity
+      and category (also the unit in brackets after the quantity label).
+      Search finds an item by its Spanish OR English name.
+- [ ] Same on **My items** (search by the Spanish name works), **On order**,
+      **History**, **Flag history**, the dashboard and the **My items** Excel export.
+- [ ] As a Spanish vendor: **Submit**, **My items** (+ export), **Orders** and
+      **History** show Spanish names. Packaging level names (Cases, Pallets)
+      stay as typed.
+- [ ] Place an order as a Spanish grower → in **Outbox**, the grower's "order
+      placed" email uses the Spanish item name and unit. The vendor email uses
+      each recipient's own language. Confirming a delivery date and reviewing a
+      low flag do the same.
+- [ ] Admin screens, admin reports and admin exports still show English names.
+- [ ] Backfill: with a real translator configured, `npm run data:translate-names`
+      fills every missing item/commodity/category name (prints counts) and
+      skips the ones already translated. A second run reports 0 missing.
+
+### 3. Dates in Spanish, Arizona time
+- [ ] As a Spanish grower/vendor, dates read "6 nov 2026", "jue, 6 nov 2026"
+      etc. (History, On order, Orders, dashboards, emails). Admin dates stay English.
+- [ ] "Today" follows Arizona (UTC-7, no daylight saving): between 5 pm and
+      midnight Arizona time (00:00–07:00 UTC), a submission still counts for
+      that Arizona day. The submit page's progress, the order dialog's default
+      order date and its "no future dates" limit agree with it. Check by
+      submitting in that window, or by temporarily setting your PC clock.
+- [ ] Order dates and delivery dates show the same calendar day for viewers in
+      any timezone (try the browser's devtools Sensors → location/timezone override).
+- [ ] Reports (Grower stock / Vendor stock day counts, the 3-day/1-week flags,
+      Orders late/on-time) count days in Arizona time.
+
+### 4. Forms
+- [ ] **Users** → edit a grower user: a × beside **Grower** clears it. The
+      descriptions read "Required for grower users. Leave empty for any other
+      role." The same works for **Vendor**.
+- [ ] Every optional dropdown in admin forms (e.g. Vendor **Type**, **Country**,
+      item **Application**) shows a × once set. Required ones don't.
+- [ ] **Growers** / **Vendors** edit with an item whose name is very long
+      selected: the chip is cut off with "…" (hover shows the full name), and the
+      dialog no longer scrolls sideways. Long names in the open list wrap.
+
+### 5. Submit pages
+- [ ] Grower **Submit**: empty boxes show no grey 0.
+- [ ] Leave some items blank → **Submit counts** → the dialog lists every unfilled
+      item (name + ID, scrolls when long). **Go back** keeps your entries;
+      **Submit anyway** submits.
+- [ ] Vendor **Submit**: no grey 0 in the quantity or allocation boxes. Blank
+      items → the same dialog before submitting. All filled → submits directly.
+
+### 6. Item photo replace
+- [ ] **Items** → replace an item's photo and save. The new photo shows at once
+      in the admin list, the edit dialog, and on the grower/vendor pages after a
+      normal reload. No incognito window is needed.
+
+### 7. Outbox / Power BI wording
+- [ ] **Outbox** header reads "Every email the app has queued or sent…"; the empty
+      state is "No emails yet."
+- [ ] **Power BI**: no mention of PowerBiReport, TOKEN_CACHE_SECRET, deployment
+      guide sections or raw URLs. Unconnected panels say "Not available yet".
+
+### 8. No-email growers
+- [ ] Clear a grower's **Primary email**, make them overdue, and **Run reminder
+      check now**: no reminder row for them in **Outbox**. The result lists
+      "<grower>: no primary email → skipped". No `@example.com` recipients anywhere.
+
+### 9. Clearing item notes
+- [ ] Run `scripts/clear-item-notes.sql` on a copy first. Afterwards every item's
+      Notes column is "—", and Spanish growers no longer see a note either.
+
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.

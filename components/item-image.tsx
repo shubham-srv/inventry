@@ -11,19 +11,19 @@ import { cn } from "@/lib/utils"
  * Uploads are already downscaled client-side, so the optimizer has little to
  * add here anyway.
  *
- * `hasImage` rather than a URL so callers pass `!!row.imageKey` and no key ever
- * reaches the client — the key is a storage path, and the browser has no
- * business knowing it.
+ * `version` comes from imageVersion() in lib/items/image.ts: null means no
+ * photo, otherwise it goes in the URL so a replaced photo is fetched fresh.
+ * Never the storage key itself — the browser has no business knowing it.
  */
 export function ItemImage({
   itemId,
-  hasImage,
+  version,
   alt,
   size = 40,
   className,
 }: {
   itemId: string
-  hasImage: boolean
+  version: string | null
   alt: string
   size?: number
   className?: string
@@ -34,7 +34,7 @@ export function ItemImage({
   )
   const style = { width: size, height: size }
 
-  if (!hasImage) {
+  if (!version) {
     return (
       <div className={box} style={style} aria-hidden>
         <ImageOff className="text-muted-foreground/50 size-4" />
@@ -46,7 +46,7 @@ export function ItemImage({
     // next/image cannot authenticate against this route — see the note above.
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={`/items/${encodeURIComponent(itemId)}/image`}
+      src={`/items/${encodeURIComponent(itemId)}/image?v=${version}`}
       alt={alt}
       width={size}
       height={size}

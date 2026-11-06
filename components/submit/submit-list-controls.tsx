@@ -39,6 +39,8 @@ export const DEFAULT_SUBMIT_SORT: SubmitSort = "id"
 export type SubmitListRow = {
   itemId: string
   itemName: string
+  /** The English name when `itemName` is translated — still searchable. */
+  sourceItemName?: string
   commodityName: string | null
   categoryName: string | null
   todayQty: number | null
@@ -58,7 +60,7 @@ function sortQuantity(row: SubmitListRow): number | null {
 }
 
 function matches(row: SubmitListRow, needle: string): boolean {
-  return [row.itemId, row.itemName, row.commodityName, row.categoryName].some(
+  return [row.itemId, row.itemName, row.sourceItemName, row.commodityName, row.categoryName].some(
     (field) => !!field && field.toLowerCase().includes(needle)
   )
 }

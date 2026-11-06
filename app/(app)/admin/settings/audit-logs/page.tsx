@@ -1,4 +1,4 @@
-import { format } from "date-fns"
+import { formatDate } from "@/lib/dates"
 import { type Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { requireCapability } from "@/lib/auth/session"
@@ -46,7 +46,7 @@ export default async function AuditLogsPage({
   ])
 
   const columns: Column<Row>[] = [
-    { key: "time", header: "When", className: "whitespace-nowrap text-xs text-muted-foreground", cell: (r) => format(r.createdAt, "MMM d, HH:mm") },
+    { key: "time", header: "When", className: "whitespace-nowrap text-xs text-muted-foreground", cell: (r) => formatDate(r.createdAt, "MMM d, HH:mm") },
     { key: "user", header: "User", cell: (r) => `${r.user.firstName} ${r.user.lastName}` },
     { key: "action", header: "Action", cell: (r) => <Badge variant="outline">{r.action}</Badge> },
     { key: "entity", header: "Entity", cell: (r) => <span className="font-medium">{r.entityType}</span> },

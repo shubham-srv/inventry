@@ -1,7 +1,6 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
-import { startOfDay } from "date-fns"
 import { z } from "zod"
 import { prisma } from "@/lib/db"
 import { ACTIVE_ITEM } from "@/lib/items/active"
@@ -14,6 +13,7 @@ import { revalidateNavBadges } from "@/lib/actions/_shared"
 import { recordAudit } from "@/lib/audit"
 import { parseDay, parseLeadDays } from "@/lib/orders/dates"
 import { saveConversions } from "@/lib/packaging/save"
+import { dayStart } from "@/lib/dates"
 
 async function requireVendor(): Promise<{ user: SessionUser; vendorId: number }> {
   const user = await requireRole([ROLES.VENDOR_USER])
@@ -85,7 +85,7 @@ export async function submitVendorReport(
     }
   }
 
-  const todayStart = startOfDay(new Date())
+  const todayStart = dayStart()
 
   await prisma.$transaction(async (tx) => {
     let sub = await tx.vendorSubmission.findFirst({
@@ -184,7 +184,7 @@ export async function confirmDeliveryDate(_prev: ActionState, fd: FormData): Pro
     where: { id: data.id },
     include: {
       grower: { select: { primaryEmail: true, preferredLocale: true } },
-      item: { select: { itemName: true, materialCategory: { select: { name: true } } } },
+      item: { select: { itemName: true, materialCategoryCode: true, materialCategory: { select: { name: true } } } },
       vendor: { select: { vendorName: true } },
     },
   })
@@ -197,12 +197,12 @@ export async function confirmDeliveryDate(_prev: ActionState, fd: FormData): Pro
     const message = t("vendor.orders.actions.dateRequired")
     return fail(message, { confirmedDeliveryDate: [message] })
   }
-  if (startOfDay(date) < startOfDay(order.orderDate)) {
+  if (dayStart(date) < dayStart(order.orderDate)) {
     const message = t("vendor.orders.actions.beforeOrder")
     return fail(message, { confirmedDeliveryDate: [message] })
   }
   const previous = order.confirmedDeliveryDate
-  if (previous && startOfDay(previous).getTime() === startOfDay(date).getTime())
+  if (previous && dayStart(previous).getTime() === dayStart(date).getTime())
     return ok(t("vendor.orders.actions.unchanged"))
 
   await prisma.order.update({
@@ -221,9 +221,11 @@ export async function confirmDeliveryDate(_prev: ActionState, fd: FormData): Pro
     vendorId,
     toEmail: order.grower.primaryEmail,
     locale: order.grower.preferredLocale,
+    itemId: order.itemId,
     itemName: order.item.itemName,
     vendorName: order.vendor.vendorName,
     quantity: Number(order.quantity),
+    categoryCode: order.item.materialCategoryCode,
     categoryName: order.item.materialCategory?.name ?? null,
     requestedDate: order.expectedDeliveryDate,
     confirmedDate: date,

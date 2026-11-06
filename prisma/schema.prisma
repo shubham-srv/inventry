@@ -241,7 +241,27 @@ model Commodity {
   updatedBy Int?
   updatedAt DateTime @updatedAt
 
-  items Item[]
+  items        Item[]
+  translations CommodityTranslation[]
+}
+
+// A commodity's name in another language, shown to growers and vendors.
+// Written on save, like ItemTranslation.
+model CommodityTranslation {
+  id            Int     @id @default(autoincrement())
+  commodityCode String
+  locale        String // es, ...
+  name          String
+  isMachine     Boolean @default(true)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  commodity Commodity @relation(fields: [commodityCode], references: [code], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([commodityCode, locale])
 }
 
 // A category is also the UNIT: `name` labels every quantity recorded for its
@@ -260,6 +280,25 @@ model MaterialCategory {
   items           Item[]
   vendors         VendorMaterialCategory[]
   packagingChains PackagingChain[]
+  translations    MaterialCategoryTranslation[]
+}
+
+// A category's name (= the unit, "Cajas") in another language, for growers and vendors.
+model MaterialCategoryTranslation {
+  id                   Int     @id @default(autoincrement())
+  materialCategoryCode String
+  locale               String // es, ...
+  name                 String
+  isMachine            Boolean @default(true)
+
+  createdBy Int?
+  createdAt DateTime @default(now())
+  updatedBy Int?
+  updatedAt DateTime @updatedAt
+
+  materialCategory MaterialCategory @relation(fields: [materialCategoryCode], references: [code], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([materialCategoryCode, locale])
 }
 
 model SubCategory {
@@ -327,12 +366,12 @@ model Item {
 }
 
 // Translations of an item's admin-typed text, one row per (field, locale) —
-// `notes` today; `itemName` later is a new `field` value, not a new table.
+// `notes` and `itemName`.
 // Written on save (lib/i18n/text-translation.ts), never per page view.
 model ItemTranslation {
   id        Int     @id @default(autoincrement())
   itemId    String
-  field     String // notes (itemName later)
+  field     String // notes, itemName
   locale    String // es, ...
   text      String  @db.NVarChar(Max)
   // True while still raw machine output; false once an admin typed or edited it.

@@ -11,8 +11,14 @@ import { DataTable, type Column } from "@/components/data-table/data-table"
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
 import { EntityFormDialog, type Field } from "@/components/crud/entity-form-dialog"
 import { ConfirmButton } from "@/components/crud/confirm-button"
+import { TranslationBadge } from "@/components/translation-badge"
 
-type Row = { code: string; name: string; _count: { items: number; subCategories: number } }
+type Row = {
+  code: string
+  name: string
+  _count: { items: number; subCategories: number }
+  translations: { name: string; isMachine: boolean }[]
+}
 
 export default async function CategoriesPage({
   searchParams,
@@ -23,7 +29,16 @@ export default async function CategoriesPage({
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
   const where = categoriesWhere(raw)
   const [rows, total, allCategories] = await Promise.all([
-    prisma.materialCategory.findMany({ where, include: { _count: { select: { items: true, subCategories: true } } }, orderBy: { code: "asc" }, skip, take }),
+    prisma.materialCategory.findMany({
+      where,
+      include: {
+        _count: { select: { items: true, subCategories: true } },
+        translations: { where: { locale: "es" }, select: { name: true, isMachine: true } },
+      },
+      orderBy: { code: "asc" },
+      skip,
+      take,
+    }),
     prisma.materialCategory.count({ where }),
     // Every code, unpaged: the create form lists what is taken.
     prisma.materialCategory.findMany({ select: { code: true, name: true }, orderBy: { code: "asc" } }),
@@ -43,11 +58,30 @@ export default async function CategoriesPage({
       description: "Material category code, e.g. BX. Pick one that isn't in the list.",
     },
     { name: "name", label: "Name", type: "text", required: true, colSpan: 2 },
+    {
+      name: "nameEs",
+      label: "Spanish name",
+      type: "text",
+      translationOf: "name",
+      colSpan: 2,
+      description: "The unit growers and vendors who use Spanish see (\"350 Cajas\"). Leave blank to machine-translate on save.",
+    },
   ]
 
   const columns: Column<Row>[] = [
     { key: "code", header: "Code", className: "font-mono text-xs", cell: (r) => r.code },
-    { key: "name", header: "Name", cell: (r) => <span className="font-medium">{r.name}</span> },
+    {
+      key: "name",
+      header: "Name",
+      cell: (r) => (
+        <div className="space-y-1">
+          <span className="font-medium">{r.name}</span>
+          <div>
+            <TranslationBadge translation={r.translations[0]} />
+          </div>
+        </div>
+      ),
+    },
     { key: "subs", header: "Sub-categories", cell: (r) => r._count.subCategories },
     { key: "items", header: "Items", cell: (r) => r._count.items },
     {
@@ -57,7 +91,7 @@ export default async function CategoriesPage({
       className: "text-right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
-          <EntityFormDialog title="Edit category" fields={fields} action={updateCategory} values={{ code: r.code, name: r.name }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
+          <EntityFormDialog title="Edit category" fields={fields} action={updateCategory} values={{ code: r.code, name: r.name, nameEs: r.translations[0]?.name ?? "" }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
           <ConfirmButton title="Delete category" description={`Delete ${r.code}?`} confirmLabel="Delete" typeToConfirm action={deleteCategory.bind(null, r.code)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
         </div>
       ),

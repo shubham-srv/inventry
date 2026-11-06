@@ -23,6 +23,7 @@ import {
   type SubmitSort,
 } from "@/components/submit/submit-list-controls"
 import { itemCardClass } from "@/components/submit/card-tone"
+import { IncompleteSubmitDialog } from "@/components/submit/incomplete-dialog"
 import { cn } from "@/lib/utils"
 
 type RowState = {
@@ -69,7 +70,8 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
   const [sort, setSort] = useState<SubmitSort>(DEFAULT_SUBMIT_SORT)
   const view = useSubmitListView(rows, query, sort)
 
-  const entered = useMemo(() => rows.filter((r) => values[r.itemId]?.qty.trim() !== "").length, [rows, values])
+  const unfilled = useMemo(() => rows.filter((r) => values[r.itemId]?.qty.trim() === ""), [rows, values])
+  const entered = rows.length - unfilled.length
   const pct = rows.length ? Math.round((entered / rows.length) * 100) : 0
   // Entered rows the search is hiding — still submitted, still counted.
   const hiddenEntered = useMemo(() => {
@@ -108,6 +110,14 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
       ),
     [rows, values]
   )
+
+  // Blanks ask first, as on the grower form.
+  const formRef = useRef<HTMLFormElement>(null)
+  const [confirmIncomplete, setConfirmIncomplete] = useState(false)
+  function submitReport() {
+    setConfirmIncomplete(false)
+    formRef.current?.requestSubmit()
+  }
 
   function set(itemId: string, patch: Partial<RowState>) {
     setValues((v) => ({ ...v, [itemId]: { ...v[itemId], ...patch } }))
@@ -163,9 +173,17 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
           attribute. That keeps the quantity, allocation and search inputs OUT of
           it, so Enter in any of them can't fire off a half-finished report.
           Same arrangement as the grower submit form. */}
-      <form id="vendor-submit-form" action={formAction}>
+      <form id="vendor-submit-form" ref={formRef} action={formAction}>
         <input type="hidden" name="payload" value={payload} />
       </form>
+
+      <IncompleteSubmitDialog
+        open={confirmIncomplete}
+        onOpenChange={setConfirmIncomplete}
+        missing={unfilled}
+        total={rows.length}
+        onConfirm={submitReport}
+      />
 
       <div className="bg-background/95 sticky top-14 z-10 -mx-4 mb-4 border-b px-4 py-3 backdrop-blur md:-mx-6 md:px-6">
         <div className="flex items-center justify-between gap-3">
@@ -179,8 +197,8 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
             <Progress value={pct} />
           </div>
           <Button
-            type="submit"
-            form="vendor-submit-form"
+            type="button"
+            onClick={() => (unfilled.length > 0 ? setConfirmIncomplete(true) : submitReport())}
             disabled={pending || entered === 0 || overRows > 0}
           >
             {pending ? t("common.saving") : t("vendor.form.submit")}
@@ -251,7 +269,7 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
                   <div className="flex min-w-0 items-start gap-3">
                     <ItemImage
                       itemId={r.itemId}
-                      hasImage={r.hasImage}
+                      version={r.imageVersion}
                       alt={r.itemName}
                       size={48}
                       className="mt-0.5"
@@ -284,7 +302,7 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
                         {t("vendor.form.quantity")}
                         {r.categoryName ? ` (${r.categoryName})` : ""}
                       </Label>
-                      <Input id={`q-${r.itemId}`} type="number" min={0} inputMode="decimal" value={v.qty} onChange={(e) => set(r.itemId, { qty: e.target.value })} placeholder="0" />
+                      <Input id={`q-${r.itemId}`} type="number" min={0} inputMode="decimal" value={v.qty} onChange={(e) => set(r.itemId, { qty: e.target.value })} />
                     </div>
                   </div>
                 </div>
@@ -333,7 +351,6 @@ export function VendorSubmitForm({ rows }: { rows: VendorSubmitRow[] }) {
                               className="h-8 w-24 shrink-0"
                               value={v.allocations[g.growerId] ?? ""}
                               onChange={(e) => setAlloc(r.itemId, g.growerId, e.target.value)}
-                              placeholder="0"
                             />
                           </div>
                         ))}

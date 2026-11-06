@@ -2,7 +2,8 @@ import "server-only"
 import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { ACTIVE_ITEM } from "@/lib/items/active"
-import { loadItemTranslations, localizedItemText } from "@/lib/items/translations"
+import { imageVersion } from "@/lib/items/image"
+import { loadNameLocalizer } from "@/lib/i18n/names"
 
 export type ChainView = { id: number; name: string; levels: { level: number; unitName: string }[] }
 
@@ -10,9 +11,10 @@ export type VendorItemRow = {
   /** The ItemVendor mapping — what conversions are saved against. */
   mappingId: number
   itemId: string
+  /** In the vendor's language where translated (as are the names below). */
   itemName: string
   legacyId: string | null
-  hasImage: boolean
+  imageVersion: string | null
   commodityName: string | null
   /** The item's material category — what its quantities are counted in. */
   categoryName: string | null
@@ -43,7 +45,14 @@ export async function getVendorItems(vendorId: number, locale: string, q?: strin
       item: {
         ...ACTIVE_ITEM,
         ...(q
-          ? { OR: [{ id: { contains: q } }, { itemName: { contains: q } }, { legacyFamousId: { contains: q } }] }
+          ? {
+                OR: [
+                  { id: { contains: q } },
+                  { itemName: { contains: q } },
+                  { legacyFamousId: { contains: q } },
+                  { translations: { some: { field: "itemName", locale, text: { contains: q } } } },
+                ],
+              }
           : {}),
       },
     },
@@ -57,7 +66,7 @@ export async function getVendorItems(vendorId: number, locale: string, q?: strin
   })
   const categories = [...new Set(mappings.map((m) => m.item.materialCategoryCode).filter((c): c is string => !!c))]
 
-  const [latest, chains, translations] = await Promise.all([
+  const [latest, chains, names] = await Promise.all([
     // Latest report per item for this vendor, with its allocated total. The id
     // tie-break matches the admin vendor-stock report.
     prisma.$queryRaw<{ itemId: string; quantity: Prisma.Decimal; submissionDate: Date; allocated: Prisma.Decimal | null }[]>`
@@ -80,9 +89,9 @@ export async function getVendorItems(vendorId: number, locale: string, q?: strin
           orderBy: { name: "asc" },
         })
       : [],
-    loadItemTranslations(
-      mappings.map((m) => m.itemId),
-      locale
+    loadNameLocalizer(
+      locale,
+      mappings.map((m) => m.itemId)
     ),
   ])
   const latestByItem = new Map(latest.map((l) => [l.itemId, l]))
@@ -97,12 +106,12 @@ export async function getVendorItems(vendorId: number, locale: string, q?: strin
     return {
       mappingId: m.id,
       itemId: m.itemId,
-      itemName: m.item.itemName,
+      itemName: names.item(m.itemId, m.item.itemName),
       legacyId: m.item.legacyFamousId,
-      hasImage: Boolean(m.item.imageKey),
-      commodityName: m.item.commodity?.name ?? null,
-      categoryName: m.item.materialCategory?.name ?? null,
-      notes: localizedItemText(translations, m.itemId, "notes", m.item.notes),
+      imageVersion: imageVersion(m.item.imageKey),
+      commodityName: names.commodity(m.item.commodityCode, m.item.commodity?.name),
+      categoryName: names.category(m.item.materialCategoryCode, m.item.materialCategory?.name),
+      notes: names.notes(m.itemId, m.item.notes),
       reported: l ? Number(l.quantity) : null,
       allocated: l ? Number(l.allocated ?? 0) : null,
       asOf: l?.submissionDate ?? null,

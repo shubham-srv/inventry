@@ -11,17 +11,9 @@ import { CAPABILITIES } from "@/lib/rbac"
 import { AUDIT_ACTIONS, ITEM_MESSAGE_RECIPIENTS } from "@/lib/constants"
 import { TRANSLATABLE_LOCALES } from "@/lib/i18n/machine-translate"
 import { applyTranslation, planTranslation } from "@/lib/i18n/text-translation"
+import { parseDay } from "@/lib/dates"
 
 const CAP = CAPABILITIES.MANAGE_GROWERS_VENDORS
-
-// <input type="date"> posts "" or "YYYY-MM-DD". Parse at noon so the calendar
-// day is preserved regardless of server timezone.
-const parseDate = (s: string): Date | null => {
-  const v = s.trim()
-  if (!v) return null
-  const d = new Date(`${v}T12:00:00`)
-  return Number.isNaN(d.getTime()) ? null : d
-}
 
 const parseIds = (s?: string): number[] =>
   (s ?? "")
@@ -58,8 +50,8 @@ function messageData(d: Input) {
     recipients: d.recipients,
     audience: d.audience,
     body: d.body || null,
-    startsAt: parseDate(d.startsAt),
-    endsAt: parseDate(d.endsAt),
+    startsAt: parseDay(d.startsAt),
+    endsAt: parseDay(d.endsAt),
     isActive: d.isActive !== "false",
   }
 }

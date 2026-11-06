@@ -1,4 +1,5 @@
 import "server-only"
+import { createHash } from "node:crypto"
 import { imageStore, newItemImageKey } from "@/lib/storage"
 import { checkImage, type ImageRejection, type ImageType } from "@/lib/storage/image"
 
@@ -89,6 +90,22 @@ export async function discardItemImage(key: string | null | undefined): Promise<
   } catch (e) {
     console.error("[items] could not delete image", key, e)
   }
+}
+
+/**
+ * Opaque token for the photo URL (`?v=`), or null when there is no photo. It
+ * changes with the key, so a replaced photo gets a new URL and the browser's
+ * year-long cache of the old one no longer applies. A hash, so the key itself
+ * never reaches the browser.
+ */
+export function imageVersion(key: string | null | undefined): string | null {
+  return key ? createHash("sha256").update(key).digest("base64url").slice(0, 12) : null
+}
+
+/** The photo's URL for `itemId`, or "" when it has none. */
+export function itemImageUrl(itemId: string, key: string | null | undefined): string {
+  const v = imageVersion(key)
+  return v ? `/items/${encodeURIComponent(itemId)}/image?v=${v}` : ""
 }
 
 /** What the item row's imageKey should become, or undefined to leave it alone. */

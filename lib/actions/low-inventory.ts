@@ -57,6 +57,7 @@ export async function reviewLowFlag(_p: ActionState, fd: FormData): Promise<Acti
       growerId: flag.growerId,
       toEmail: flag.grower.primaryEmail ?? null,
       locale: flag.grower.preferredLocale ?? null,
+      itemId: flag.itemId,
       itemName: flag.item.itemName,
       reviewNotes: data.reviewNotes || null,
     })

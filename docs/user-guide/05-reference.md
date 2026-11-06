@@ -23,6 +23,10 @@ first two letters of the item ID.
 **Flag** — a mark a grower puts on an item during counting to ask staff to look
 at it. Distinct from being below threshold, which happens automatically.
 
+**Day / today** — always an Arizona calendar day (Arizona time, no daylight
+saving), wherever you are. A count submitted at 10 pm in Arizona belongs to
+that day. Every date shown in the app is in Arizona time too.
+
 **Item** — a specific thing that is counted, ordered and received. The unit of
 everything in the system.
 

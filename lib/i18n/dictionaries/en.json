@@ -41,7 +41,8 @@
     "willRetranslate": "This will be machine-translated from the text above when you save. Type here to use your own translation instead.",
     "disableWord": "disable",
     "pagination": "Pagination",
-    "goToPage": "Go to page {page}"
+    "goToPage": "Go to page {page}",
+    "clear": "Clear"
   },
   "submitList": {
     "search": "Search items…",
@@ -54,7 +55,12 @@
     "sortHint": "Quantity sorts on the last known count, so rows stay put while you type.",
     "showing": "Showing {shown} of {total}",
     "noMatches": "No items match your search.",
-    "hiddenEntries": "{count} item(s) you entered are hidden by the search — all of them are still included when you submit."
+    "hiddenEntries": "{count} item(s) you entered are hidden by the search — all of them are still included when you submit.",
+    "incompleteTitle": "Not every item has a quantity",
+    "incompleteBody": "{done} of {total} items have a quantity. Are you sure you want to submit? If you don't have any of an item, enter 0.",
+    "unfilledHeading": "Items without a quantity ({count})",
+    "goBack": "Go back",
+    "submitAnyway": "Submit anyway"
   },
   "status": {
     "Approved": "Approved",
@@ -210,11 +216,7 @@
       "weekChangeTitle": "Change vs the same item a week ago",
       "location": "Location",
       "locationHint": "Counts are recorded against the selected location.",
-      "noLocations": "No locations are mapped to your grower yet. Ask an admin to map at least one location before submitting counts.",
-      "incompleteTitle": "Not every item has a count",
-      "incompleteBody": "You haven't completed all items: {done} of {total} have a quantity. Are you sure you want to submit? If you don't have any of an item, enter 0.",
-      "goBack": "Go back",
-      "submitAnyway": "Submit anyway"
+      "noLocations": "No locations are mapped to your grower yet. Ask an admin to map at least one location before submitting counts."
     },
     "orders": {
       "heading": "Orders",

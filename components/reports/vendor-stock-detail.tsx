@@ -1,4 +1,4 @@
-import { format } from "date-fns"
+import { formatDate } from "@/lib/dates"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { NotesCell } from "@/components/data-table/notes-cell"
 import { getVendorStock, type VendorStockFilters } from "@/lib/admin/vendor-stock"
@@ -68,7 +68,7 @@ export async function VendorStockDetail({
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{r.growersServed ?? dash}</TableCell>
                 <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
-                  {r.asOf ? format(r.asOf, "MMM d") : "—"}
+                  {r.asOf ? formatDate(r.asOf, "MMM d") : "—"}
                   {older && <p>not in latest report</p>}
                 </TableCell>
                 <TableCell>

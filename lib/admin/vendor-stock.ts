@@ -1,6 +1,6 @@
 import "server-only"
 import { Prisma } from "@prisma/client"
-import { startOfDay } from "date-fns"
+import { dayStart } from "@/lib/dates"
 import { prisma } from "@/lib/db"
 import { sqlPage } from "@/lib/admin/sql"
 import { activeItemSql } from "@/lib/items/active"
@@ -203,7 +203,7 @@ export async function getVendorStock(
   filters: VendorStockFilters,
   page?: { skip: number; take: number }
 ): Promise<{ rows: VendorStockRow[]; total: number }> {
-  const base = prelude(filters, startOfDay(new Date()))
+  const base = prelude(filters, dayStart())
   const alloc = allocFilter(filters.alloc)
 
   const [rows, counted] = await Promise.all([
@@ -252,7 +252,7 @@ export async function getVendorStockSummary(
   sort: PartnerSort,
   page?: { skip: number; take: number }
 ): Promise<{ rows: VendorStockSummaryRow[]; total: number }> {
-  const today = startOfDay(new Date())
+  const today = dayStart()
   const base = prelude(filters, today)
   const alloc = allocFilter(filters.alloc)
   const order = partnerOrderSql(sort, Prisma.sql`b.[lastSubmittedAt]`, Prisma.sql`b.[vendorName]`)

@@ -1,7 +1,7 @@
-import { format } from "date-fns"
 import { requireRole } from "@/lib/auth/session"
 import { ROLES } from "@/lib/constants"
-import { getT } from "@/lib/i18n/server"
+import { getLocale, getT } from "@/lib/i18n/server"
+import { formatDate } from "@/lib/dates"
 import { parseListParams } from "@/lib/query"
 import { getFlagHistory, type FlagHistoryRow } from "@/lib/low-inventory/history"
 import { PageHeader } from "@/components/page-header"
@@ -19,10 +19,11 @@ export default async function GrowerFlagHistoryPage({
   if (!user.growerId) return <p className="text-sm">Your account is not mapped to a grower.</p>
 
   const t = await getT()
+  const locale = await getLocale()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 15 })
   const { rows, total } = await getFlagHistory(
     // Scoped by the session, never by a URL parameter.
-    { growerId: user.growerId, outcome: raw.outcome, q: raw.q },
+    { growerId: user.growerId, outcome: raw.outcome, q: raw.q, locale },
     { skip, take }
   )
 
@@ -46,7 +47,7 @@ export default async function GrowerFlagHistoryPage({
       className: "text-xs whitespace-nowrap",
       cell: (r) => (
         <div>
-          {format(r.raisedAt, "MMM d, yyyy HH:mm")}
+          {formatDate(r.raisedAt, "MMM d, yyyy HH:mm", locale)}
           {r.raisedBy && <p className="text-muted-foreground">{t("grower.flagHistory.by", { name: r.raisedBy })}</p>}
         </div>
       ),
@@ -65,7 +66,7 @@ export default async function GrowerFlagHistoryPage({
       cell: (r) =>
         r.clearedAt ? (
           <div>
-            {format(r.clearedAt, "MMM d, yyyy HH:mm")}
+            {formatDate(r.clearedAt, "MMM d, yyyy HH:mm", locale)}
             {r.clearedBy && <p className="text-muted-foreground">{t("grower.flagHistory.by", { name: r.clearedBy })}</p>}
           </div>
         ) : (

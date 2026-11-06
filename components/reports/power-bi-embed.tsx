@@ -88,11 +88,7 @@ export function PowerBiEmbed({ name, url }: { name: string; url: string }) {
       <div className="bg-muted/40 flex aspect-video items-center justify-center rounded-lg border border-dashed text-center">
         <div className="text-muted-foreground p-4 text-sm">
           <BarChart3 className="mx-auto mb-2 size-8 opacity-50" aria-hidden />
-          Not connected yet
-          <div className="mt-1 text-xs">
-            Paste this report&rsquo;s Power BI URL to replace this placeholder.
-          </div>
-          <div className="mt-2 font-mono text-[10px] break-all opacity-70">{url}</div>
+          Not available yet
         </div>
       </div>
     )

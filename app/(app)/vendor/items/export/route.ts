@@ -5,6 +5,7 @@ import { getLocale, getT } from "@/lib/i18n/server"
 import { getVendorItems } from "@/lib/vendor/items"
 import { buildWorkbook } from "@/lib/export/excel"
 import { recordAudit } from "@/lib/audit"
+import { toDayInput } from "@/lib/dates"
 
 /** The vendor's "My items" list as .xlsx — same rows and numbers as the page. */
 export async function GET(request: NextRequest) {
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest) {
           // Blank, never 0, for an item never reported.
           reported: r.reported ?? "",
           allocated: r.allocated ?? "",
-          asOf: r.asOf ? r.asOf.toISOString().slice(0, 10) : "",
+          asOf: r.asOf ? toDayInput(r.asOf) : "",
           // "Bags ×10 → Boxes ×5 → Cases"
           conversions: r.chain
             ? [r.categoryName ?? "", ...r.chain.levels.map((l) => `×${per.get(l.level) ?? "?"} → ${l.unitName}`)].join(" ")
@@ -62,7 +63,7 @@ export async function GET(request: NextRequest) {
     changes: { vendorId: user.vendorId, rows: rows.length },
   })
 
-  const date = new Date().toISOString().slice(0, 10)
+  const date = toDayInput(new Date())
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

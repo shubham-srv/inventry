@@ -1,4 +1,4 @@
-import { format } from "date-fns"
+import { formatDate } from "@/lib/dates"
 import { Pencil } from "lucide-react"
 import { type Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
@@ -58,7 +58,7 @@ export default async function AdminRequestsPage({
     { key: "by", header: "By", cell: (r) => `${r.requester.firstName} ${r.requester.lastName}` },
     { key: "hints", header: "Hints", className: "text-xs text-muted-foreground", cell: (r) => [r.commodityHint, r.categoryHint].filter(Boolean).join(" · ") || "—" },
     { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
-    { key: "when", header: "When", className: "whitespace-nowrap text-xs text-muted-foreground", cell: (r) => format(r.createdAt, "MMM d") },
+    { key: "when", header: "When", className: "whitespace-nowrap text-xs text-muted-foreground", cell: (r) => formatDate(r.createdAt, "MMM d") },
     {
       key: "actions",
       header: "",

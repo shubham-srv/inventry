@@ -1,4 +1,4 @@
-import { format } from "date-fns"
+import { formatDate } from "@/lib/dates"
 import { Flag } from "lucide-react"
 import { prisma } from "@/lib/db"
 import { requireCapability } from "@/lib/auth/session"
@@ -81,7 +81,7 @@ export default async function CurrentlyLowPage({
       key: "asOf",
       header: "Last counted",
       className: "text-muted-foreground whitespace-nowrap text-xs",
-      cell: (r) => format(r.asOf, "MMM d"),
+      cell: (r) => formatDate(r.asOf, "MMM d"),
     },
   ]
 

@@ -13,7 +13,7 @@ import {
   locationsWhere,
   authorizationsWhere,
 } from "@/lib/admin/queries"
-import { format } from "date-fns"
+import { formatDate, toDayInput } from "@/lib/dates"
 import {
   getGrowerStockSummary,
   getInventorySnapshot,
@@ -25,9 +25,9 @@ import { getOrdersReport } from "@/lib/admin/orders-report"
 import { getVendorStock, getVendorStockSummary } from "@/lib/admin/vendor-stock"
 
 type SP = Record<string, string>
-const d = (date: Date) => date.toISOString().slice(0, 10)
-/** Server-local date + time, as shown on the report pages. */
-const dt = (date: Date) => format(date, "yyyy-MM-dd HH:mm")
+const d = (date: Date) => toDayInput(date)
+/** Arizona date + time, as shown on the report pages. */
+const dt = (date: Date) => formatDate(date, "yyyy-MM-dd HH:mm")
 
 const FLAG_TEXT: Record<SubmissionFlag, string> = {
   Ok: "",

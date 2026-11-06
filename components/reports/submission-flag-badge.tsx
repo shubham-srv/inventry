@@ -1,4 +1,4 @@
-import { format } from "date-fns"
+import { formatDate } from "@/lib/dates"
 import { AlertTriangle, CircleAlert } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import type { SubmissionFlag } from "@/lib/reports/submission-flag"
@@ -40,7 +40,7 @@ export function LastSubmittedCell({
   if (!at) return <SubmissionFlagBadge flag={flag} />
   return (
     <div className="flex flex-col items-start gap-1 text-xs">
-      <span className="whitespace-nowrap">{format(at, "MMM d, yyyy HH:mm")}</span>
+      <span className="whitespace-nowrap">{formatDate(at, "MMM d, yyyy HH:mm")}</span>
       <span className="text-muted-foreground flex items-center gap-1.5 whitespace-nowrap">
         {daysSince === 0 ? "today" : daysSince === 1 ? "yesterday" : `${daysSince} days ago`}
         <SubmissionFlagBadge flag={flag} />

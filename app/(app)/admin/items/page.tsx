@@ -16,7 +16,9 @@ import { EntityFormDialog, type Field } from "@/components/crud/entity-form-dial
 import { ConfirmButton } from "@/components/crud/confirm-button"
 import { StatusBadge } from "@/components/status-badge"
 import { ItemImage } from "@/components/item-image"
+import { imageVersion, itemImageUrl } from "@/lib/items/image"
 import { NotesCell } from "@/components/data-table/notes-cell"
+import { TranslationBadge } from "@/components/translation-badge"
 
 type ItemRow = Awaited<ReturnType<typeof getItems>>["rows"][number]
 
@@ -31,7 +33,7 @@ async function getItems(where: ReturnType<typeof itemsWhere>, skip: number, take
         countryOfOrigin: true,
         authorizations: { where: { isActive: true }, select: { growerId: true } },
         itemVendors: { where: { isActive: true }, select: { vendorId: true } },
-        translations: { where: { field: "notes", locale: "es" }, select: { text: true, isMachine: true } },
+        translations: { where: { locale: "es" }, select: { field: true, text: true, isMachine: true } },
       },
       orderBy: { id: "asc" },
       skip,
@@ -73,6 +75,14 @@ export default async function ItemsPage({
   // and immutable afterwards, so only the edit dialog shows it (read-only).
   const fields: Field[] = [
     { name: "itemName", label: "Name", type: "text", required: true, colSpan: 2 },
+    {
+      name: "itemNameEs",
+      label: "Spanish name",
+      type: "text",
+      translationOf: "itemName",
+      colSpan: 2,
+      description: "Shown to growers and vendors who use Spanish. Leave blank to machine-translate on save.",
+    },
     {
       name: "legacyFamousId",
       label: "Legacy ID",
@@ -200,7 +210,7 @@ export default async function ItemsPage({
       header: "",
       headClassName: "w-0",
       className: "w-0",
-      cell: (r) => <ItemImage itemId={r.id} hasImage={!!r.imageKey} alt={r.itemName} />,
+      cell: (r) => <ItemImage itemId={r.id} version={imageVersion(r.imageKey)} alt={r.itemName} />,
     },
     { key: "id", header: "Item ID", className: "font-mono text-xs", cell: (r) => r.id },
     {
@@ -209,7 +219,18 @@ export default async function ItemsPage({
       className: "font-mono text-xs",
       cell: (r) => r.legacyFamousId ?? <span className="text-muted-foreground">—</span>,
     },
-    { key: "itemName", header: "Name", cell: (r) => <span className="font-medium">{r.itemName}</span> },
+    {
+      key: "itemName",
+      header: "Name",
+      cell: (r) => (
+        <div className="space-y-1">
+          <span className="font-medium">{r.itemName}</span>
+          <div>
+            <TranslationBadge translation={r.translations.find((t) => t.field === "itemName")} />
+          </div>
+        </div>
+      ),
+    },
     { key: "commodity", header: "Commodity", cell: (r) => r.commodity?.name ?? "—" },
     { key: "category", header: "Category", cell: (r) => r.materialCategory?.name ?? "—" },
     { key: "coo", header: "Origin", cell: (r) => r.countryOfOrigin?.name ?? "—" },
@@ -218,24 +239,10 @@ export default async function ItemsPage({
       header: "Notes",
       cell: (r) => {
         if (!r.notes) return <NotesCell notes={null} />
-        const es = r.translations[0]
         return (
           <div className="space-y-1">
             <NotesCell notes={r.notes} />
-            {/* Spanish copy: missing, raw machine output, or checked by a person. */}
-            {!es ? (
-              <Badge variant="outline" className="border-transparent bg-red-500/15 text-[10px] text-red-700 dark:text-red-400">
-                ES missing
-              </Badge>
-            ) : es.isMachine ? (
-              <Badge variant="outline" className="border-transparent bg-amber-500/15 text-[10px] text-amber-700 dark:text-amber-400">
-                ES auto
-              </Badge>
-            ) : (
-              <Badge variant="secondary" className="text-[10px]">
-                ES reviewed
-              </Badge>
-            )}
+            <TranslationBadge translation={r.translations.find((t) => t.field === "notes")} />
           </div>
         )
       },
@@ -270,9 +277,10 @@ export default async function ItemsPage({
             values={{
               id: r.id,
               itemName: r.itemName,
+              itemNameEs: r.translations.find((t) => t.field === "itemName")?.text ?? "",
               legacyFamousId: r.legacyFamousId ?? "",
               // The URL, not the key — the browser never sees storage paths.
-              image: r.imageKey ? `/items/${encodeURIComponent(r.id)}/image` : "",
+              image: itemImageUrl(r.id, r.imageKey),
               commodityCode: r.commodityCode ?? "",
               materialCategoryCode: r.materialCategoryCode ?? "",
               subCategoryId: r.subCategoryId ?? "",
@@ -282,7 +290,7 @@ export default async function ItemsPage({
               growerIds: r.authorizations.map((a) => String(a.growerId)).join(","),
               vendorIds: r.itemVendors.map((iv) => String(iv.vendorId)).join(","),
               notes: r.notes ?? "",
-              notesEs: r.translations[0]?.text ?? "",
+              notesEs: r.translations.find((t) => t.field === "notes")?.text ?? "",
             }}
             submitLabel="Save changes"
             trigger={

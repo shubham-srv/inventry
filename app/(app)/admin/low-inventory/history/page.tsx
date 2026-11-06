@@ -1,4 +1,4 @@
-import { format } from "date-fns"
+import { formatDate } from "@/lib/dates"
 import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { parseListParams } from "@/lib/query"
@@ -33,7 +33,7 @@ export default async function FlagHistoryPage({
     v == null ? <span className="text-muted-foreground">—</span> : `${v} ${unit ?? ""}`
   const stamp = (d: Date, who: string | null) => (
     <div>
-      {format(d, "MMM d, yyyy HH:mm")}
+      {formatDate(d, "MMM d, yyyy HH:mm")}
       {who && <p className="text-muted-foreground">by {who}</p>}
     </div>
   )

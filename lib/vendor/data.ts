@@ -1,8 +1,9 @@
 import "server-only"
-import { startOfDay, subDays } from "date-fns"
+import { dayStart, subAppDays } from "@/lib/dates"
 import { prisma } from "@/lib/db"
 import { ACTIVE_ITEM } from "@/lib/items/active"
-import { loadItemTranslations, localizedItemText } from "@/lib/items/translations"
+import { imageVersion } from "@/lib/items/image"
+import { loadNameLocalizer } from "@/lib/i18n/names"
 import { getLocale } from "@/lib/i18n/server"
 import { type ItemMessageView } from "@/lib/grower/data"
 
@@ -11,9 +12,11 @@ const num = (d: unknown) => (d == null ? 0 : Number(d))
 export type VendorAllocTarget = { growerId: number; growerName: string }
 export type VendorSubmitRow = {
   itemId: string
+  /** In the vendor's language where translated (as are the names below). */
   itemName: string
+  sourceItemName: string
   /** Whether this item has a photo — see the note on SubmitRow in lib/grower/data.ts. */
-  hasImage: boolean
+  imageVersion: string | null
   commodityName: string | null
   /** The item's material category — also what its quantities are counted in. */
   categoryName: string | null
@@ -40,7 +43,7 @@ export async function getVendorSubmitData(vendorId: number) {
     orderBy: { itemId: "asc" },
   })
   const itemIds = itemVendors.map((iv) => iv.itemId)
-  const todayStart = startOfDay(new Date())
+  const todayStart = dayStart()
 
   const now = new Date()
   const [auths, todaySub, prevDetails, itemMessages] = await Promise.all([
@@ -63,7 +66,7 @@ export async function getVendorSubmitData(vendorId: number) {
         itemId: { in: itemIds },
         submission: {
           vendorId,
-          submissionDate: { lt: todayStart, gte: subDays(todayStart, 90) },
+          submissionDate: { lt: todayStart, gte: subAppDays(todayStart, 90) },
         },
       },
       include: { allocations: true },
@@ -114,7 +117,7 @@ export async function getVendorSubmitData(vendorId: number) {
 
   const todayDetail = new Map(todaySub?.details.map((d) => [d.itemId, d]) ?? [])
   const locale = await getLocale()
-  const itemTranslations = await loadItemTranslations(itemIds, locale)
+  const names = await loadNameLocalizer(locale, itemIds)
 
   // Note in the vendor's language where translated, else as authored.
   const messagesByItem = new Map<string, ItemMessageView[]>()
@@ -142,11 +145,12 @@ export async function getVendorSubmitData(vendorId: number) {
     }
     return {
       itemId: iv.itemId,
-      itemName: iv.item.itemName,
-      hasImage: Boolean(iv.item.imageKey),
-      commodityName: iv.item.commodity?.name ?? null,
-      categoryName: iv.item.materialCategory?.name ?? null,
-      notes: localizedItemText(itemTranslations, iv.itemId, "notes", iv.item.notes),
+      itemName: names.item(iv.itemId, iv.item.itemName),
+      sourceItemName: iv.item.itemName,
+      imageVersion: imageVersion(iv.item.imageKey),
+      commodityName: names.commodity(iv.item.commodityCode, iv.item.commodity?.name),
+      categoryName: names.category(iv.item.materialCategoryCode, iv.item.materialCategory?.name),
+      notes: names.notes(iv.itemId, iv.item.notes),
       previousQty: prevByItem.has(iv.itemId) ? prevByItem.get(iv.itemId)! : null,
       previousAllocations,
       todayQty: detail ? num(detail.quantity) : null,
@@ -189,15 +193,15 @@ export async function getVendorHistory(vendorId: number, skip = 0, take = 10) {
 }
 
 export async function getVendorDashboard(vendorId: number) {
-  const todayStart = startOfDay(new Date())
-  const weekAgo = subDays(todayStart, 7)
+  const todayStart = dayStart()
+  const weekAgo = subAppDays(todayStart, 7)
 
   const [itemCount, weekSubs, lastSub, recentDetails] = await Promise.all([
     prisma.itemVendor.count({ where: { vendorId, isActive: true, item: ACTIVE_ITEM } }),
     prisma.vendorSubmission.count({ where: { vendorId, submissionDate: { gte: weekAgo } } }),
     prisma.vendorSubmission.findFirst({ where: { vendorId }, orderBy: { submissionDate: "desc" } }),
     prisma.vendorSubmissionDetail.findMany({
-      where: { submission: { vendorId, submissionDate: { gte: subDays(todayStart, 21) } } },
+      where: { submission: { vendorId, submissionDate: { gte: subAppDays(todayStart, 21) } } },
       include: { item: true, submission: true, allocations: { include: { grower: true } } },
       orderBy: { submission: { submissionDate: "desc" } },
     }),
@@ -211,8 +215,9 @@ export async function getVendorDashboard(vendorId: number) {
     for (const a of d.allocations) growers.add(a.growerId)
   }
   const totalLatestQty = [...latest.values()].reduce((s, v) => s + v.qty, 0)
+  const names = await loadNameLocalizer(await getLocale(), [...latest.keys()])
   const topItems = [...latest.entries()]
-    .map(([itemId, v]) => ({ itemId, name: v.name, qty: v.qty }))
+    .map(([itemId, v]) => ({ itemId, name: names.item(itemId, v.name), qty: v.qty }))
     .sort((a, b) => b.qty - a.qty)
     .slice(0, 6)
 

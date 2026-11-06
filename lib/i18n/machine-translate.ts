@@ -1,4 +1,5 @@
-import "server-only"
+// (No "server-only": also run by scripts/translate-names.ts under tsx. The key
+// is not NEXT_PUBLIC_, so it can never reach a browser bundle.)
 
 /**
  * Machine translation for admin-authored free text.

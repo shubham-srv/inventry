@@ -1,4 +1,4 @@
-import { format } from "date-fns"
+import { formatDate } from "@/lib/dates"
 import { Mail } from "lucide-react"
 import { type Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
@@ -47,7 +47,7 @@ export default async function OutboxPage({
     <>
       <PageHeader
         title="Outbox"
-        description="Every email the app has raised. Locally these are mocked; with ACS configured they queue here and are sent in the background at the provider's allowed rate."
+        description="Every email the app has queued or sent. Emails are sent in the background, a few at a time."
       />
       <div className="space-y-4">
         <DataTableToolbar
@@ -60,7 +60,7 @@ export default async function OutboxPage({
 
         <div className="grid gap-3">
           {messages.length === 0 && (
-            <Card><CardContent className="text-muted-foreground p-6 text-sm">No messages yet. Submit as a grower/vendor or run the reminder check.</CardContent></Card>
+            <Card><CardContent className="text-muted-foreground p-6 text-sm">No emails yet.</CardContent></Card>
           )}
           {messages.map((m) => (
             <Card key={m.id} className="py-0">
@@ -101,12 +101,12 @@ export default async function OutboxPage({
                     )}
                     {!m.lastError && m.nextAttemptAt && (
                       <p className="text-muted-foreground mt-1.5 text-xs">
-                        Retrying {format(m.nextAttemptAt, "MMM d, HH:mm")}
+                        Retrying {formatDate(m.nextAttemptAt, "MMM d, HH:mm")}
                       </p>
                     )}
                   </div>
                   <span className="text-muted-foreground shrink-0 text-xs">
-                    {format(m.createdAt, "MMM d, HH:mm")}
+                    {formatDate(m.createdAt, "MMM d, HH:mm")}
                   </span>
                 </div>
               </CardContent>

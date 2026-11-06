@@ -1,6 +1,6 @@
 import "server-only"
 import { Prisma } from "@prisma/client"
-import { differenceInCalendarDays, startOfDay, subDays } from "date-fns"
+import { calendarDaysBetween, dayStart, subAppDays } from "@/lib/dates"
 import { prisma } from "@/lib/db"
 import { sqlPage } from "@/lib/admin/sql"
 import { ORDER_STATUS } from "@/lib/constants"
@@ -150,18 +150,22 @@ function deliveryState(
   if (!row.eta) return { delivery: "Unknown", deliveryDays: null }
 
   if (row.status === ORDER_STATUS.OPEN) {
-    const days = differenceInCalendarDays(row.eta, today)
+    const days = calendarDaysBetween(row.eta, today)
     return days < 0
       ? { delivery: "Overdue", deliveryDays: -days }
       : { delivery: "Due", deliveryDays: days }
   }
   if (!row.closedAt) return { delivery: "Unknown", deliveryDays: null }
   // Signed, and the sign is kept: "3 days early" is information.
-  const days = differenceInCalendarDays(row.closedAt, row.eta)
+  const days = calendarDaysBetween(row.closedAt, row.eta)
   return days > 0
     ? { delivery: "Late", deliveryDays: days }
     : { delivery: "OnTime", deliveryDays: days }
 }
+
+/** A UTC datetime column's Arizona calendar day (Windows zone name for America/Phoenix). */
+const azDay = (col: Prisma.Sql) =>
+  Prisma.sql`CAST(${col} AT TIME ZONE 'UTC' AT TIME ZONE 'US Mountain Standard Time' AS DATE)`
 
 /** SQL mirrors of the two functions above. Keep them in step. */
 function deliveryFilter(delivery: string | undefined, today: Date): Prisma.Sql {
@@ -171,11 +175,11 @@ function deliveryFilter(delivery: string | undefined, today: Date): Prisma.Sql {
       return Prisma.sql`AND [status] = 'Open' AND [eta] IS NOT NULL AND [eta] < ${today}`
     case "due":
       return Prisma.sql`AND [status] = 'Open' AND [eta] IS NOT NULL AND [eta] >= ${today}`
-    // Calendar days, as deliveryState counts them — a same-day receipt is on time.
+    // Arizona calendar days, as deliveryState counts them — a same-day receipt is on time.
     case "late":
-      return Prisma.sql`AND [status] = 'Received' AND [eta] IS NOT NULL AND [closedAt] IS NOT NULL AND CAST([closedAt] AS DATE) > CAST([eta] AS DATE)`
+      return Prisma.sql`AND [status] = 'Received' AND [eta] IS NOT NULL AND [closedAt] IS NOT NULL AND ${azDay(Prisma.sql`[closedAt]`)} > ${azDay(Prisma.sql`[eta]`)}`
     case "ontime":
-      return Prisma.sql`AND [status] = 'Received' AND [eta] IS NOT NULL AND [closedAt] IS NOT NULL AND CAST([closedAt] AS DATE) <= CAST([eta] AS DATE)`
+      return Prisma.sql`AND [status] = 'Received' AND [eta] IS NOT NULL AND [closedAt] IS NOT NULL AND ${azDay(Prisma.sql`[closedAt]`)} <= ${azDay(Prisma.sql`[eta]`)}`
     case "noeta":
       return Prisma.sql`AND [eta] IS NULL`
     case "awaiting":
@@ -204,10 +208,9 @@ export async function getOrdersReport(
   filters: OrdersFilters,
   page?: { skip: number; take: number }
 ): Promise<{ rows: OrderReportRow[]; total: number }> {
-  // Bound in TypeScript and passed as parameters. The seed stamps dates at LOCAL
-  // noon, so a SQL-side SYSUTCDATETIME() "today" would be a day out for part of
-  // the year — and the displayed day counts are computed from the same values.
-  const today = startOfDay(new Date())
+  // Bound in TypeScript (Arizona midnight) and passed as parameters, so "today"
+  // here matches the displayed day counts, which use the same helpers.
+  const today = dayStart()
 
   const statusFilter = filters.status
     ? Prisma.sql`AND o.[status] = ${filters.status}`
@@ -219,7 +222,7 @@ export async function getOrdersReport(
     ? Prisma.sql`AND o.[vendorId] = ${filters.vendorId}`
     : Prisma.empty
   const periodFilter = filters.periodDays
-    ? Prisma.sql`AND o.[orderDate] >= ${subDays(today, filters.periodDays)}`
+    ? Prisma.sql`AND o.[orderDate] >= ${subAppDays(today, filters.periodDays)}`
     : Prisma.empty
   const qFilter = filters.q
     ? Prisma.sql`AND (i.[itemName] LIKE ${"%" + filters.q + "%"} OR o.[itemId] LIKE ${"%" + filters.q + "%"} OR i.[legacyFamousId] LIKE ${"%" + filters.q + "%"} OR g.[growerName] LIKE ${"%" + filters.q + "%"} OR v.[vendorName] LIKE ${"%" + filters.q + "%"} OR CAST(o.[id] AS VARCHAR(20)) LIKE ${"%" + filters.q + "%"})`
@@ -282,7 +285,7 @@ export async function getOrdersReport(
       const receivedQuantity = r.receivedQuantity == null ? null : Number(r.receivedQuantity)
       const actualLeadDays =
         r.status === ORDER_STATUS.RECEIVED && r.closedAt
-          ? differenceInCalendarDays(r.closedAt, r.orderDate)
+          ? calendarDaysBetween(r.closedAt, r.orderDate)
           : null
       return {
         id: r.id,

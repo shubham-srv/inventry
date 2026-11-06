@@ -2,14 +2,16 @@ import "server-only"
 import { prisma } from "@/lib/db"
 import { ORDER_STATUS } from "@/lib/constants"
 import { ACTIVE_ITEM } from "@/lib/items/active"
+import { imageVersion } from "@/lib/items/image"
 import { currentOnHand, onHandKey, type LocationCount } from "@/lib/inventory/on-hand"
-import { loadItemTranslations, localizedItemText } from "@/lib/items/translations"
+import { loadNameLocalizer } from "@/lib/i18n/names"
 
 export type GrowerItemRow = {
   itemId: string
+  /** In the grower's language where translated (as are the names below). */
   itemName: string
   legacyId: string | null
-  hasImage: boolean
+  imageVersion: string | null
   commodityName: string | null
   /** The item's material category — what its quantities are counted in. */
   categoryName: string | null
@@ -37,7 +39,14 @@ export async function getGrowerItems(growerId: number, locale: string, q?: strin
         item: {
           ...ACTIVE_ITEM,
           ...(q
-            ? { OR: [{ id: { contains: q } }, { itemName: { contains: q } }, { legacyFamousId: { contains: q } }] }
+            ? {
+                OR: [
+                  { id: { contains: q } },
+                  { itemName: { contains: q } },
+                  { legacyFamousId: { contains: q } },
+                  { translations: { some: { field: "itemName", locale, text: { contains: q } } } },
+                ],
+              }
             : {}),
         },
       },
@@ -56,9 +65,9 @@ export async function getGrowerItems(growerId: number, locale: string, q?: strin
       _sum: { quantity: true },
     }),
   ])
-  const translations = await loadItemTranslations(
-    auths.map((a) => a.itemId),
-    locale
+  const names = await loadNameLocalizer(
+    locale,
+    auths.map((a) => a.itemId)
   )
   const onOrder = new Map(openOrders.map((o) => [o.itemId, Number(o._sum.quantity ?? 0)]))
 
@@ -68,12 +77,12 @@ export async function getGrowerItems(growerId: number, locale: string, q?: strin
       const held = onHand.get(onHandKey(growerId, a.itemId))
       return {
         itemId: a.itemId,
-        itemName: a.item.itemName,
+        itemName: names.item(a.itemId, a.item.itemName),
         legacyId: a.item.legacyFamousId,
-        hasImage: Boolean(a.item.imageKey),
-        commodityName: a.item.commodity?.name ?? null,
-        categoryName: a.item.materialCategory?.name ?? null,
-        notes: localizedItemText(translations, a.itemId, "notes", a.item.notes),
+        imageVersion: imageVersion(a.item.imageKey),
+        commodityName: names.commodity(a.item.commodityCode, a.item.commodity?.name),
+        categoryName: names.category(a.item.materialCategoryCode, a.item.materialCategory?.name),
+        notes: names.notes(a.itemId, a.item.notes),
         byLocation: new Map((held?.byLocation ?? []).map((l) => [l.locationId, l])),
         onHand: held?.total ?? null,
         asOf: held?.asOf ?? null,

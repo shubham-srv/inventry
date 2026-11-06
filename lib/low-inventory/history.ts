@@ -2,6 +2,7 @@ import "server-only"
 import { type Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
 import { currentOnHand, onHandKey } from "@/lib/inventory/on-hand"
+import { loadNameLocalizer } from "@/lib/i18n/names"
 
 /** How a flag ended up — or that it hasn't. */
 export type FlagOutcome = "Open" | "ClearedByGrower" | "Reviewed"
@@ -32,10 +33,11 @@ export type FlagHistoryRow = {
 /**
  * Every low-inventory flag — open and cleared — newest first. One query shape
  * for the grower's "Flag history" page (scoped to their grower) and the admin
- * history tab (all growers), so the two always tell the same story.
+ * history tab (all growers), so the two always tell the same story. `locale`
+ * (grower page only) translates item and category names; admin stays English.
  */
 export async function getFlagHistory(
-  filters: { growerId?: number; outcome?: string; q?: string },
+  filters: { growerId?: number; outcome?: string; q?: string; locale?: string },
   page: { skip: number; take: number }
 ): Promise<{ rows: FlagHistoryRow[]; total: number }> {
   const and: Prisma.LowInventoryFlagWhereInput[] = []
@@ -52,7 +54,7 @@ export async function getFlagHistory(
       where,
       include: {
         grower: { select: { growerName: true } },
-        item: { select: { itemName: true, materialCategory: { select: { name: true } } } },
+        item: { select: { itemName: true, materialCategoryCode: true, materialCategory: { select: { name: true } } } },
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       skip: page.skip,
@@ -63,7 +65,7 @@ export async function getFlagHistory(
 
   // flaggedBy / clearedBy are plain audit columns — resolve names in one query.
   const userIds = [...new Set(flags.flatMap((f) => [f.flaggedBy, f.clearedBy ?? f.reviewedBy]).filter((v): v is number => v != null))]
-  const [users, onHand] = await Promise.all([
+  const [users, onHand, names] = await Promise.all([
     userIds.length
       ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, firstName: true, lastName: true } })
       : [],
@@ -71,6 +73,7 @@ export async function getFlagHistory(
       growerIds: [...new Set(flags.map((f) => f.growerId))],
       itemIds: [...new Set(flags.map((f) => f.itemId))],
     }),
+    loadNameLocalizer(filters.locale ?? "en", flags.map((f) => f.itemId)),
   ])
   const name = new Map(users.map((u) => [u.id, `${u.firstName} ${u.lastName}`]))
 
@@ -83,8 +86,8 @@ export async function getFlagHistory(
         growerId: f.growerId,
         growerName: f.grower.growerName,
         itemId: f.itemId,
-        itemName: f.item.itemName,
-        categoryName: f.item.materialCategory?.name ?? null,
+        itemName: names.item(f.itemId, f.item.itemName),
+        categoryName: names.category(f.item.materialCategoryCode, f.item.materialCategory?.name),
         reason: f.reason,
         raisedAt: f.createdAt,
         raisedBy: name.get(f.flaggedBy) ?? null,

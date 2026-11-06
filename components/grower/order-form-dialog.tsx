@@ -2,14 +2,14 @@
 
 import { startTransition, useActionState, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { format, startOfDay } from "date-fns"
 import { toast } from "sonner"
 import { Plus } from "lucide-react"
 import { createOrder } from "@/lib/actions/orders"
 import { initialActionState } from "@/lib/actions/types"
 import { earliestDelivery, parseDay, toDayInput } from "@/lib/orders/dates"
 import { type VendorOption } from "@/lib/grower/data"
-import { useT } from "@/lib/i18n/client"
+import { useLocale, useT } from "@/lib/i18n/client"
+import { dayStart, formatDate } from "@/lib/dates"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -42,6 +42,7 @@ export function OrderFormDialog({
   vendors: VendorOption[]
 }) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [state, formAction, pending] = useActionState(createOrder, initialActionState)
@@ -53,7 +54,7 @@ export function OrderFormDialog({
   const [requested, setRequested] = useState("")
 
   const vendor = vendors.find((v) => String(v.id) === vendorId)
-  const orderDay = parseDay(orderDate) ?? startOfDay(new Date())
+  const orderDay = parseDay(orderDate) ?? dayStart()
   const earliest = earliestDelivery(orderDay, vendor?.leadTimeDays)
   const minRequested = toDayInput(earliest)
 
@@ -180,7 +181,7 @@ export function OrderFormDialog({
                     {t("grower.orders.leadTimeHint", {
                       vendor: vendor.name,
                       days: vendor.leadTimeDays,
-                      date: format(earliest, "MMM d"),
+                      date: formatDate(earliest, "MMM d", locale),
                     })}
                   </p>
                 ) : null}

@@ -150,6 +150,7 @@ as you fill it in. Once saved it is permanent (§1.1).
 |---|---|---|---|
 | **Item ID** | — | Generated on create; shown but not editable when editing | Permanent. Every count and order points at it |
 | **Name** | Yes | What people call the thing | Change this freely — it is a label, not the identity |
+| **Spanish name** | No | Your own Spanish wording | What Spanish-language growers and vendors see. Leave blank to machine-translate on save. Changing the English name empties this box and re-translates. The Name column shows *ES missing / auto / reviewed* |
 | **Legacy ID** | No | The item's ID in the previous (Famous) system | No two items can share one. Searchable everywhere and shown in the reports |
 | **Photo** | No | A picture of the item | Helps people counting recognise it. Large photos are resized automatically. Growers and vendors can see it |
 | **Commodity** | Yes | The crop or product family | Forms the first part of the ID. **Cannot be changed after creation** |
@@ -190,6 +191,14 @@ a long way.
 | **Sub-categories** | The finer split within a category | Moving one between categories will contradict the IDs of items already using it |
 | **Countries** | Origins and locations | A country marked as not selectable stays valid as an item origin but disappears from the location and vendor pickers |
 | **Locations** | Physical sites | A site's type gates who can use it — some are grower-only, some vendor-only, some either |
+
+**Spanish names.** Commodities and categories have a **Spanish name** box, the
+same as items: leave it blank to machine-translate, or type your own. Growers and
+vendors who use Spanish see these names (a category name is also the unit after
+every quantity, e.g. *Cajas*); admin screens stay English.
+
+**Optional dropdowns** in every form have a small **×** to clear the choice — for
+example to remove a grower from a user who is no longer a grower user.
 
 **Disabling a commodity** asks you to type *disable* (*desactivar* on the Spanish
 screens) before the button works, because it takes every item in the commodity
@@ -396,11 +405,23 @@ the filters used.
 
 ## 4.11 Audit log
 
-Every create, update, delete and export: who, what, when, and the values before
-and after.
+Changes to settings and master data, and every export: who, what, when, and the
+values that were saved.
 
 This is where you answer *"who changed this, and when?"* — the item that changed
 status, the threshold that moved, the user who was deactivated.
+
+**What it records:** anything an administrator creates, edits or deletes (users,
+growers, vendors, items, commodities, categories, locations, mappings, schedules,
+thresholds, item messages…), reviews of item requests and low flags, a vendor's own
+settings (delivery dates, lead times, conversions), and every Excel export.
+
+**What it does not record:** grower counts and vendor stock reports, orders, low-flag
+toggles, item requests and sign-ins. Those keep their own history — see the grower's
+and vendor's **History**, **On order** and **Flag history** pages, and the reports.
+
+Each entry shows the values that were saved, not a before-and-after comparison. To
+see what something used to be, look at the previous entry for the same record.
 
 It is a record, not a recycle bin. It tells you what a value used to be so you
 can put it back yourself; it has no undo.

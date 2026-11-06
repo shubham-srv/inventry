@@ -2,7 +2,6 @@
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { format } from "date-fns"
 import { toast } from "sonner"
 import {
   TriangleAlert,
@@ -30,7 +29,8 @@ import { initialActionState } from "@/lib/actions/types"
 import { type SubmitRow, type OrderView } from "@/lib/grower/data"
 import { ItemMessageBanner } from "@/components/item-message-banner"
 import { ItemImage } from "@/components/item-image"
-import { useT } from "@/lib/i18n/client"
+import { useLocale, useT } from "@/lib/i18n/client"
+import { formatDate, toDayInput } from "@/lib/dates"
 import { SUBMISSION_STATUS, ORDER_STATUS } from "@/lib/constants"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -39,14 +39,6 @@ import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   Select,
   SelectContent,
@@ -67,6 +59,7 @@ import {
   type SubmitSort,
 } from "@/components/submit/submit-list-controls"
 import { itemCardClass } from "@/components/submit/card-tone"
+import { IncompleteSubmitDialog } from "@/components/submit/incomplete-dialog"
 import { cn } from "@/lib/utils"
 
 type RowState = { qty: string; low: boolean }
@@ -124,10 +117,11 @@ export function GrowerSubmitForm({
   const [sort, setSort] = useState<SubmitSort>(DEFAULT_SUBMIT_SORT)
   const view = useSubmitListView(rows, query, sort)
 
-  const entered = useMemo(
-    () => rows.filter((r) => values[r.itemId]?.qty.trim() !== "").length,
+  const unfilled = useMemo(
+    () => rows.filter((r) => values[r.itemId]?.qty.trim() === ""),
     [rows, values]
   )
+  const entered = rows.length - unfilled.length
 
   // Submitting with blanks asks first: a blank is easily an item nobody
   // counted, and the fix for "I have none" is to enter 0. Drafts never ask.
@@ -218,22 +212,13 @@ export function GrowerSubmitForm({
         <button ref={submitRef} type="submit" name="mode" value="submit" hidden />
       </form>
 
-      <Dialog open={confirmIncomplete} onOpenChange={setConfirmIncomplete}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{t("grower.form.incompleteTitle")}</DialogTitle>
-            <DialogDescription>
-              {t("grower.form.incompleteBody", { done: entered, total: rows.length })}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmIncomplete(false)}>
-              {t("grower.form.goBack")}
-            </Button>
-            <Button onClick={submitCounts}>{t("grower.form.submitAnyway")}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <IncompleteSubmitDialog
+        open={confirmIncomplete}
+        onOpenChange={setConfirmIncomplete}
+        missing={unfilled}
+        total={rows.length}
+        onConfirm={submitCounts}
+      />
 
       {/* Sticky location + progress + actions */}
       <div className="sticky top-14 z-10 -mx-4 mb-4 border-b bg-background/95 px-4 py-3 backdrop-blur md:-mx-6 md:px-6">
@@ -375,7 +360,7 @@ export function GrowerSubmitForm({
                   <div className="flex min-w-0 items-start gap-3">
                     <ItemImage
                       itemId={r.itemId}
-                      hasImage={r.hasImage}
+                      version={r.imageVersion}
                       alt={r.itemName}
                       size={48}
                       className="mt-0.5"
@@ -451,7 +436,6 @@ export function GrowerSubmitForm({
                         inputMode="decimal"
                         value={v.qty}
                         onChange={(e) => set(r.itemId, { qty: e.target.value })}
-                        placeholder="0"
                       />
                     </div>
                     <div className="flex flex-col items-center gap-1">
@@ -519,6 +503,7 @@ export function GrowerSubmitForm({
 
 function OrderRow({ order }: { order: OrderView }) {
   const t = useT()
+  const locale = useLocale()
   const isOpen = order.status === ORDER_STATUS.OPEN
   const isReceived = order.status === ORDER_STATUS.RECEIVED
   return (
@@ -549,20 +534,17 @@ function OrderRow({ order }: { order: OrderView }) {
       <span className="text-xs text-muted-foreground">
         {isOpen
           ? t("grower.orders.orderedOn", {
-              date: format(new Date(order.orderDate), "MMM d"),
+              date: formatDate(order.orderDate, "MMM d", locale),
             })
           : t("grower.orders.closedOn", {
-              date: format(
-                new Date(order.closedAt ?? order.orderDate),
-                "MMM d"
-              ),
+              date: formatDate(order.closedAt ?? order.orderDate, "MMM d", locale),
             })}
       </span>
       {order.expectedDeliveryDate && (
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <Truck className="size-3" />
           {t("grower.orders.requestedOn", {
-            date: format(new Date(order.expectedDeliveryDate), "MMM d"),
+            date: formatDate(order.expectedDeliveryDate, "MMM d", locale),
           })}
         </span>
       )}
@@ -570,7 +552,7 @@ function OrderRow({ order }: { order: OrderView }) {
       {order.confirmedDeliveryDate ? (
         <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
           {t("grower.orders.confirmedOn", {
-            date: format(new Date(order.confirmedDeliveryDate), "MMM d"),
+            date: formatDate(order.confirmedDeliveryDate, "MMM d", locale),
           })}
         </span>
       ) : (
@@ -626,9 +608,9 @@ function AddOrderButton({ item }: { item: SubmitRow }) {
   )
 }
 
-// <input type="date"> wants a YYYY-MM-DD value; slice it off the stored ISO.
+// <input type="date"> wants a YYYY-MM-DD value: the stored ISO's Arizona day.
 function toDateInput(iso: string | null): string {
-  return iso ? iso.slice(0, 10) : ""
+  return iso ? toDayInput(new Date(iso)) : ""
 }
 
 /**
@@ -721,6 +703,7 @@ function WeekChangeBadge({
 
 function EditDeliveryButton({ order }: { order: OrderView }) {
   const t = useT()
+  const locale = useLocale()
   const fields: Field[] = [
     {
       name: "expectedDeliveryDate",
@@ -731,7 +714,7 @@ function EditDeliveryButton({ order }: { order: OrderView }) {
       min: toDateInput(order.orderDate),
       colSpan: 2,
       description: order.confirmedDeliveryDate
-        ? t("grower.orders.vendorDateNote", { date: format(new Date(order.confirmedDeliveryDate), "MMM d") })
+        ? t("grower.orders.vendorDateNote", { date: formatDate(order.confirmedDeliveryDate, "MMM d", locale) })
         : undefined,
     },
   ]

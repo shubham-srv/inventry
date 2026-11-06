@@ -1,4 +1,4 @@
-import { format } from "date-fns"
+import { formatDate, toDayInput } from "@/lib/dates"
 import { Pencil, Plus, Trash2, Languages } from "lucide-react"
 import { type Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
@@ -47,7 +47,7 @@ const SEVERITY_STYLES: Record<string, string> = {
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
-const toDateInput = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "")
+const toDateInput = (d: Date | null) => (d ? toDayInput(d) : "")
 
 export default async function AdminItemMessagesPage({
   searchParams,
@@ -226,7 +226,7 @@ export default async function AdminItemMessagesPage({
       className: "text-muted-foreground whitespace-nowrap text-xs",
       cell: (r) =>
         r.startsAt || r.endsAt
-          ? `${r.startsAt ? format(r.startsAt, "MMM d") : "…"} – ${r.endsAt ? format(r.endsAt, "MMM d") : "…"}`
+          ? `${r.startsAt ? formatDate(r.startsAt, "MMM d") : "…"} – ${r.endsAt ? formatDate(r.endsAt, "MMM d") : "…"}`
           : "Always",
     },
     {

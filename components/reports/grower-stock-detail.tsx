@@ -1,4 +1,4 @@
-import { format } from "date-fns"
+import { formatDate } from "@/lib/dates"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { NotesCell } from "@/components/data-table/notes-cell"
@@ -53,7 +53,7 @@ export async function GrowerStockDetail({
                 <div className="leading-tight">
                   {l.locationName}
                   <p className="text-muted-foreground text-[10px] font-normal">
-                    {l.lastSubmittedAt ? `last ${format(l.lastSubmittedAt, "MMM d HH:mm")}` : "never submitted"}
+                    {l.lastSubmittedAt ? `last ${formatDate(l.lastSubmittedAt, "MMM d HH:mm")}` : "never submitted"}
                   </p>
                 </div>
               </TableHead>
@@ -108,7 +108,7 @@ export async function GrowerStockDetail({
                 </Badge>
               </TableCell>
               <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
-                {r.asOf ? format(r.asOf, "MMM d") : "—"}
+                {r.asOf ? formatDate(r.asOf, "MMM d") : "—"}
               </TableCell>
               <TableCell>
                 <NotesCell notes={r.notes} />

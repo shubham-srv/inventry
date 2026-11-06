@@ -1,7 +1,7 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
-import { startOfDay } from "date-fns"
+import { dayStart } from "@/lib/dates"
 import { z } from "zod"
 import { prisma } from "@/lib/db"
 import { ACTIVE_ITEM } from "@/lib/items/active"
@@ -96,7 +96,7 @@ export async function submitInventory(
   const valid = items.filter((i) => allowed.has(i.itemId))
   if (valid.length === 0) return fail(t("grower.actions.noAuthorized"))
 
-  const todayStart = startOfDay(new Date())
+  const todayStart = dayStart()
   const newStatus = isDraft
     ? SUBMISSION_STATUS.DRAFT
     : SUBMISSION_STATUS.APPROVED

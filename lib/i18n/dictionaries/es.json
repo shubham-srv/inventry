@@ -41,7 +41,8 @@
     "willRetranslate": "Esto se traducirá automáticamente del texto de arriba al guardar. Escribe aquí para usar tu propia traducción.",
     "disableWord": "desactivar",
     "pagination": "Paginación",
-    "goToPage": "Ir a la página {page}"
+    "goToPage": "Ir a la página {page}",
+    "clear": "Borrar"
   },
   "submitList": {
     "search": "Buscar artículos…",
@@ -54,7 +55,12 @@
     "sortHint": "La cantidad se ordena por el último conteo conocido, así las filas no se mueven mientras escribe.",
     "showing": "Mostrando {shown} de {total}",
     "noMatches": "Ningún artículo coincide con su búsqueda.",
-    "hiddenEntries": "La búsqueda oculta {count} artículo(s) que ya completó — todos se incluyen al enviar."
+    "hiddenEntries": "La búsqueda oculta {count} artículo(s) que ya completó — todos se incluyen al enviar.",
+    "incompleteTitle": "No todos los artículos tienen cantidad",
+    "incompleteBody": "{done} de {total} artículos tienen cantidad. ¿Seguro que desea enviar? Si no tiene un artículo, ingrese 0.",
+    "unfilledHeading": "Artículos sin cantidad ({count})",
+    "goBack": "Volver",
+    "submitAnyway": "Enviar de todos modos"
   },
   "status": {
     "Approved": "Aprobado",
@@ -210,11 +216,7 @@
       "weekChangeTitle": "Cambio frente al mismo artículo hace una semana",
       "location": "Ubicación",
       "locationHint": "Los conteos se registran en la ubicación seleccionada.",
-      "noLocations": "Todavía no hay ubicaciones asignadas a tu productor. Pide a un administrador que asigne al menos una antes de enviar conteos.",
-      "incompleteTitle": "No todos los artículos tienen conteo",
-      "incompleteBody": "No has completado todos los artículos: {done} de {total} tienen cantidad. ¿Seguro que quieres enviar? Si no tienes un artículo, ingresa 0.",
-      "goBack": "Volver",
-      "submitAnyway": "Enviar de todos modos"
+      "noLocations": "Todavía no hay ubicaciones asignadas a tu productor. Pide a un administrador que asigne al menos una antes de enviar conteos."
     },
     "orders": {
       "heading": "Pedidos",

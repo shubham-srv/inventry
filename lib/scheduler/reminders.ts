@@ -1,6 +1,6 @@
 // (No "server-only": this module is also run from scripts/run-reminders.ts,
 // headless, with no request or cookie context.)
-import { startOfDay, differenceInCalendarDays } from "date-fns"
+import { calendarDaysBetween, dayStart } from "@/lib/dates"
 import { prisma } from "@/lib/db"
 import { notifyScheduledReminder, notifyVendorScheduledReminder } from "@/lib/email/notify"
 import { NOTIFICATION_TYPES, SCHEDULER_SCOPES, SUBMISSION_STATUS } from "@/lib/constants"
@@ -66,13 +66,18 @@ async function remindGrowers(): Promise<ReminderResult> {
   const byGrower = new Map(
     growerSettings.filter((s) => s.growerId != null).map((s) => [s.growerId!, s])
   )
-  const today = startOfDay(new Date())
+  const today = dayStart()
   let remindersCreated = 0
   const messages: string[] = []
 
   for (const g of growers) {
     const setting = byGrower.get(g.id) ?? globalSetting
     if (!setting || !setting.isEnabled) continue
+    const toEmail = g.primaryEmail?.trim()
+    if (!toEmail) {
+      messages.push(`${g.growerName}: no primary email → skipped`)
+      continue
+    }
 
     const days = cadenceDays(setting)
 
@@ -105,7 +110,7 @@ async function remindGrowers(): Promise<ReminderResult> {
     const daysSince = locations.reduce((worst, l) => {
       const last = lastAt.get(l.locationId)
       const gap = last
-        ? differenceInCalendarDays(today, startOfDay(last))
+        ? calendarDaysBetween(today, dayStart(last))
         : Number.POSITIVE_INFINITY
       return Math.max(worst, gap)
     }, 0)
@@ -127,7 +132,7 @@ async function remindGrowers(): Promise<ReminderResult> {
     await notifyScheduledReminder({
       growerId: g.id,
       growerName: g.growerName,
-      toEmail: g.primaryEmail ?? `ops+${g.id}@example.com`,
+      toEmail,
       locale: g.preferredLocale,
       daysSince: Number.isFinite(daysSince) ? daysSince : null,
       cadenceType: setting.cadenceType,
@@ -163,7 +168,7 @@ async function remindVendors(): Promise<ReminderResult> {
     vendorSettings.filter((s) => s.vendorId != null).map((s) => [s.vendorId!, s])
   )
   const lastAt = new Map(lastByVendor.map((r) => [r.vendorId, r._max.submissionDate]))
-  const today = startOfDay(new Date())
+  const today = dayStart()
   let remindersCreated = 0
   const messages: string[] = []
 
@@ -174,7 +179,7 @@ async function remindVendors(): Promise<ReminderResult> {
 
     const last = lastAt.get(v.id)
     const daysSince = last
-      ? differenceInCalendarDays(today, startOfDay(last))
+      ? calendarDaysBetween(today, dayStart(last))
       : Number.POSITIVE_INFINITY
     if (daysSince < cadenceDays(setting)) continue
 

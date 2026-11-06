@@ -1,9 +1,10 @@
-import { format } from "date-fns"
 import { requireRole } from "@/lib/auth/session"
 import { ROLES } from "@/lib/constants"
 import { getVendorHistory } from "@/lib/vendor/data"
 import { parseListParams } from "@/lib/query"
-import { getT } from "@/lib/i18n/server"
+import { getLocale, getT } from "@/lib/i18n/server"
+import { loadNameLocalizer } from "@/lib/i18n/names"
+import { formatDate } from "@/lib/dates"
 import { PageHeader } from "@/components/page-header"
 import { Pager } from "@/components/pager"
 import { HistoryDetailTable } from "@/components/history/detail-table"
@@ -22,8 +23,10 @@ export default async function VendorHistoryPage({
   if (!user.vendorId) return <p className="text-sm">Your account is not mapped to a vendor.</p>
 
   const t = await getT()
+  const locale = await getLocale()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 10 })
   const { submissions, total } = await getVendorHistory(user.vendorId, skip, take)
+  const names = await loadNameLocalizer(locale, submissions.flatMap((s) => s.details.map((d) => d.itemId)))
 
   return (
     <>
@@ -44,7 +47,7 @@ export default async function VendorHistoryPage({
         {submissions.map((s) => (
           <Card key={s.id} className={cn("gap-0 py-0", submissionCardClass())}>
             <CardHeader className="bg-muted/40 flex-row items-center justify-between border-b py-3">
-              <CardTitle className="text-base">{format(s.submissionDate, "EEE, MMM d, yyyy")}</CardTitle>
+              <CardTitle className="text-base">{formatDate(s.submissionDate, "EEE, MMM d, yyyy", locale)}</CardTitle>
               <div className="flex items-center gap-2">
                 <Badge variant="secondary">{t("vendor.history.items", { count: s._count.details })}</Badge>
                 <span className="text-muted-foreground text-xs">
@@ -71,10 +74,10 @@ export default async function VendorHistoryPage({
                 rows={s.details.map((d) => (
                   <TableRow key={d.id}>
                     <TableCell>
-                      <span className="font-medium">{d.item.itemName}</span>
+                      <span className="font-medium">{names.item(d.itemId, d.item.itemName)}</span>
                       <span className="text-muted-foreground ml-2 font-mono text-xs">{d.itemId}</span>
                     </TableCell>
-                    <TableCell className="tabular-nums">{Number(d.quantity)} {d.item.materialCategory?.name ?? ""}</TableCell>
+                    <TableCell className="tabular-nums">{Number(d.quantity)} {names.category(d.item.materialCategoryCode, d.item.materialCategory?.name) ?? ""}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {d.allocations.length === 0 && <span className="text-muted-foreground text-xs">—</span>}

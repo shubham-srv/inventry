@@ -1,8 +1,9 @@
 import "server-only"
-import { startOfDay, subDays, endOfDay } from "date-fns"
+import { dayEnd, dayStart, subAppDays } from "@/lib/dates"
 import { prisma } from "@/lib/db"
 import { ACTIVE_ITEM } from "@/lib/items/active"
-import { loadItemTranslations, localizedItemText } from "@/lib/items/translations"
+import { imageVersion } from "@/lib/items/image"
+import { loadNameLocalizer } from "@/lib/i18n/names"
 import { getLocale } from "@/lib/i18n/server"
 import { REQUEST_STATUS, SUBMISSION_STATUS, ORDER_STATUS } from "@/lib/constants"
 
@@ -47,7 +48,7 @@ function latestPerItem(ledger: Ledgerish[], cutoff?: Date): Map<string, number> 
  * reach back to day eight instead.
  */
 function weekAgoCutoff(todayStart: Date): Date {
-  return endOfDay(subDays(todayStart, 7))
+  return dayEnd(subAppDays(todayStart, 7))
 }
 
 /**
@@ -116,10 +117,12 @@ export type ItemMessageView = {
 
 export type SubmitRow = {
   itemId: string
+  /** In the grower's language where translated (as are the names below). */
   itemName: string
-  /** Whether this item has a photo, so the row can show a thumbnail. Not the
-   *  storage key — that is a server path the browser has no business knowing. */
-  hasImage: boolean
+  sourceItemName: string
+  /** Photo version token (lib/items/image.ts), null when there is no photo. Not
+   *  the storage key — that is a server path the browser has no business knowing. */
+  imageVersion: string | null
   commodityName: string | null
   /** The item's material category — also what its quantities are counted in. */
   categoryName: string | null
@@ -153,7 +156,7 @@ export type SubmitRow = {
  * getGrowerSubmitData.
  */
 export async function getTodayProgress(growerId: number) {
-  const todayStart = startOfDay(new Date())
+  const todayStart = dayStart()
   const [itemCount, locationCount, recorded] = await Promise.all([
     prisma.growerItemAuthorization.count({
       where: { growerId, isActive: true, item: ACTIVE_ITEM },
@@ -205,7 +208,7 @@ export async function getGrowerSubmitData(growerId: number, locationId: number) 
     orderBy: { itemId: "asc" },
   })
   const itemIds = auths.map((a) => a.itemId)
-  const todayStart = startOfDay(new Date())
+  const todayStart = dayStart()
 
   const [todaySub, prevLedger, thresholds, lowFlags, orders, itemVendors, activeVendors, itemMessages] =
     await Promise.all([
@@ -223,7 +226,7 @@ export async function getGrowerSubmitData(growerId: number, locationId: number) 
           growerId,
           locationId,
           itemId: { in: itemIds },
-          date: { lt: todayStart, gte: subDays(todayStart, 90) },
+          date: { lt: todayStart, gte: subAppDays(todayStart, 90) },
         },
         orderBy: { date: "desc" },
       }),
@@ -267,6 +270,9 @@ export async function getGrowerSubmitData(growerId: number, locationId: number) 
       }),
     ])
 
+  // Names and notes in the grower's language (written on save, read here).
+  const names = await loadNameLocalizer(locale, itemIds)
+
   const prevByItem = latestPerItem(prevLedger)
   // Value as of a week ago, for the +/- change badge on each row.
   const weekAgoByItem = weekAgoPerItem(prevLedger, todayStart)
@@ -279,7 +285,7 @@ export async function getGrowerSubmitData(growerId: number, locationId: number) 
   // Orders are only ever raised for an authorized item, so the category comes
   // off `auths` rather than a second include on the order query.
   const categoryByItem = new Map(
-    auths.map((a) => [a.itemId, a.item.materialCategory?.name ?? null])
+    auths.map((a) => [a.itemId, names.category(a.item.materialCategoryCode, a.item.materialCategory?.name)])
   )
 
   // Orders grouped by item (Open first, then most recent), and the per-item
@@ -299,9 +305,12 @@ export async function getGrowerSubmitData(growerId: number, locationId: number) 
       closedAt: o.closedAt ? o.closedAt.toISOString() : null,
       receivedQuantity: o.receivedQuantity == null ? null : num(o.receivedQuantity),
       // Only worth showing once there is packaging beyond the item itself.
+      // Level 0 is the category (translated); packaging levels stay as typed.
       packSummary:
         o.packLines.length > 1
-          ? o.packLines.map((l) => `${num(l.quantity)} ${l.unitName}`).join(" · ")
+          ? o.packLines
+              .map((l) => `${num(l.quantity)} ${l.level === 0 ? (categoryByItem.get(o.itemId) ?? l.unitName) : l.unitName}`)
+              .join(" · ")
           : null,
     })
     ordersByItem.set(o.itemId, list)
@@ -317,9 +326,6 @@ export async function getGrowerSubmitData(growerId: number, locationId: number) 
     vendorsByItem.set(iv.itemId, list)
   }
   const allVendorOptions = activeVendors.map((v) => ({ id: v.id, name: v.vendorName, leadTimeDays: v.leadTimeDays }))
-
-  // Item notes in the grower's language (written on save, read here).
-  const itemTranslations = await loadItemTranslations(itemIds, locale)
 
   const messagesByItem = new Map<string, ItemMessageView[]>()
   for (const m of itemMessages) {
@@ -338,11 +344,12 @@ export async function getGrowerSubmitData(growerId: number, locationId: number) 
     const detail = todayDetail.get(a.itemId)
     return {
       itemId: a.itemId,
-      itemName: a.item.itemName,
-      hasImage: Boolean(a.item.imageKey),
-      commodityName: a.item.commodity?.name ?? null,
-      categoryName: a.item.materialCategory?.name ?? null,
-      notes: localizedItemText(itemTranslations, a.itemId, "notes", a.item.notes),
+      itemName: names.item(a.itemId, a.item.itemName),
+      sourceItemName: a.item.itemName,
+      imageVersion: imageVersion(a.item.imageKey),
+      commodityName: names.commodity(a.item.commodityCode, a.item.commodity?.name),
+      categoryName: categoryByItem.get(a.itemId) ?? null,
+      notes: names.notes(a.itemId, a.item.notes),
       previousQty: prev,
       weekAgoQty: weekAgo,
       // Compared against the last recorded count, not today's half-typed entry.
@@ -402,8 +409,8 @@ export async function getGrowerHistory(growerId: number, skip = 0, take = 10) {
 }
 
 export async function getGrowerDashboard(growerId: number) {
-  const todayStart = startOfDay(new Date())
-  const weekAgo = subDays(todayStart, 7)
+  const todayStart = dayStart()
+  const weekAgo = subAppDays(todayStart, 7)
 
   const [authCount, lowFlags, openRequests, lastSub, weekSubs, recentLedger] =
     await Promise.all([
@@ -419,7 +426,7 @@ export async function getGrowerDashboard(growerId: number) {
         where: { growerId, status: SUBMISSION_STATUS.APPROVED, submissionDate: { gte: weekAgo } },
       }),
       prisma.inventoryLedger.findMany({
-        where: { growerId, date: { gte: subDays(todayStart, 21) } },
+        where: { growerId, date: { gte: subAppDays(todayStart, 21) } },
         orderBy: { date: "desc" },
         include: { item: true },
       }),
@@ -429,7 +436,8 @@ export async function getGrowerDashboard(growerId: number) {
   // uses, so the dashboard's "biggest changes" and the per-row badges can't drift.
   const latest = latestPerItem(recentLedger)
   const weekAgoVal = weekAgoPerItem(recentLedger, todayStart)
-  const nameByItem = new Map(recentLedger.map((l) => [l.itemId, l.item.itemName]))
+  const names = await loadNameLocalizer(await getLocale(), [...latest.keys()])
+  const nameByItem = new Map(recentLedger.map((l) => [l.itemId, names.item(l.itemId, l.item.itemName)]))
   const deltas = [...latest.entries()].map(([itemId, current]) => {
     const prev = weekAgoVal.get(itemId)
     return {

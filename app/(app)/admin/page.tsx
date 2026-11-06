@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { formatDistanceToNow } from "date-fns"
+import { timeAgo } from "@/lib/dates"
 import {
   Sprout,
   Store,
@@ -102,7 +102,7 @@ export default async function AdminDashboard() {
                   </p>
                 </div>
                 <span className="text-muted-foreground shrink-0 text-xs">
-                  {formatDistanceToNow(s.submissionDate, { addSuffix: true })}
+                  {timeAgo(s.submissionDate)}
                 </span>
               </div>
             ))}
@@ -133,7 +133,7 @@ export default async function AdminDashboard() {
                     </p>
                   </div>
                   <span className="text-muted-foreground shrink-0 text-xs">
-                    {formatDistanceToNow(a.createdAt, { addSuffix: true })}
+                    {timeAgo(a.createdAt)}
                   </span>
                 </div>
               ))}

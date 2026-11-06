@@ -1,4 +1,4 @@
-import { format } from "date-fns"
+import { formatDate } from "@/lib/dates"
 import { CheckCircle2 } from "lucide-react"
 import { type Prisma } from "@prisma/client"
 import { prisma } from "@/lib/db"
@@ -105,7 +105,7 @@ export default async function AdminLowInventoryPage({
               </p>
             )}
             <p className="text-muted-foreground">
-              as of {format(now.asOf, "MMM d")}
+              as of {formatDate(now.asOf, "MMM d")}
               {r.onHandAtFlag != null && ` · ${Number(r.onHandAtFlag)} when flagged`}
             </p>
           </div>
@@ -128,7 +128,7 @@ export default async function AdminLowInventoryPage({
           </Badge>
         ),
     },
-    { key: "when", header: "When", className: "text-muted-foreground whitespace-nowrap text-xs", cell: (r) => format(r.createdAt, "MMM d") },
+    { key: "when", header: "When", className: "text-muted-foreground whitespace-nowrap text-xs", cell: (r) => formatDate(r.createdAt, "MMM d") },
     {
       key: "actions",
       header: "",

@@ -5,6 +5,7 @@ import { buildEntityExport, isExportableEntity } from "@/lib/admin/export"
 import { buildWorkbook } from "@/lib/export/excel"
 import { recordAudit } from "@/lib/audit"
 import { AUDIT_ACTIONS } from "@/lib/constants"
+import { toDayInput } from "@/lib/dates"
 
 // Admin-only datasets (partner/user data); the rest are master data editors can export.
 const ADMIN_ONLY = new Set(["users", "growers", "vendors", "authorizations", "full"])
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest) {
     },
   })
 
-  const date = new Date().toISOString().slice(0, 10)
+  const date = toDayInput(new Date())
   return new Response(new Uint8Array(buffer), {
     headers: {
       "Content-Type":

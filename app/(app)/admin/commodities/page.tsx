@@ -21,6 +21,7 @@ import {
 } from "@/components/crud/entity-form-dialog"
 import { ConfirmButton } from "@/components/crud/confirm-button"
 import { CommodityItemsDialog } from "@/components/commodities/commodity-items-dialog"
+import { TranslationBadge } from "@/components/translation-badge"
 
 const fields: Field[] = [
   {
@@ -33,9 +34,23 @@ const fields: Field[] = [
     description: "Short commodity code, e.g. AP",
   },
   { name: "name", label: "Name", type: "text", required: true, colSpan: 2 },
+  {
+    name: "nameEs",
+    label: "Spanish name",
+    type: "text",
+    translationOf: "name",
+    colSpan: 2,
+    description: "Shown to growers and vendors who use Spanish. Leave blank to machine-translate on save.",
+  },
 ]
 
-type Row = { code: string; name: string; isActive: boolean; _count: { items: number } }
+type Row = {
+  code: string
+  name: string
+  isActive: boolean
+  _count: { items: number }
+  translations: { name: string; isMachine: boolean }[]
+}
 
 export default async function CommoditiesPage({
   searchParams,
@@ -50,7 +65,10 @@ export default async function CommoditiesPage({
   const [rows, total] = await Promise.all([
     prisma.commodity.findMany({
       where,
-      include: { _count: { select: { items: true } } },
+      include: {
+        _count: { select: { items: true } },
+        translations: { where: { locale: "es" }, select: { name: true, isMachine: true } },
+      },
       orderBy: { code: "asc" },
       skip,
       take,
@@ -68,7 +86,14 @@ export default async function CommoditiesPage({
     {
       key: "name",
       header: "Name",
-      cell: (r) => <span className="font-medium">{r.name}</span>,
+      cell: (r) => (
+        <div className="space-y-1">
+          <span className="font-medium">{r.name}</span>
+          <div>
+            <TranslationBadge translation={r.translations[0]} />
+          </div>
+        </div>
+      ),
     },
     {
       key: "items",
@@ -111,7 +136,7 @@ export default async function CommoditiesPage({
             title="Edit commodity"
             fields={fields}
             action={updateCommodity}
-            values={{ code: r.code, name: r.name }}
+            values={{ code: r.code, name: r.name, nameEs: r.translations[0]?.name ?? "" }}
             submitLabel="Save changes"
             trigger={
               <Button variant="ghost" size="icon-sm" aria-label="Edit">

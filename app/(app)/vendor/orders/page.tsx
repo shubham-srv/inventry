@@ -1,10 +1,10 @@
 import Link from "next/link"
-import { format } from "date-fns"
 import { CalendarCheck, CalendarClock, Pencil, Timer } from "lucide-react"
 import { requireRole } from "@/lib/auth/session"
 import { ROLES, ORDER_STATUS } from "@/lib/constants"
 import { prisma } from "@/lib/db"
-import { getT } from "@/lib/i18n/server"
+import { getLocale, getT } from "@/lib/i18n/server"
+import { formatDate } from "@/lib/dates"
 import { buildQueryString, parseListParams } from "@/lib/query"
 import { getVendorOrders, VENDOR_ORDER_VIEWS } from "@/lib/vendor/orders"
 import { confirmDeliveryDate, setLeadTime } from "@/lib/actions/vendor"
@@ -35,9 +35,10 @@ export default async function VendorOrdersPage({
   if (!user.vendorId) return <p className="text-sm">Your account is not mapped to a vendor.</p>
 
   const t = await getT()
+  const locale = await getLocale()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 15 })
   const [{ orders, total, view }, vendor] = await Promise.all([
-    getVendorOrders(user.vendorId, { view: raw.view, q: raw.q }, { skip, take }),
+    getVendorOrders(user.vendorId, { view: raw.view, q: raw.q, locale }, { skip, take }),
     prisma.vendor.findUnique({ where: { id: user.vendorId }, select: { leadTimeDays: true } }),
   ])
   const lead = vendor?.leadTimeDays ?? null
@@ -63,12 +64,12 @@ export default async function VendorOrdersPage({
       min: toDayInput(o.orderDate),
       colSpan: 2,
       description: o.expectedDeliveryDate
-        ? t("vendor.orders.requestedHint", { date: format(o.expectedDeliveryDate, "MMM d, yyyy") })
+        ? t("vendor.orders.requestedHint", { date: formatDate(o.expectedDeliveryDate, "MMM d, yyyy", locale) })
         : undefined,
     },
   ]
 
-  const day = (d: Date | null) => (d ? format(d, "MMM d, yyyy") : "—")
+  const day = (d: Date | null) => (d ? formatDate(d, "MMM d, yyyy", locale) : "—")
 
   const columns: Column<Order>[] = [
     { key: "id", header: t("vendor.orders.order"), className: "font-mono text-xs", cell: (o) => `#${o.id}` },
@@ -89,7 +90,7 @@ export default async function VendorOrdersPage({
       className: "tabular-nums",
       cell: (o) => (
         <div>
-          {Number(o.quantity)} {o.item.materialCategory?.name ?? ""}
+          {Number(o.quantity)} {o.item.categoryName ?? ""}
           {/* What it ships as, in this vendor's conversions (snapshotted). */}
           {o.packLines.length > 1 && (
             <p className="text-muted-foreground text-xs">
@@ -110,7 +111,7 @@ export default async function VendorOrdersPage({
           <div>
             <span className="font-medium">{day(o.confirmedDeliveryDate)}</span>
             {o.confirmedAt && (
-              <p className="text-muted-foreground">{t("vendor.orders.setOn", { date: format(o.confirmedAt, "MMM d") })}</p>
+              <p className="text-muted-foreground">{t("vendor.orders.setOn", { date: formatDate(o.confirmedAt, "MMM d", locale) })}</p>
             )}
           </div>
         ) : o.status === ORDER_STATUS.OPEN ? (

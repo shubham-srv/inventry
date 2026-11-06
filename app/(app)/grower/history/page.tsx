@@ -1,10 +1,11 @@
-import { format } from "date-fns"
 import { Flag } from "lucide-react"
 import { requireRole } from "@/lib/auth/session"
 import { ROLES } from "@/lib/constants"
 import { getGrowerHistory } from "@/lib/grower/data"
 import { parseListParams } from "@/lib/query"
-import { getT } from "@/lib/i18n/server"
+import { getLocale, getT } from "@/lib/i18n/server"
+import { loadNameLocalizer } from "@/lib/i18n/names"
+import { formatDate } from "@/lib/dates"
 import { PageHeader } from "@/components/page-header"
 import { Pager } from "@/components/pager"
 import { HistoryDetailTable } from "@/components/history/detail-table"
@@ -24,8 +25,10 @@ export default async function GrowerHistoryPage({
   if (!user.growerId) return <p className="text-sm">Your account is not mapped to a grower.</p>
 
   const t = await getT()
+  const locale = await getLocale()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 10 })
   const { submissions, total } = await getGrowerHistory(user.growerId, skip, take)
+  const names = await loadNameLocalizer(locale, submissions.flatMap((s) => s.details.map((d) => d.itemId)))
 
   return (
     <>
@@ -47,7 +50,7 @@ export default async function GrowerHistoryPage({
           <Card key={s.id} className={cn("gap-0 py-0", submissionCardClass())}>
             <CardHeader className="bg-muted/40 flex-row items-center justify-between border-b py-3">
               <CardTitle className="flex items-center gap-2 text-base">
-                {format(s.submissionDate, "EEE, MMM d, yyyy")}
+                {formatDate(s.submissionDate, "EEE, MMM d, yyyy", locale)}
                 {/* A day is now one card per site, so the site has to be on it. */}
                 <span className="text-muted-foreground text-sm font-normal">
                   {s.location.locationName}
@@ -80,10 +83,10 @@ export default async function GrowerHistoryPage({
                 rows={s.details.map((d) => (
                   <TableRow key={d.id}>
                     <TableCell>
-                      <span className="font-medium">{d.item.itemName}</span>
+                      <span className="font-medium">{names.item(d.itemId, d.item.itemName)}</span>
                       <span className="text-muted-foreground ml-2 font-mono text-xs">{d.itemId}</span>
                     </TableCell>
-                    <TableCell className="tabular-nums">{Number(d.quantityOnHand)} {d.item.materialCategory?.name ?? ""}</TableCell>
+                    <TableCell className="tabular-nums">{Number(d.quantityOnHand)} {names.category(d.item.materialCategoryCode, d.item.materialCategory?.name) ?? ""}</TableCell>
                     <TableCell>
                       {d.isLowFlagged && (
                         <Badge variant="outline" className="border-transparent bg-red-500/15 text-red-700 dark:text-red-400">

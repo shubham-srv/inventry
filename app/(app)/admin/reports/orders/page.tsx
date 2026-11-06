@@ -1,4 +1,4 @@
-import { format } from "date-fns"
+import { formatDate } from "@/lib/dates"
 import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { parseListParams } from "@/lib/query"
@@ -153,13 +153,13 @@ export default async function OrdersReportPage({
       key: "orderDate",
       header: "Ordered on",
       className: "text-xs text-muted-foreground whitespace-nowrap",
-      cell: (r) => format(r.orderDate, "MMM d"),
+      cell: (r) => formatDate(r.orderDate, "MMM d"),
     },
     {
       key: "requested",
       header: "Requested",
       className: "text-xs text-muted-foreground whitespace-nowrap",
-      cell: (r) => (r.expectedDeliveryDate ? format(r.expectedDeliveryDate, "MMM d") : "—"),
+      cell: (r) => (r.expectedDeliveryDate ? formatDate(r.expectedDeliveryDate, "MMM d") : "—"),
     },
     {
       key: "confirmed",
@@ -168,9 +168,9 @@ export default async function OrdersReportPage({
       cell: (r) =>
         r.confirmedDeliveryDate ? (
           <div>
-            <span className="font-medium">{format(r.confirmedDeliveryDate, "MMM d")}</span>
+            <span className="font-medium">{formatDate(r.confirmedDeliveryDate, "MMM d")}</span>
             {r.confirmedAt && (
-              <p className="text-muted-foreground">set {format(r.confirmedAt, "MMM d")}</p>
+              <p className="text-muted-foreground">set {formatDate(r.confirmedAt, "MMM d")}</p>
             )}
           </div>
         ) : r.awaitingVendor ? (

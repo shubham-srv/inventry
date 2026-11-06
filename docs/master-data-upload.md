@@ -15,6 +15,7 @@ and load the filled-in file back with:
 npm run data:import -- <file.xlsx> --dry-run   # validate only, writes nothing
 npm run data:import -- <file.xlsx>             # validate, then import
 npm run data:import -- <file.xlsx> --partial   # import valid rows, skip rows with errors
+npm run data:translate-names                   # afterwards: Spanish names for the new rows
 ```
 
 By default one error anywhere imports nothing. `--partial` instead skips each

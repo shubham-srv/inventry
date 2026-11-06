@@ -1,9 +1,10 @@
 import { Pencil } from "lucide-react"
-import { startOfDay, format } from "date-fns"
 import { requireRole } from "@/lib/auth/session"
 import { ROLES, ORDER_STATUS } from "@/lib/constants"
 import { prisma } from "@/lib/db"
-import { getT } from "@/lib/i18n/server"
+import { getLocale, getT } from "@/lib/i18n/server"
+import { loadNameLocalizer } from "@/lib/i18n/names"
+import { dayStart, formatDate } from "@/lib/dates"
 import { parseListParams } from "@/lib/query"
 import { updateOrderDelivery } from "@/lib/actions/orders"
 import { toDayInput } from "@/lib/orders/dates"
@@ -32,7 +33,8 @@ export default async function GrowerOnOrderPage({
     return <p className="text-sm">Your account is not mapped to a grower.</p>
 
   const t = await getT()
-  const todayStart = startOfDay(new Date())
+  const locale = await getLocale()
+  const todayStart = dayStart()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 15 })
 
   // Active orders: still Open, or closed today (visible through end of day).
@@ -52,6 +54,9 @@ export default async function GrowerOnOrderPage({
     }),
     prisma.order.count({ where }),
   ])
+  const names = await loadNameLocalizer(locale, orders.map((o) => o.itemId))
+  const unit = (o: (typeof orders)[number]) =>
+    names.category(o.item.materialCategoryCode, o.item.materialCategory?.name) ?? ""
 
   // The server also holds the date to the vendor's lead time from the order date.
   const deliveryFields = (orderDate: Date): Field[] => [
@@ -103,27 +108,27 @@ export default async function GrowerOnOrderPage({
                 return (
                   <TableRow key={o.id}>
                     <TableCell>
-                      <span className="font-medium">{o.item.itemName}</span>
+                      <span className="font-medium">{names.item(o.itemId, o.item.itemName)}</span>
                       <span className="ml-2 font-mono text-xs text-muted-foreground">
                         {o.itemId}
                       </span>
                     </TableCell>
                     <TableCell>{o.vendor.vendorName}</TableCell>
                     <TableCell className="tabular-nums">
-                      {Number(o.quantity)} {o.item.materialCategory?.name ?? ""}
+                      {Number(o.quantity)} {unit(o)}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {format(o.orderDate, "MMM d, yyyy")}
+                      {formatDate(o.orderDate, "MMM d, yyyy", locale)}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {o.expectedDeliveryDate
-                        ? format(o.expectedDeliveryDate, "MMM d, yyyy")
+                        ? formatDate(o.expectedDeliveryDate, "MMM d, yyyy", locale)
                         : "—"}
                     </TableCell>
                     <TableCell className="text-xs">
                       {o.confirmedDeliveryDate ? (
                         <span className="font-medium text-emerald-700 dark:text-emerald-400">
-                          {format(o.confirmedDeliveryDate, "MMM d, yyyy")}
+                          {formatDate(o.confirmedDeliveryDate, "MMM d, yyyy", locale)}
                         </span>
                       ) : isOpen ? (
                         <span className="text-amber-700 dark:text-amber-400">
@@ -161,14 +166,14 @@ export default async function GrowerOnOrderPage({
                       {isOpen && (
                         <EntityFormDialog
                           title={t("grower.orders.editDeliveryTitle")}
-                          description={`${o.vendor.vendorName} · ${Number(o.quantity)} ${o.item.materialCategory?.name ?? ""}`}
+                          description={`${o.vendor.vendorName} · ${Number(o.quantity)} ${unit(o)}`}
                           fields={deliveryFields(o.orderDate)}
                           action={updateOrderDelivery}
                           submitLabel={t("common.save")}
                           values={{
                             id: o.id,
                             expectedDeliveryDate: o.expectedDeliveryDate
-                              ? o.expectedDeliveryDate.toISOString().slice(0, 10)
+                              ? toDayInput(o.expectedDeliveryDate)
                               : "",
                           }}
                           trigger={

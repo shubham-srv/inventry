@@ -14,13 +14,16 @@ import { ok, fail } from "@/lib/actions/types"
 import { recordAudit } from "@/lib/audit"
 import { CAPABILITIES } from "@/lib/rbac"
 import { AUDIT_ACTIONS } from "@/lib/constants"
+import { syncCategoryName, syncCommodityName } from "@/lib/i18n/lookup-translations"
 
 const CAP = CAPABILITIES.MANAGE_MASTER_DATA
 
 // ---------------- Commodities ----------------
+// nameEs: typed = reviewed Spanish; blank = machine-translate (as item notes).
 const commoditySchema = z.object({
   code: z.string().trim().min(1, "Code is required").max(8),
   name: z.string().trim().min(1, "Name is required"),
+  nameEs: z.string().trim().optional().default(""),
 })
 
 export async function createCommodity(_p: ActionState, fd: FormData): Promise<ActionState> {
@@ -31,6 +34,7 @@ export async function createCommodity(_p: ActionState, fd: FormData): Promise<Ac
   try {
     await prisma.commodity.create({ data: { code, name: data.name, createdBy: user.id, updatedBy: user.id } })
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.CREATE, entityType: "Commodity", entityId: code, changes: data })
+    await syncCommodityName({ code, before: null, after: data.name, posted: { es: data.nameEs }, userId: user.id })
     revalidatePath("/admin/commodities")
     return ok("Commodity created")
   } catch (e) {
@@ -43,8 +47,10 @@ export async function updateCommodity(_p: ActionState, fd: FormData): Promise<Ac
   const { data, error } = parseForm(commoditySchema, fd)
   if (error) return error
   try {
+    const before = await prisma.commodity.findUnique({ where: { code: data.code }, select: { name: true } })
     await prisma.commodity.update({ where: { code: data.code }, data: { name: data.name, updatedBy: user.id } })
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.UPDATE, entityType: "Commodity", entityId: data.code, changes: data })
+    await syncCommodityName({ code: data.code, before: before?.name ?? "", after: data.name, posted: { es: data.nameEs }, userId: user.id })
     revalidatePath("/admin/commodities")
     return ok("Commodity updated")
   } catch (e) {
@@ -85,6 +91,7 @@ export async function deleteCommodity(code: string): Promise<ActionState> {
 const categorySchema = z.object({
   code: z.string().trim().min(1, "Code is required").max(8),
   name: z.string().trim().min(1, "Name is required"),
+  nameEs: z.string().trim().optional().default(""),
 })
 
 export async function createCategory(_p: ActionState, fd: FormData): Promise<ActionState> {
@@ -98,6 +105,7 @@ export async function createCategory(_p: ActionState, fd: FormData): Promise<Act
   try {
     await prisma.materialCategory.create({ data: { code, name: data.name, createdBy: user.id, updatedBy: user.id } })
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.CREATE, entityType: "MaterialCategory", entityId: code, changes: data })
+    await syncCategoryName({ code, before: null, after: data.name, posted: { es: data.nameEs }, userId: user.id })
     revalidatePath("/admin/categories")
     return ok("Category created")
   } catch (e) {
@@ -110,8 +118,10 @@ export async function updateCategory(_p: ActionState, fd: FormData): Promise<Act
   const { data, error } = parseForm(categorySchema, fd)
   if (error) return error
   try {
+    const before = await prisma.materialCategory.findUnique({ where: { code: data.code }, select: { name: true } })
     await prisma.materialCategory.update({ where: { code: data.code }, data: { name: data.name, updatedBy: user.id } })
     await recordAudit({ userId: user.id, action: AUDIT_ACTIONS.UPDATE, entityType: "MaterialCategory", entityId: data.code, changes: data })
+    await syncCategoryName({ code: data.code, before: before?.name ?? "", after: data.name, posted: { es: data.nameEs }, userId: user.id })
     revalidatePath("/admin/categories")
     return ok("Category updated")
   } catch (e) {

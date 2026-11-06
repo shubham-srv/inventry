@@ -1,9 +1,9 @@
 import "server-only"
-import { translateText } from "@/lib/i18n/machine-translate"
+import { TRANSLATABLE_LOCALES, translateText } from "@/lib/i18n/machine-translate"
 
 /**
  * Keeps the translated copy of admin-typed text (an item message's note, an
- * item's notes — and anything added later, e.g. item names) in step with the
+ * item's notes and name, commodity and category names) in step with the
  * English it was made from. Storage-agnostic: callers pass `save` / `remove`
  * for their own translation table.
  *
@@ -43,6 +43,34 @@ export function planTranslation(opts: {
   // Nothing relevant changed. Fill a gap (the provider may have been off last
   // time), but don't spend a call re-translating text that is already done.
   return stored ? { kind: "keep" } : { kind: "machine", dropOnFailure: false }
+}
+
+/**
+ * Plan and apply one source field's translation for every translatable locale.
+ * `posted` is keyed by locale (the form's translation boxes).
+ */
+export async function syncTranslations(opts: {
+  sourceBefore: string | null
+  sourceAfter: string
+  posted: Partial<Record<string, string>>
+  find: (locale: string) => Promise<StoredTranslation>
+  save: (locale: string, text: string, isMachine: boolean) => Promise<unknown>
+  remove: (locale: string) => Promise<unknown>
+}): Promise<void> {
+  for (const locale of TRANSLATABLE_LOCALES) {
+    const plan = planTranslation({
+      sourceBefore: opts.sourceBefore,
+      sourceAfter: opts.sourceAfter,
+      stored: await opts.find(locale),
+      posted: opts.posted[locale] ?? "",
+    })
+    await applyTranslation(plan, {
+      source: opts.sourceAfter,
+      locale,
+      save: (text, isMachine) => opts.save(locale, text, isMachine),
+      remove: () => opts.remove(locale),
+    })
+  }
 }
 
 /**

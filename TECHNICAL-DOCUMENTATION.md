@@ -187,7 +187,7 @@ own status is untouched, so re-enabling restores them exactly. The single rule
 lives in `lib/items/active.ts`. Disabling needs the word *disable* typed to confirm
 (localised, as deletes need *delete*), and the commodities table's **Items** count opens
 a searchable list of that commodity's items. Items also carry an optional **legacy ID**
-(unique when filled) and **notes**, which are translated for Spanish-language users.
+(unique when filled) and **notes**. Item names, notes, and commodity and category names are translated for Spanish-language growers and vendors.
 
 Items are the centre of gravity. An item carries its commodity, material category,
 sub-category, country of origin, application method and status — and, editable from the
@@ -209,7 +209,7 @@ every count, order and ledger row references.
 | **Authorisations** | Which growers may count which items; which vendors supply which items, categories, countries and locations. |
 | **Thresholds** | Per-item low-stock thresholds, with optional per-grower overrides that take precedence. |
 | **Schedulers** | Reminder cadence (Daily / Weekly / Monthly / After *N* days) for all growers and for all vendors, with per-grower and per-vendor overrides. Includes a "run the check now" button. |
-| **Audit logs** | Every create/update/delete/export, with actor, entity, timestamp and a before/after diff. |
+| **Audit logs** | Admin create/update/delete of settings and master data, admin reviews, vendor self-service settings, and exports — with actor, entity, timestamp and the values saved. Grower/vendor submissions, orders and sign-ins are not audit-logged (see [§7.6](#76-auditing)). |
 | **Outbox** | Every notification the system produced, its status (Queued / Sending / Sent / Failed / Mocked), retry count, last error, and an HTML preview of the message. |
 
 ### 3.6 Internal — reports
@@ -287,7 +287,7 @@ A mutation:
    the client — and asserts the required role or capability.
 3. Input is parsed and validated with **zod**.
 4. The write executes, inside a transaction where several tables must move together.
-5. An audit row is written; any resulting notification is **enqueued**, not sent.
+5. Admin and settings changes write an audit row ([§7.6](#76-auditing)); any resulting notification is **enqueued**, not sent.
 6. Affected paths are revalidated so every open view reflects the change.
 
 Steps 2 and 3 are not optional conveniences — they are the security boundary. Because a
@@ -394,8 +394,9 @@ ledger and the submission can never disagree.
 | `ItemThreshold` | Low-stock threshold per item; `growerId = NULL` is the global default, a grower row overrides it |
 | `SchedulerSetting` | Reminder cadence by `scope`: `Global` (all growers), `Grower`, `VendorGlobal` (all vendors) or `Vendor` (with `vendorId`). A grower or vendor row replaces its default wholesale — there is no field-level merge |
 | `PackagingChain` / `PackagingChainLevel` / `VendorPackRatio` | The conversion (packaging) hierarchy and each vendor's ratios |
-| `ItemTranslation` | Translated item text per (item, field, locale) — `notes` today; item names later are a new `field` value, not a new table |
-| `AuditLog` | Actor, action, entity, and a JSON before/after diff |
+| `ItemTranslation` | Translated item text per (item, field, locale) — `notes` and `itemName` |
+| `CommodityTranslation` / `MaterialCategoryTranslation` | Translated commodity and category names per locale, shown to growers and vendors |
+| `AuditLog` | Actor, action, entity, and the saved values as JSON (not a before/after diff) |
 | `NotificationLog` | The email **outbox** — see [§8](#8-notifications-and-scheduled-jobs) |
 | `PowerBiReport` | Registry of BI reports and their embed URLs |
 | `ItemMessage` / `ItemMessageTranslation` / `ItemMessageGrower` / `ItemMessageVendor` | Item notices (`recipients`: Growers, Vendors or Both), their translations, and their grower and vendor targeting |
@@ -502,10 +503,35 @@ at all.
 
 ### 7.6 Auditing
 
-Create, update, delete and export operations write an `AuditLog` row: who, what entity,
-when, and a JSON before/after diff. Administrators can browse and filter this in-app. The
-email outbox provides the parallel record for outbound communication: every message, its
-status, retries and errors.
+The `AuditLog` records configuration and master-data changes, not day-to-day activity.
+Each row holds who, what entity, when, and the values that were saved (a JSON snapshot of
+the input — not a before/after diff; the one exception is a vendor's delivery-date change,
+which also records the previous date). Administrators can browse and filter this in-app.
+
+**Logged:**
+
+- Admin create/update/delete of users, growers, vendors, items, commodities (including
+  enable/disable), material categories, sub-categories, countries, locations, location
+  types, packaging chains, item messages, grower item authorizations, item–vendor
+  mappings (packaging, lead time), reminder schedules and thresholds.
+- Admin reviews of missing-item requests and low-inventory flags; the "Run reminders" and
+  "Flush email queue" buttons.
+- Vendor self-service settings: confirming or changing a delivery date, default and
+  per-item lead time, conversion ratios.
+- Every Excel export (admin, grower and vendor).
+
+**Not logged** — these records carry their own who/when instead:
+
+- Grower inventory submissions and drafts, low-flag toggles and missing-item requests
+  (`GrowerSubmission` / `LowInventoryFlag` / `MissingItemRequest`).
+- Vendor stock reports (`VendorSubmission`).
+- Orders: placing, changing the requested date, receiving, cancelling
+  (`Order.createdBy` / `updatedBy` / `closedAt`).
+- Sign-in, sign-out and language changes.
+- Bulk loads by `scripts/import-master-data.ts` and the seed.
+
+The email outbox provides the parallel record for outbound communication: every message,
+its status, retries and errors.
 
 ### 7.7 Transport and runtime
 
@@ -675,11 +701,20 @@ wired.
   edits it, because these notes drive real behaviour ("clear inventory") and a bad
   translation costs more than a missing one. With translation disabled, growers see the
   authored text.
-- **Item notes** follow the same rules and are shown to growers and vendors in their
-  language. One module decides what a translation becomes on save
+- **Item notes, item names, commodity names and category names** follow the same rules
+  and are shown to growers and vendors in their language (screens, their emails and
+  their exports). Admin screens, reports and exports stay in English. Reads go through
+  one helper (`lib/i18n/names.ts`), which falls back to the English when no
+  translation exists. Packaging level names and sub-categories are not translated.
+  Existing records are backfilled with `npm run data:translate-names` (also worth
+  running after a bulk import). One module decides what a translation becomes on save
   (`lib/i18n/text-translation.ts`): an admin-typed translation is kept as reviewed; a
   blank box, or a changed English source under an untouched box, is re-translated —
   so editing the English never leaves a stale translation behind.
+- **Dates and "today" are Arizona time** (`America/Phoenix`, UTC-7 all year), whatever
+  the server's or the viewer's timezone. Day boundaries (today's submission, overdue
+  days, report day counts, order date limits) and every displayed date go through
+  `lib/dates.ts`, which also gives Spanish month and day names to Spanish readers.
 
 ---
 
@@ -707,7 +742,7 @@ demonstrating without a network.
 | Azure SQL Database | Application database |
 | Azure Key Vault | All secrets |
 | Azure Communication Services | Outbound email |
-| Azure AI Translator | Optional, for item-message notes |
+| Azure AI Translator | Optional, for item-message notes, item notes and names, commodity and category names |
 | Log Analytics + Application Insights | Logs, metrics, traces |
 
 [Appendix B](#appendix-b--provisioning-inventory) has the full provisioning inventory:
@@ -799,7 +834,7 @@ container never holds a literal secret in its revision template.
 |---|---|---|
 | `AUTH_PROVIDER` | `local` \| `entra` | `local` additionally shows the demo user picker — non-production only |
 | `EMAIL_PROVIDER` | `local` \| `acs` | `local` records to the Outbox without sending |
-| `TRANSLATION_PROVIDER` | `local` \| `azure` | `local` stores notes exactly as authored |
+| `TRANSLATION_PROVIDER` | `local` \| `azure` | `local` stores notes and names exactly as authored |
 
 ### 13.3 Integrations
 
@@ -1006,7 +1041,7 @@ Where to make the most common kinds of change:
 | Schema change | Edit `prisma/schema.prisma`, generate a migration, review the SQL, follow expand/contract |
 
 The consistent shape of a server action is the important convention: **authenticate,
-authorise, validate, write, audit, notify, revalidate**. Skipping the first two steps
+authorise, validate, write, audit (admin and settings changes — §7.6), notify, revalidate**. Skipping the first two steps
 because "the page already checks" is exactly the mistake the pattern exists to prevent —
 an action is independently reachable.
 
