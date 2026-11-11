@@ -8,6 +8,7 @@ import { parseListParams } from "@/lib/query"
 import { ENTITY_STATUS } from "@/lib/constants"
 import { locationTypeIdsFor } from "@/lib/location-types"
 import { LOCALE_OPTIONS } from "@/lib/i18n/config"
+import { getT } from "@/lib/i18n/server"
 import { createGrower, updateGrower, deleteGrower } from "@/lib/actions/partners"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
@@ -36,6 +37,7 @@ export default async function GrowersPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.MANAGE_GROWERS_VENDORS)
+  const t = await getT()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
   const where = growersWhere(raw)
   const [rows, total, items, locations] = await Promise.all([
@@ -64,47 +66,47 @@ export default async function GrowersPage({
     }),
   ])
 
+  const statusOptions = STATUSES.map((s) => ({ label: t(`status.${s}`), value: s }))
   const fields: Field[] = [
-    { name: "growerName", label: "Name", type: "text", required: true, colSpan: 2 },
-    { name: "primaryEmail", label: "Primary email", type: "text", colSpan: 2 },
-    { name: "status", label: "Status", type: "select", required: true, options: STATUSES.map((s) => ({ label: s, value: s })) },
-    { name: "preferredLocale", label: "Email language", type: "select", required: true, options: LOCALE_OPTIONS },
+    { name: "growerName", label: t("admin.common.name"), type: "text", required: true, colSpan: 2 },
+    { name: "primaryEmail", label: t("admin.growers.primaryEmail"), type: "text", colSpan: 2 },
+    { name: "status", label: t("admin.common.status"), type: "select", required: true, options: statusOptions },
+    { name: "preferredLocale", label: t("admin.growers.emailLanguage"), type: "select", required: true, options: LOCALE_OPTIONS },
     {
       name: "locationIds",
-      label: "Locations (this grower counts inventory at)",
+      label: t("admin.growers.locationsLabel"),
       type: "multiselect",
-      placeholder: "Select locations",
+      placeholder: t("admin.growers.selectLocations"),
       colSpan: 2,
       options: locations.map((l) => ({ label: l.locationName, value: String(l.id) })),
-      description:
-        "Grower-side sites only. Drives the location picker on the grower's submit page — a grower needs at least one to submit counts.",
+      description: t("admin.growers.locationsDescription"),
     },
     {
       name: "itemIds",
-      label: "Items (this grower can access)",
+      label: t("admin.growers.itemsLabel"),
       type: "multiselect",
-      placeholder: "Select items",
+      placeholder: t("admin.growers.selectItems"),
       colSpan: 2,
       options: items.map((i) => ({ label: `${i.id} — ${i.itemName}`, value: i.id })),
     },
   ]
 
   const columns: Column<Row>[] = [
-    { key: "name", header: "Name", cell: (r) => <span className="font-medium">{r.growerName}</span> },
-    { key: "email", header: "Primary email", cell: (r) => r.primaryEmail ?? "—" },
-    { key: "users", header: "Users", cell: (r) => r._count.users },
-    { key: "items", header: "Items", cell: (r) => r.authorizations.length },
+    { key: "name", header: t("admin.common.name"), cell: (r) => <span className="font-medium">{r.growerName}</span> },
+    { key: "email", header: t("admin.growers.primaryEmail"), cell: (r) => r.primaryEmail ?? "—" },
+    { key: "users", header: t("nav.users"), cell: (r) => r._count.users },
+    { key: "items", header: t("admin.common.items"), cell: (r) => r.authorizations.length },
     {
       key: "locations",
-      header: "Locations",
+      header: t("nav.locations"),
       cell: (r) =>
         r.locations.length === 0 ? (
-          <span className="text-destructive text-xs">None — cannot submit</span>
+          <span className="text-destructive text-xs">{t("admin.growers.noneCannotSubmit")}</span>
         ) : (
           r.locations.map((l) => l.location.locationName).join(", ")
         ),
     },
-    { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
+    { key: "status", header: t("admin.common.status"), cell: (r) => <StatusBadge status={r.status} /> },
     {
       key: "actions",
       header: "",
@@ -112,8 +114,8 @@ export default async function GrowersPage({
       className: "text-right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
-          <EntityFormDialog title="Edit grower" fields={fields} action={updateGrower} values={{ id: r.id, growerName: r.growerName, primaryEmail: r.primaryEmail ?? "", status: r.status, preferredLocale: r.preferredLocale, itemIds: r.authorizations.map((a) => a.itemId).join(","), locationIds: r.locations.map((l) => l.locationId).join(",") }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
-          <ConfirmButton title="Delete grower" description={`Delete ${r.growerName}? If it has users or history, set status Inactive instead.`} confirmLabel="Delete" typeToConfirm action={deleteGrower.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
+          <EntityFormDialog title={t("admin.growers.editTitle")} fields={fields} action={updateGrower} values={{ id: r.id, growerName: r.growerName, primaryEmail: r.primaryEmail ?? "", status: r.status, preferredLocale: r.preferredLocale, itemIds: r.authorizations.map((a) => a.itemId).join(","), locationIds: r.locations.map((l) => l.locationId).join(",") }} submitLabel={t("admin.common.saveChanges")} trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.common.edit")}><Pencil /></Button>} />
+          <ConfirmButton title={t("admin.growers.deleteTitle")} description={t("admin.growers.deleteConfirm", { name: r.growerName })} confirmLabel={t("admin.common.delete")} typeToConfirm action={deleteGrower.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.common.delete")}><Trash2 /></Button>} />
         </div>
       ),
     },
@@ -121,14 +123,14 @@ export default async function GrowersPage({
 
   return (
     <>
-      <PageHeader title="Growers" description="Grower organizations and their inventory access." />
+      <PageHeader title={t("nav.growers")} description={t("admin.growers.description")} />
       <div className="space-y-4">
         <DataTableToolbar
-          searchPlaceholder="Search growers…"
+          searchPlaceholder={t("admin.growers.searchPlaceholder")}
           exportEntity="growers"
-          filters={[{ key: "status", label: "Status", options: STATUSES.map((s) => ({ label: s, value: s })) }]}
+          filters={[{ key: "status", label: t("admin.common.status"), options: statusOptions }]}
         >
-          <EntityFormDialog title="New grower" fields={fields} action={createGrower} submitLabel="Create" trigger={<Button size="sm"><Plus className="size-4" /> Add grower</Button>} />
+          <EntityFormDialog title={t("admin.growers.newTitle")} fields={fields} action={createGrower} submitLabel={t("admin.common.create")} trigger={<Button size="sm"><Plus className="size-4" /> {t("admin.growers.addButton")}</Button>} />
         </DataTableToolbar>
         <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} page={page} pageCount={Math.ceil(total / pageSize)} total={total} searchParams={raw} />
       </div>

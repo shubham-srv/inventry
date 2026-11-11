@@ -5,6 +5,7 @@ import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { itemVendorsWhere } from "@/lib/admin/queries"
 import { parseListParams } from "@/lib/query"
+import { getT } from "@/lib/i18n/server"
 import {
   setVendorItems,
   setItemVendorActive,
@@ -43,6 +44,7 @@ export default async function VendorItemMappingsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.MANAGE_GROWERS_VENDORS)
+  const t = await getT()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 15 })
   const where = itemVendorsWhere(raw)
 
@@ -88,20 +90,19 @@ export default async function VendorItemMappingsPage({
   for (const m of allMappings) (mappedByVendor[String(m.vendorId)] ??= []).push(m.itemId)
 
   const createFields: Field[] = [
-    { name: "vendorId", label: "Vendor", type: "select", required: true, placeholder: "Select vendor", options: vendors.map((v) => ({ label: v.vendorName, value: String(v.id) })), colSpan: 2 },
+    { name: "vendorId", label: t("admin.common.vendor"), type: "select", required: true, placeholder: t("admin.mappings.selectVendor"), options: vendors.map((v) => ({ label: v.vendorName, value: String(v.id) })), colSpan: 2 },
     {
       name: "itemIds",
-      label: "Items",
+      label: t("admin.common.items"),
       type: "multiselect",
-      placeholder: "Select one or more items",
+      placeholder: t("admin.mappings.selectItems"),
       // Picking a vendor ticks what it already supplies; this dialog edits the
       // whole set rather than only adding to it.
       dependsOn: "vendorId",
       presetFrom: mappedByVendor,
       options: items.map((i) => ({ label: `${i.id} — ${i.itemName}`, value: i.id })),
       colSpan: 2,
-      description:
-        "Ticked items are what the vendor supplies today. Unticking one deactivates the mapping — its conversion setup is kept, so re-ticking later restores it.",
+      description: t("admin.mappings.vendorItemsDescription"),
     },
   ]
 
@@ -112,61 +113,63 @@ export default async function VendorItemMappingsPage({
       (c) => c.materialCategoryCode === r.item.materialCategoryCode
     )
     const chain = r.packagingChain
-    const base = r.item.materialCategory?.name ?? "the item's category"
+    const base = r.item.materialCategory?.name ?? t("admin.mappings.itemCategory")
     return [
       { name: "id", type: "hidden" },
       {
         name: "packagingChainId",
-        label: "Conversion chain",
+        label: t("admin.mappings.conversionChain"),
         type: "select",
-        placeholder: eligible.length ? "Select a chain" : "No chain for this category",
+        placeholder: eligible.length ? t("admin.mappings.selectChain") : t("admin.mappings.noChainForCategory"),
         options: [
-          { label: "— none (order in plain units) —", value: "none" },
+          { label: t("admin.mappings.chainNone"), value: "none" },
           ...eligible.map((c) => ({ label: c.name, value: String(c.id) })),
         ],
         colSpan: 2,
         description: eligible.length
-          ? "Describes how this vendor ships the item. It never changes the ordered quantity."
-          : `No chain is defined for category ${r.item.materialCategoryCode ?? "—"}. Add one under Conversions first.`,
+          ? t("admin.mappings.chainDescription")
+          : t("admin.mappings.noChainDefined", { code: r.item.materialCategoryCode ?? "—" }),
       },
       {
         name: "ratios",
-        label: chain ? `Quantities (${chain.levels.map((l) => `per ${l.unitName}`).join(", ")})` : "Quantities",
+        label: chain ? t("admin.mappings.quantitiesPer", { levels: chain.levels.map((l) => t("admin.mappings.perUnit", { unit: l.unitName })).join(", ") }) : t("admin.mappings.quantities"),
         type: "text",
         placeholder: chain ? chain.levels.map(() => "10").join(", ") : "10, 5",
         colSpan: 2,
         description: chain
-          ? `Comma-separated, innermost first: how many ${base} per ${chain.levels[0]?.unitName ?? "container"}${chain.levels.length > 1 ? `, then how many ${chain.levels[0].unitName} per ${chain.levels[1].unitName}` : ""}.`
-          : "Pick a chain first.",
+          ? chain.levels.length > 1
+            ? t("admin.mappings.ratiosHintNext", { base, inner: chain.levels[0].unitName, outer: chain.levels[1].unitName })
+            : t("admin.mappings.ratiosHint", { base, inner: chain.levels[0]?.unitName ?? t("admin.mappings.container") })
+          : t("admin.mappings.pickChainFirst"),
       },
     ]
   }
 
   const columns: Column<Row>[] = [
-    { key: "vendor", header: "Vendor", cell: (r) => <span className="font-medium">{r.vendor.vendorName}</span> },
-    { key: "itemId", header: "Item ID", className: "font-mono text-xs", cell: (r) => r.itemId },
+    { key: "vendor", header: t("admin.common.vendor"), cell: (r) => <span className="font-medium">{r.vendor.vendorName}</span> },
+    { key: "itemId", header: t("admin.mappings.itemId"), className: "font-mono text-xs", cell: (r) => r.itemId },
     {
       key: "itemName",
-      header: "Item",
+      header: t("admin.common.item"),
       cell: (r) => (
         <div>
           {r.item.itemName}
-          <p className="text-muted-foreground text-xs">{r.item.materialCategory?.name ?? "no category"}</p>
+          <p className="text-muted-foreground text-xs">{r.item.materialCategory?.name ?? t("admin.mappings.noCategory")}</p>
         </div>
       ),
     },
     {
       key: "packaging",
-      header: "Conversions",
+      header: t("nav.conversions"),
       cell: (r) => {
         if (!r.packagingChain)
-          return <span className="text-muted-foreground text-xs">Plain units</span>
+          return <span className="text-muted-foreground text-xs">{t("admin.mappings.plainUnits")}</span>
         const byLevel = new Map(r.packRatios.map((p) => [p.level, p.perParent]))
         return (
           <div>
             <span className="flex flex-wrap items-center gap-1 text-xs">
               <Badge variant="secondary" className="font-mono text-[10px]">
-                {r.item.materialCategory?.name ?? "units"}
+                {r.item.materialCategory?.name ?? t("admin.mappings.units")}
               </Badge>
               {r.packagingChain.levels.map((l) => (
                 <span key={l.level} className="flex items-center gap-1">
@@ -182,40 +185,40 @@ export default async function VendorItemMappingsPage({
     },
     {
       key: "lead",
-      header: "Lead time",
+      header: t("admin.mappings.leadTime"),
       className: "text-xs whitespace-nowrap",
       cell: (r) => (
         <div className="flex items-center gap-1">
           {r.leadTimeDays != null ? (
-            <span className="font-medium tabular-nums">{r.leadTimeDays} day(s)</span>
+            <span className="font-medium tabular-nums">{t("admin.mappings.daysCount", { count: r.leadTimeDays })}</span>
           ) : (
             <span className="text-muted-foreground">
-              {r.vendor.leadTimeDays != null ? `Vendor default (${r.vendor.leadTimeDays}d)` : "None"}
+              {r.vendor.leadTimeDays != null ? t("admin.mappings.vendorDefault", { days: r.vendor.leadTimeDays }) : t("admin.common.none")}
             </span>
           )}
           <EntityFormDialog
-            title="Item lead time"
+            title={t("admin.mappings.itemLeadTime")}
             description={`${r.vendor.vendorName} — ${r.itemId}`}
             fields={[
               {
                 name: "leadTimeDays",
-                label: "Minimum lead time (days)",
+                label: t("admin.mappings.minLeadTime"),
                 type: "number",
                 min: "0",
                 step: "1",
                 colSpan: 2,
-                description: `Growers can't request delivery sooner than this after ordering this item from this vendor. Leave blank to use the vendor default (${r.vendor.leadTimeDays != null ? `${r.vendor.leadTimeDays} days` : "none set"}).`,
+                description: t("admin.mappings.leadTimeHint", { default: r.vendor.leadTimeDays != null ? t("admin.mappings.daysPlural", { count: r.vendor.leadTimeDays }) : t("admin.mappings.noneSet") }),
               },
             ]}
             action={setItemVendorLeadTime}
             values={{ id: r.id, leadTimeDays: r.leadTimeDays ?? "" }}
-            submitLabel="Save lead time"
-            trigger={<Button variant="ghost" size="icon-sm" aria-label="Lead time"><Timer /></Button>}
+            submitLabel={t("admin.mappings.saveLeadTime")}
+            trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.mappings.leadTime")}><Timer /></Button>}
           />
         </div>
       ),
     },
-    { key: "active", header: "Status", cell: (r) => <StatusBadge status={r.isActive ? "Active" : "Inactive"} /> },
+    { key: "active", header: t("admin.common.status"), cell: (r) => <StatusBadge status={r.isActive ? "Active" : "Inactive"} /> },
     {
       key: "actions",
       header: "",
@@ -224,7 +227,7 @@ export default async function VendorItemMappingsPage({
       cell: (r) => (
         <div className="flex justify-end gap-1">
           <EntityFormDialog
-            title="Conversions"
+            title={t("nav.conversions")}
             description={`${r.vendor.vendorName} — ${r.itemId}`}
             fields={packagingFields(r)}
             action={setItemVendorPackaging}
@@ -233,13 +236,13 @@ export default async function VendorItemMappingsPage({
               packagingChainId: r.packagingChainId ? String(r.packagingChainId) : "none",
               ratios: r.packRatios.map((p) => p.perParent).join(", "),
             }}
-            submitLabel="Save conversions"
-            trigger={<Button variant="ghost" size="icon-sm" aria-label="Conversions"><Package /></Button>}
+            submitLabel={t("admin.mappings.saveConversions")}
+            trigger={<Button variant="ghost" size="icon-sm" aria-label={t("nav.conversions")}><Package /></Button>}
           />
           <ActionButton action={setItemVendorActive.bind(null, r.id, !r.isActive)}>
-            {r.isActive ? <><ShieldX className="size-4" /> Deactivate</> : <><ShieldCheck className="size-4" /> Activate</>}
+            {r.isActive ? <><ShieldX className="size-4" /> {t("admin.mappings.deactivate")}</> : <><ShieldCheck className="size-4" /> {t("admin.mappings.activate")}</>}
           </ActionButton>
-          <ConfirmButton title="Remove mapping" description={`Remove ${r.itemId} from ${r.vendor.vendorName}? Its conversion setup is removed too.`} confirmLabel="Remove" typeToConfirm action={deleteItemVendor.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Remove"><Trash2 /></Button>} />
+          <ConfirmButton title={t("admin.mappings.removeMapping")} description={t("admin.mappings.removeMappingConfirm", { item: r.itemId, name: r.vendor.vendorName })} confirmLabel={t("admin.mappings.remove")} typeToConfirm action={deleteItemVendor.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.mappings.remove")}><Trash2 /></Button>} />
         </div>
       ),
     },
@@ -248,14 +251,14 @@ export default async function VendorItemMappingsPage({
   return (
     <div className="space-y-4">
       <DataTableToolbar
-        searchPlaceholder="Search item id / name…"
+        searchPlaceholder={t("admin.mappings.searchItem")}
         filters={[
-          { key: "vendor", label: "Vendor", options: vendors.map((v) => ({ label: v.vendorName, value: String(v.id) })) },
-          { key: "status", label: "Status", options: [{ label: "Active", value: "active" }, { label: "Inactive", value: "inactive" }] },
-          { key: "packaging", label: "Conversions", options: [{ label: "Configured", value: "configured" }, { label: "Not set", value: "missing" }] },
+          { key: "vendor", label: t("admin.common.vendor"), options: vendors.map((v) => ({ label: v.vendorName, value: String(v.id) })) },
+          { key: "status", label: t("admin.common.status"), options: [{ label: t("admin.common.active"), value: "active" }, { label: t("admin.common.inactive"), value: "inactive" }] },
+          { key: "packaging", label: t("nav.conversions"), options: [{ label: t("admin.mappings.configured"), value: "configured" }, { label: t("admin.mappings.notSet"), value: "missing" }] },
         ]}
       >
-        <EntityFormDialog title="Edit vendor item mappings" description="Pick a vendor to load what it supplies today, then adjust." fields={createFields} action={setVendorItems} submitLabel="Save mappings" trigger={<Button size="sm"><Plus className="size-4" /> Map items</Button>} />
+        <EntityFormDialog title={t("admin.mappings.vendorDialogTitle")} description={t("admin.mappings.vendorDialogDescription")} fields={createFields} action={setVendorItems} submitLabel={t("admin.mappings.saveMappings")} trigger={<Button size="sm"><Plus className="size-4" /> {t("admin.mappings.mapItems")}</Button>} />
       </DataTableToolbar>
       <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} page={page} pageCount={Math.ceil(total / pageSize)} total={total} searchParams={raw} />
     </div>

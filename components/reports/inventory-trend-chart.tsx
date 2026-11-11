@@ -9,12 +9,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
+import { useT } from "@/lib/i18n/client"
 
 export function InventoryTrendChart({
   data,
 }: {
   data: { date: string; total: number }[]
 }) {
+  const t = useT()
   return (
     <ResponsiveContainer width="100%" height={260}>
       <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -38,6 +40,7 @@ export function InventoryTrendChart({
         <Area
           type="monotone"
           dataKey="total"
+          name={t("admin.reports.trendTotal")}
           stroke="var(--primary)"
           strokeWidth={2}
           fill="url(#trendFill)"

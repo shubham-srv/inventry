@@ -1,5 +1,6 @@
 import { BarChart3 } from "lucide-react"
 import { ReportFrame } from "@/components/reports/report-frame"
+import { getT } from "@/lib/i18n/server"
 
 /**
  * Renders one Power BI report in an iframe, or a placeholder when its URL has
@@ -80,15 +81,16 @@ export function classifyEmbedUrl(raw: string): EmbedKind | null {
   return null
 }
 
-export function PowerBiEmbed({ name, url }: { name: string; url: string }) {
+export async function PowerBiEmbed({ name, url }: { name: string; url: string }) {
   const src = embedSrc(url)
 
   if (!src) {
+    const t = await getT()
     return (
       <div className="bg-muted/40 flex aspect-video items-center justify-center rounded-lg border border-dashed text-center">
         <div className="text-muted-foreground p-4 text-sm">
           <BarChart3 className="mx-auto mb-2 size-8 opacity-50" aria-hidden />
-          Not available yet
+          {t("admin.reports.powerBi.notAvailableYet")}
         </div>
       </div>
     )

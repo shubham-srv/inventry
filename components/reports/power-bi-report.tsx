@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { ReportFrame } from "@/components/reports/report-frame"
+import { useT } from "@/lib/i18n/client"
 
 /**
  * One Power BI report, embedded with the powerbi-client library and a token this
@@ -29,8 +30,10 @@ export function PowerBiReport({
   accessToken: string
   name: string
 }) {
+  const t = useT()
   const host = useRef<HTMLDivElement>(null)
-  const [error, setError] = useState<string | null>(null)
+  // message is Power BI's own text; without it, fallback picks our translated one.
+  const [error, setError] = useState<{ message?: string; fallback: "embedError" | "loadFailed" } | null>(null)
 
   useEffect(() => {
     const el = host.current
@@ -73,14 +76,13 @@ export function PowerBiReport({
         // retrying fixes and which the viewer needs told.
         report.on("error", (event: { detail?: { message?: string } }) => {
           if (cancelled) return
-          const message = event?.detail?.message ?? "Power BI could not load this report."
           console.error("[powerbi] embed error", event?.detail)
-          setError(message)
+          setError({ message: event?.detail?.message, fallback: "embedError" })
         })
       } catch (e) {
         if (cancelled) return
         console.error("[powerbi] embed failed", e)
-        setError("This report could not be loaded.")
+        setError({ fallback: "loadFailed" })
       }
     })()
 
@@ -99,7 +101,9 @@ export function PowerBiReport({
       <div ref={host} title={name} className="size-full" />
       {error && (
         <div className="bg-background/90 absolute inset-0 flex items-center justify-center p-4 text-center">
-          <p className="text-muted-foreground text-sm">{error}</p>
+          <p className="text-muted-foreground text-sm">
+            {error.message ?? t(`admin.reports.powerBi.${error.fallback}`)}
+          </p>
         </div>
       )}
     </ReportFrame>

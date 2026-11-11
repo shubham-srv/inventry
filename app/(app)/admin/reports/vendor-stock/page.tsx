@@ -1,4 +1,5 @@
 import { requireCapability } from "@/lib/auth/session"
+import { getT } from "@/lib/i18n/server"
 import { CAPABILITIES } from "@/lib/rbac"
 import { parseListParams } from "@/lib/query"
 import {
@@ -23,13 +24,6 @@ import {
 import { LastSubmittedCell } from "@/components/reports/submission-flag-badge"
 import { VendorStockDetail } from "@/components/reports/vendor-stock-detail"
 
-const ALLOCATION = [
-  { label: "Fully allocated", value: "full" },
-  { label: "Has unallocated", value: "partial" },
-  { label: "Nothing allocated", value: "none" },
-  { label: "Not reported", value: "unreported" },
-]
-
 /**
  * One row per vendor — when they last reported and how overdue that is —
  * opening to what they reported per item. Most overdue first by default.
@@ -40,6 +34,7 @@ export default async function VendorStockPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.VIEW_REPORTS)
+  const t = await getT()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 15 })
   const sort = parsePartnerSort(raw.sort)
 
@@ -64,21 +59,28 @@ export default async function VendorStockPage({
   const count = (n: number, label: string, tone: string) =>
     n > 0 && (
       <Badge variant="outline" className={`whitespace-nowrap ${tone}`}>
-        {n} {label}
+        {label}
       </Badge>
     )
+
+  const ALLOCATION = [
+    { label: t("admin.reports.vendorStock.alloc.full"), value: "full" },
+    { label: t("admin.reports.vendorStock.alloc.partial"), value: "partial" },
+    { label: t("admin.reports.vendorStock.alloc.none"), value: "none" },
+    { label: t("admin.reports.vendorStock.alloc.unreported"), value: "unreported" },
+  ]
 
   const columns: ReportColumn<VendorStockSummaryRow>[] = [
     {
       key: "vendor",
-      header: <SortHeader label="Vendor" searchParams={raw} current={sort} primary="name" defaultSort="stale" />,
+      header: <SortHeader label={t("admin.common.vendor")} searchParams={raw} current={sort} primary="name" defaultSort="stale" />,
       cell: (r) => <span className="font-medium">{r.vendorName}</span>,
     },
     {
       key: "last",
       header: (
         <SortHeader
-          label="Last submitted"
+          label={t("admin.reports.lastSubmitted")}
           searchParams={raw}
           current={sort}
           primary="stale"
@@ -90,13 +92,13 @@ export default async function VendorStockPage({
     },
     {
       key: "items",
-      header: "Items",
+      header: t("admin.common.items"),
       cell: (r) => (
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <span className="tabular-nums">{r.items}</span>
-          {count(r.neverReported, "never reported", "text-muted-foreground")}
-          {count(r.unallocatedItems, "with unallocated", "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400")}
-          {count(r.awaitingDate, "orders awaiting date", "border-transparent bg-sky-500/15 text-sky-700 dark:text-sky-400")}
+          {count(r.neverReported, t("admin.reports.vendorStock.badgeNeverReported", { count: r.neverReported }), "text-muted-foreground")}
+          {count(r.unallocatedItems, t("admin.reports.vendorStock.badgeUnallocated", { count: r.unallocatedItems }), "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400")}
+          {count(r.awaitingDate, t("admin.reports.vendorStock.badgeAwaitingDate", { count: r.awaitingDate }), "border-transparent bg-sky-500/15 text-sky-700 dark:text-sky-400")}
         </div>
       ),
     },
@@ -105,15 +107,19 @@ export default async function VendorStockPage({
   return (
     <div className="space-y-4">
       <DataTableToolbar
-        searchPlaceholder="Search vendor / item / legacy ID…"
+        searchPlaceholder={t("admin.reports.vendorStock.search")}
         exportEntity="vendor-stock"
         filters={[
-          { key: "vendor", label: "Vendor", options: vendors },
-          { key: "flag", label: "Last submitted", options: [...SUBMISSION_FLAG_FILTERS] },
-          { key: "grower", label: "Held for", options: growers },
-          { key: "commodity", label: "Commodity", options: commodities },
-          { key: "category", label: "Category", options: categories },
-          { key: "alloc", label: "Allocation", options: ALLOCATION },
+          { key: "vendor", label: t("admin.common.vendor"), options: vendors },
+          {
+            key: "flag",
+            label: t("admin.reports.lastSubmitted"),
+            options: SUBMISSION_FLAG_FILTERS.map((f) => ({ ...f, label: t(`admin.reports.flag.${f.value}`) })),
+          },
+          { key: "grower", label: t("admin.reports.vendorStock.heldFor"), options: growers },
+          { key: "commodity", label: t("admin.common.commodity"), options: commodities },
+          { key: "category", label: t("admin.common.category"), options: categories },
+          { key: "alloc", label: t("admin.reports.vendorStock.allocation"), options: ALLOCATION },
         ]}
       />
       <ExpandableReportTable
@@ -127,8 +133,8 @@ export default async function VendorStockPage({
         total={total}
         emptyMessage={
           filters.growerId
-            ? "No vendor is currently holding any of these items for that grower. Note this filter only looks at each vendor's latest report."
-            : "No vendors have mapped items matching these filters."
+            ? t("admin.reports.vendorStock.emptyHeld")
+            : t("admin.reports.vendorStock.empty")
         }
       />
     </div>

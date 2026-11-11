@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, ChevronDown, ChevronRight } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Pager } from "@/components/pager"
 import { buildQueryString } from "@/lib/query"
+import { getT } from "@/lib/i18n/server"
 import { cn } from "@/lib/utils"
 
 export type ReportColumn<T> = {
@@ -34,7 +35,7 @@ function toggleHref(sp: Record<string, string>, key: string): string {
  * detail renders on the server under the same filters as the table, and an
  * expanded view can be bookmarked or shared.
  */
-export function ExpandableReportTable<T>({
+export async function ExpandableReportTable<T>({
   columns,
   rows,
   getRowKey,
@@ -55,6 +56,7 @@ export function ExpandableReportTable<T>({
   total: number
   emptyMessage: string
 }) {
+  const t = await getT()
   const open = openKeysFrom(searchParams)
   return (
     <div className="space-y-3">
@@ -89,7 +91,7 @@ export function ExpandableReportTable<T>({
                         href={toggleHref(searchParams, key)}
                         scroll={false}
                         aria-expanded={isOpen}
-                        aria-label={isOpen ? "Collapse" : "Expand"}
+                        aria-label={isOpen ? t("admin.reports.collapse") : t("admin.reports.expand")}
                         className="text-muted-foreground hover:text-foreground hover:bg-muted inline-flex size-7 items-center justify-center rounded-md"
                       >
                         {isOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}

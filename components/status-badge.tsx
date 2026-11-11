@@ -1,4 +1,7 @@
+"use client"
+
 import { Badge } from "@/components/ui/badge"
+import { useT } from "@/lib/i18n/client"
 import { cn } from "@/lib/utils"
 
 const GREEN = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
@@ -43,12 +46,16 @@ export function StatusBadge({
   label?: string
   className?: string
 }) {
+  const t = useT()
+  // Known statuses translate themselves; unknown ones show as-is.
+  const key = `status.${status}`
+  const translated = t(key)
   return (
     <Badge
       variant="outline"
       className={cn("border-transparent font-medium", MAP[status] ?? GRAY, className)}
     >
-      {label ?? status}
+      {label ?? (translated === key ? status : translated)}
     </Badge>
   )
 }

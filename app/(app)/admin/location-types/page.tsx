@@ -8,6 +8,7 @@ import {
   deleteLocationType,
 } from "@/lib/actions/location-types"
 import { parseListParams } from "@/lib/query"
+import { getT } from "@/lib/i18n/server"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -35,6 +36,7 @@ export default async function LocationTypesPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.MANAGE_MASTER_DATA)
+  const t = await getT()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
 
   const [rows, total] = await Promise.all([
@@ -47,48 +49,51 @@ export default async function LocationTypesPage({
     prisma.locationType.count(),
   ])
 
+  const labels: Record<string, string> = {
+    Grower: t("admin.locationTypes.appliesTo.Grower"),
+    Vendor: t("admin.locationTypes.appliesTo.Vendor"),
+    Both: t("admin.locationTypes.appliesTo.Both"),
+  }
   const fields: Field[] = [
-    { name: "name", label: "Name", type: "text", required: true, colSpan: 2 },
+    { name: "name", label: t("admin.common.name"), type: "text", required: true, colSpan: 2 },
     {
       name: "appliesTo",
-      label: "Used by",
+      label: t("admin.locationTypes.usedBy"),
       type: "select",
       required: true,
       options: [
-        { label: "Growers only", value: "Grower" },
-        { label: "Vendors only", value: "Vendor" },
-        { label: "Growers or vendors", value: "Both" },
+        { label: labels.Grower, value: "Grower" },
+        { label: labels.Vendor, value: "Vendor" },
+        { label: labels.Both, value: "Both" },
       ],
-      description:
-        "Decides which side can attach a site of this type. Changing it can remove sites from a picker they currently appear in.",
+      description: t("admin.locationTypes.usedByDescription"),
     },
     {
       name: "sortOrder",
-      label: "Order",
+      label: t("admin.locationTypes.order"),
       type: "number",
       min: "0",
-      description: "Position in the dropdown. Lower comes first.",
+      description: t("admin.locationTypes.orderDescription"),
     },
     {
       name: "isActive",
-      label: "Active",
+      label: t("admin.common.active"),
       type: "switch",
       colSpan: 2,
-      description:
-        "Inactive types are hidden when creating a site, but sites already using them keep working.",
+      description: t("admin.locationTypes.activeDescription"),
     },
   ]
 
   const columns: Column<Row>[] = [
-    { key: "name", header: "Name", cell: (r) => <span className="font-medium">{r.name}</span> },
+    { key: "name", header: t("admin.common.name"), cell: (r) => <span className="font-medium">{r.name}</span> },
     {
       key: "appliesTo",
-      header: "Used by",
-      cell: (r) => LABELS[r.appliesTo] ?? r.appliesTo,
+      header: t("admin.locationTypes.usedBy"),
+      cell: (r) => labels[r.appliesTo] ?? r.appliesTo,
     },
     {
       key: "locations",
-      header: "Sites",
+      header: t("admin.locationTypes.sites"),
       cell: (r) => (
         <span className={r._count.locations ? "" : "text-muted-foreground"}>
           {r._count.locations}
@@ -97,13 +102,13 @@ export default async function LocationTypesPage({
     },
     {
       key: "isActive",
-      header: "Status",
+      header: t("admin.common.status"),
       cell: (r) =>
         r.isActive ? (
-          <Badge variant="outline">Active</Badge>
+          <Badge variant="outline">{t("admin.common.active")}</Badge>
         ) : (
           <Badge variant="outline" className="text-muted-foreground">
-            Inactive
+            {t("admin.common.inactive")}
           </Badge>
         ),
     },
@@ -115,7 +120,7 @@ export default async function LocationTypesPage({
       cell: (r) => (
         <div className="flex justify-end gap-1">
           <EntityFormDialog
-            title="Edit location type"
+            title={t("admin.locationTypes.editTitle")}
             fields={fields}
             action={updateLocationType}
             values={{
@@ -125,24 +130,24 @@ export default async function LocationTypesPage({
               sortOrder: r.sortOrder,
               isActive: r.isActive,
             }}
-            submitLabel="Save changes"
+            submitLabel={t("admin.common.saveChanges")}
             trigger={
-              <Button variant="ghost" size="icon-sm" aria-label="Edit">
+              <Button variant="ghost" size="icon-sm" aria-label={t("admin.common.edit")}>
                 <Pencil />
               </Button>
             }
           />
           <ConfirmButton
             action={deleteLocationType.bind(null, r.id)}
-            title="Delete location type"
+            title={t("admin.locationTypes.deleteTitle")}
             description={
               r._count.locations > 0
-                ? `${r._count.locations} site(s) use this type, so it cannot be deleted. Deactivate it instead.`
-                : `Delete "${r.name}"? No sites are using it.`
+                ? t("admin.locationTypes.deleteInUse", { count: r._count.locations })
+                : t("admin.locationTypes.deleteConfirm", { name: r.name })
             }
-            confirmLabel="Delete"
+            confirmLabel={t("admin.common.delete")}
             trigger={
-              <Button variant="ghost" size="icon-sm" aria-label="Delete">
+              <Button variant="ghost" size="icon-sm" aria-label={t("admin.common.delete")}>
                 <Trash2 />
               </Button>
             }
@@ -155,16 +160,16 @@ export default async function LocationTypesPage({
   return (
     <>
       <PageHeader
-        title="Location types"
-        description="The kinds of site a location can be. Each type decides whether growers, vendors or both can use it."
+        title={t("nav.locationTypes")}
+        description={t("admin.locationTypes.description")}
       >
         <EntityFormDialog
-          title="New location type"
+          title={t("admin.locationTypes.newTitle")}
           fields={fields}
           action={createLocationType}
           trigger={
             <Button>
-              <Plus /> New type
+              <Plus /> {t("admin.locationTypes.newButton")}
             </Button>
           }
         />
@@ -180,10 +185,4 @@ export default async function LocationTypesPage({
       />
     </>
   )
-}
-
-const LABELS: Record<string, string> = {
-  Grower: "Growers only",
-  Vendor: "Vendors only",
-  Both: "Growers or vendors",
 }

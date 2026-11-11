@@ -13,6 +13,7 @@ import { DataTable, type Column } from "@/components/data-table/data-table"
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
 import { EntityFormDialog, type Field } from "@/components/crud/entity-form-dialog"
 import { StatusBadge } from "@/components/status-badge"
+import { getLocale, getT } from "@/lib/i18n/server"
 
 type Row = {
   id: number
@@ -27,17 +28,14 @@ type Row = {
   requester: { firstName: string; lastName: string }
 }
 
-const fields: Field[] = [
-  { name: "status", label: "Status", type: "select", required: true, colSpan: 2, options: REQUEST_STATUSES.map((s) => ({ label: s, value: s })) },
-  { name: "reviewNotes", label: "Review notes", type: "textarea", colSpan: 2 },
-]
-
 export default async function AdminRequestsPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.MANAGE_GROWERS_VENDORS)
+  const t = await getT()
+  const locale = await getLocale()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
 
   const and: Prisma.MissingItemRequestWhereInput[] = []
@@ -52,13 +50,19 @@ export default async function AdminRequestsPage({
     prisma.grower.findMany({ orderBy: { growerName: "asc" } }),
   ])
 
+  const statusOptions = REQUEST_STATUSES.map((s) => ({ label: t(`status.${s}`), value: s }))
+  const fields: Field[] = [
+    { name: "status", label: t("admin.common.status"), type: "select", required: true, colSpan: 2, options: statusOptions },
+    { name: "reviewNotes", label: t("admin.requests.reviewNotes"), type: "textarea", colSpan: 2 },
+  ]
+
   const columns: Column<Row>[] = [
-    { key: "item", header: "Requested item", cell: (r) => <span className="font-medium">{r.itemName}</span> },
-    { key: "grower", header: "Grower", cell: (r) => r.grower.growerName },
-    { key: "by", header: "By", cell: (r) => `${r.requester.firstName} ${r.requester.lastName}` },
-    { key: "hints", header: "Hints", className: "text-xs text-muted-foreground", cell: (r) => [r.commodityHint, r.categoryHint].filter(Boolean).join(" · ") || "—" },
-    { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
-    { key: "when", header: "When", className: "whitespace-nowrap text-xs text-muted-foreground", cell: (r) => formatDate(r.createdAt, "MMM d") },
+    { key: "item", header: t("admin.requests.requestedItem"), cell: (r) => <span className="font-medium">{r.itemName}</span> },
+    { key: "grower", header: t("admin.common.grower"), cell: (r) => r.grower.growerName },
+    { key: "by", header: t("admin.requests.by"), cell: (r) => `${r.requester.firstName} ${r.requester.lastName}` },
+    { key: "hints", header: t("admin.requests.hints"), className: "text-xs text-muted-foreground", cell: (r) => [r.commodityHint, r.categoryHint].filter(Boolean).join(" · ") || "—" },
+    { key: "status", header: t("admin.common.status"), cell: (r) => <StatusBadge status={r.status} /> },
+    { key: "when", header: t("admin.requests.when"), className: "whitespace-nowrap text-xs text-muted-foreground", cell: (r) => formatDate(r.createdAt, "MMM d", locale) },
     {
       key: "actions",
       header: "",
@@ -66,13 +70,13 @@ export default async function AdminRequestsPage({
       className: "text-right",
       cell: (r) => (
         <EntityFormDialog
-          title="Review request"
+          title={t("admin.requests.reviewTitle")}
           description={`${r.itemName} — ${r.grower.growerName}`}
           fields={fields}
           action={reviewRequest}
           values={{ id: r.id, status: r.status, reviewNotes: r.reviewNotes ?? "" }}
-          submitLabel="Save"
-          trigger={<Button variant="ghost" size="icon-sm" aria-label="Review"><Pencil /></Button>}
+          submitLabel={t("common.save")}
+          trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.requests.review")}><Pencil /></Button>}
         />
       ),
     },
@@ -80,13 +84,13 @@ export default async function AdminRequestsPage({
 
   return (
     <>
-      <PageHeader title="Item requests" description="Missing-item requests raised by growers." />
+      <PageHeader title={t("admin.requests.title")} description={t("admin.requests.description")} />
       <div className="space-y-4">
         <DataTableToolbar
-          searchPlaceholder="Search requested item…"
+          searchPlaceholder={t("admin.requests.searchPlaceholder")}
           filters={[
-            { key: "status", label: "Status", options: REQUEST_STATUSES.map((s) => ({ label: s, value: s })) },
-            { key: "grower", label: "Grower", options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })) },
+            { key: "status", label: t("admin.common.status"), options: statusOptions },
+            { key: "grower", label: t("admin.common.grower"), options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })) },
           ]}
         />
         <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} page={page} pageCount={Math.ceil(total / pageSize)} total={total} searchParams={raw} />

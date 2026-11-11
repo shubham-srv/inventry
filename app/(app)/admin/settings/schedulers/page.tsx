@@ -4,6 +4,7 @@ import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { CADENCE_TYPES, SCHEDULER_SCOPES } from "@/lib/constants"
 import { cadenceDays } from "@/lib/scheduler/reminders"
+import { getT } from "@/lib/i18n/server"
 import {
   createScheduler,
   updateScheduler,
@@ -34,48 +35,50 @@ type Row = {
 }
 
 const S = SCHEDULER_SCOPES
-const SCOPE_OPTIONS = [
-  { label: "All growers (default)", value: S.GROWER_DEFAULT },
-  { label: "One grower", value: S.GROWER },
-  { label: "All vendors (default)", value: S.VENDOR_DEFAULT },
-  { label: "One vendor", value: S.VENDOR },
-]
 
 export default async function SchedulersPage() {
   await requireCapability(CAPABILITIES.ACCESS_SETTINGS)
+  const t = await getT()
   const [rows, growers, vendors] = await Promise.all([
     prisma.schedulerSetting.findMany({ include: { grower: true, vendor: true }, orderBy: [{ scope: "asc" }, { id: "asc" }] }),
     prisma.grower.findMany({ orderBy: { growerName: "asc" } }),
     prisma.vendor.findMany({ orderBy: { vendorName: "asc" } }),
   ])
 
+  const scopeOptions = [
+    { label: t("admin.settings.schedulers.scopeGrowerDefault"), value: S.GROWER_DEFAULT },
+    { label: t("admin.settings.schedulers.scopeGrower"), value: S.GROWER },
+    { label: t("admin.settings.schedulers.scopeVendorDefault"), value: S.VENDOR_DEFAULT },
+    { label: t("admin.settings.schedulers.scopeVendor"), value: S.VENDOR },
+  ]
+
   const fields: Field[] = [
-    { name: "scope", label: "Who it reminds", type: "select", required: true, options: SCOPE_OPTIONS, description: "A one-grower or one-vendor schedule replaces the default for that grower or vendor." },
-    { name: "growerId", label: "Grower", type: "select", placeholder: "Select grower", options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })), showWhen: { scope: [S.GROWER] } },
-    { name: "vendorId", label: "Vendor", type: "select", placeholder: "Select vendor", options: vendors.map((v) => ({ label: v.vendorName, value: String(v.id) })), showWhen: { scope: [S.VENDOR] } },
-    { name: "cadenceType", label: "Cadence", type: "select", required: true, options: CADENCE_TYPES.map((c) => ({ label: c, value: c })) },
+    { name: "scope", label: t("admin.settings.schedulers.whoReminds"), type: "select", required: true, options: scopeOptions, description: t("admin.settings.schedulers.whoRemindsHelp") },
+    { name: "growerId", label: t("admin.common.grower"), type: "select", placeholder: t("admin.settings.schedulers.selectGrower"), options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })), showWhen: { scope: [S.GROWER] } },
+    { name: "vendorId", label: t("admin.common.vendor"), type: "select", placeholder: t("admin.settings.schedulers.selectVendor"), options: vendors.map((v) => ({ label: v.vendorName, value: String(v.id) })), showWhen: { scope: [S.VENDOR] } },
+    { name: "cadenceType", label: t("admin.settings.schedulers.cadence"), type: "select", required: true, options: CADENCE_TYPES.map((c) => ({ label: t(`status.${c}`), value: c })) },
     // Only read when cadence is "AfterNDays" — the other cadences imply their
     // own tolerance (Daily 1, Weekly 7, Monthly 30). The description says so
     // rather than the field disappearing, so the stored value stays visible.
-    { name: "thresholdDays", label: "Remind after N days", type: "number", required: true, step: "1", min: "1", description: "Used only when cadence is AfterNDays. Daily / Weekly / Monthly imply 1 / 7 / 30 days." },
-    { name: "isEnabled", label: "Enabled", type: "switch" },
+    { name: "thresholdDays", label: t("admin.settings.schedulers.remindAfterDays"), type: "number", required: true, step: "1", min: "1", description: t("admin.settings.schedulers.remindAfterDaysHelp") },
+    { name: "isEnabled", label: t("admin.settings.schedulers.enabled"), type: "switch" },
   ]
 
   const columns: Column<Row>[] = [
     {
       key: "scope",
-      header: "Reminds",
+      header: t("admin.settings.schedulers.reminds"),
       cell: (r) =>
-        r.scope === S.GROWER_DEFAULT ? <Badge variant="outline">All growers</Badge>
-        : r.scope === S.VENDOR_DEFAULT ? <Badge variant="outline">All vendors</Badge>
-        : r.scope === S.VENDOR ? <Badge variant="secondary">Vendor: {r.vendor?.vendorName ?? "—"}</Badge>
-        : <Badge variant="secondary">Grower: {r.grower?.growerName ?? "—"}</Badge>,
+        r.scope === S.GROWER_DEFAULT ? <Badge variant="outline">{t("admin.settings.schedulers.allGrowers")}</Badge>
+        : r.scope === S.VENDOR_DEFAULT ? <Badge variant="outline">{t("admin.settings.schedulers.allVendors")}</Badge>
+        : r.scope === S.VENDOR ? <Badge variant="secondary">{t("admin.settings.schedulers.vendorBadge", { name: r.vendor?.vendorName ?? "—" })}</Badge>
+        : <Badge variant="secondary">{t("admin.settings.schedulers.growerBadge", { name: r.grower?.growerName ?? "—" })}</Badge>,
     },
-    { key: "cadence", header: "Cadence", cell: (r) => <StatusBadge status={r.cadenceType} /> },
+    { key: "cadence", header: t("admin.settings.schedulers.cadence"), cell: (r) => <StatusBadge status={r.cadenceType} /> },
     // Show the tolerance actually in force, not the raw column, so a Weekly row
     // with thresholdDays=3 no longer reads as if it reminds after three days.
-    { key: "days", header: "Overdue after", className: "tabular-nums", cell: (r) => `${cadenceDays(r)} day(s)` },
-    { key: "enabled", header: "Enabled", cell: (r) => <StatusBadge status={r.isEnabled ? "Yes" : "No"} /> },
+    { key: "days", header: t("admin.settings.schedulers.overdueAfter"), className: "tabular-nums", cell: (r) => t("admin.settings.schedulers.daysValue", { count: cadenceDays(r) }) },
+    { key: "enabled", header: t("admin.settings.schedulers.enabled"), cell: (r) => <StatusBadge status={r.isEnabled ? "Yes" : "No"} /> },
     {
       key: "actions",
       header: "",
@@ -83,8 +86,8 @@ export default async function SchedulersPage() {
       className: "text-right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
-          <EntityFormDialog title="Edit schedule" fields={fields} action={updateScheduler} values={{ id: r.id, scope: r.scope, growerId: r.growerId ? String(r.growerId) : "", vendorId: r.vendorId ? String(r.vendorId) : "", cadenceType: r.cadenceType, thresholdDays: r.thresholdDays, isEnabled: r.isEnabled }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
-          <ConfirmButton title="Delete schedule" description="Delete this schedule?" confirmLabel="Delete" typeToConfirm action={deleteScheduler.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
+          <EntityFormDialog title={t("admin.settings.schedulers.editSchedule")} fields={fields} action={updateScheduler} values={{ id: r.id, scope: r.scope, growerId: r.growerId ? String(r.growerId) : "", vendorId: r.vendorId ? String(r.vendorId) : "", cadenceType: r.cadenceType, thresholdDays: r.thresholdDays, isEnabled: r.isEnabled }} submitLabel={t("admin.common.saveChanges")} trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.common.edit")}><Pencil /></Button>} />
+          <ConfirmButton title={t("admin.settings.schedulers.deleteSchedule")} description={t("admin.settings.schedulers.deleteConfirm")} confirmLabel={t("admin.common.delete")} typeToConfirm action={deleteScheduler.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.common.delete")}><Trash2 /></Button>} />
         </div>
       ),
     },
@@ -92,24 +95,23 @@ export default async function SchedulersPage() {
 
   return (
     <>
-      <PageHeader title="Email schedulers" description="Reminder cadences for growers and vendors who haven't submitted. A one-grower or one-vendor schedule overrides its default.">
+      <PageHeader title={t("admin.settings.schedulers.title")} description={t("admin.settings.schedulers.description")}>
         <ActionButton action={runRemindersAction} variant="default" size="sm">
-          <Play className="size-4" /> Run reminder check now
+          <Play className="size-4" /> {t("admin.settings.schedulers.runNow")}
         </ActionButton>
         <ActionButton action={flushEmailQueueAction} variant="outline" size="sm">
-          <Send className="size-4" /> Send queued email now
+          <Send className="size-4" /> {t("admin.settings.schedulers.sendQueued")}
         </ActionButton>
-        <EntityFormDialog title="New schedule" fields={fields} action={createScheduler} values={{ scope: S.GROWER_DEFAULT, cadenceType: "AfterNDays", thresholdDays: 3 }} submitLabel="Create" trigger={<Button size="sm" variant="outline"><Plus className="size-4" /> Add schedule</Button>} />
+        <EntityFormDialog title={t("admin.settings.schedulers.newSchedule")} fields={fields} action={createScheduler} values={{ scope: S.GROWER_DEFAULT, cadenceType: "AfterNDays", thresholdDays: 3, isEnabled: true }} submitLabel={t("admin.common.create")} trigger={<Button size="sm" variant="outline"><Plus className="size-4" /> {t("admin.settings.schedulers.addSchedule")}</Button>} />
       </PageHeader>
 
       <Card className="mb-4 py-0">
         <CardContent className="text-muted-foreground p-4 text-sm">
-          &ldquo;Run reminder check now&rdquo; runs the same check the daily Container Apps job runs.
-          It <em>queues</em> reminders in the{" "}
-          <a className="text-primary hover:underline" href="/admin/settings/outbox">Outbox</a>{" "}
-          (one per overdue grower or vendor per day); they are then sent in the background at whatever rate
-          the mail provider allows, so a large batch drains over several minutes rather than being
-          rejected. &ldquo;Send queued email now&rdquo; runs one of those passes immediately.
+          {t("admin.settings.schedulers.note.intro", { run: t("admin.settings.schedulers.runNow") })}{" "}
+          {t("admin.settings.schedulers.note.before")} <em>{t("admin.settings.schedulers.note.queues")}</em>{" "}
+          {t("admin.settings.schedulers.note.middle")}{" "}
+          <a className="text-primary hover:underline" href="/admin/settings/outbox">{t("nav.outbox")}</a>{" "}
+          {t("admin.settings.schedulers.note.after", { send: t("admin.settings.schedulers.sendQueued") })}
         </CardContent>
       </Card>
 

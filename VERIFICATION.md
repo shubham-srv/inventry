@@ -2585,5 +2585,38 @@ whose language is **Español** for the reader-side checks.
 - [ ] Run `scripts/clear-item-notes.sql` on a copy first. Afterwards every item's
       Notes column is "—", and Spanish growers no longer see a note either.
 
+## Round 27 — Import without item notes, admin screens in Spanish, active by default (November 2026)
+
+### 1. Import ignores item notes
+- [ ] `npx tsx scripts/generate-master-data-template.ts` → `7-Items` has no
+      **Notes** column; **ImageFile** follows **LegacyItemRef**.
+- [ ] Give an item a note in the app, then re-import a workbook containing it
+      (`--dry-run` first): the note is still there afterwards.
+- [ ] An older workbook that still has a `Notes` column on `7-Items` imports with
+      no error; its notes are not applied.
+
+### 2. Admin screens in Spanish
+- [ ] Sign in as an admin, switch the language to **Español**, and open every
+      admin screen (Panel, Master data, Partners & users, Mappings, Requests, Low
+      inventory, Item messages, Reports tabs, Schedulers, Thresholds, Audit logs,
+      Outbox). Titles, descriptions, column headers, filters, search boxes,
+      buttons, add/edit dialogs (labels + help text), delete confirmations, tabs
+      and empty states are in Spanish. No raw key such as `admin.items.title` shows.
+- [ ] Status badges (Activo/Inactivo, En cola/Enviado/Fallido, Diario/Semanal…)
+      and role names are in Spanish; badge colours are unchanged.
+- [ ] Item, commodity, category, grower and vendor **names stay English** on admin
+      screens.
+- [ ] Out of scope, still English by design: save/delete toast messages and
+      export file column headers.
+- [ ] Switch back to **English**: every screen reads as before, except the cadence
+      "AfterNDays" now shows as "After N days".
+- [ ] Dashboard **Recent activity** and **Audit logs** show actions/entities in
+      Spanish (Crear, Artículo…); the JSON change details are untouched.
+
+### 3. Active by default
+- [ ] **Users → Add user**: the **Active** switch starts on.
+- [ ] **Schedulers → Add schedule**: the **Enabled** switch starts on.
+- [ ] Editing an existing user/schedule still shows its saved value.
+
 ## Quality gates
 - [ ] `npm run typecheck` clean · `npm run lint` clean · `npm run build` clean.

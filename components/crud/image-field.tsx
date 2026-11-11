@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { ImageOff, Upload, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ACCEPT_ATTRIBUTE } from "@/lib/storage/image"
+import { useT } from "@/lib/i18n/client"
 
 /**
  * One optional photo, for EntityFormDialog's `image` field type.
@@ -65,6 +66,7 @@ export function ImageField({
   currentUrl?: string
   invalid?: boolean
 }) {
+  const t = useT()
   const fileRef = useRef<HTMLInputElement>(null)
   const [mode, setMode] = useState<Mode>("keep")
   const [preview, setPreview] = useState<string | null>(currentUrl || null)
@@ -107,7 +109,7 @@ export function ImageField({
       setPreview(url)
       setMode("replace")
     } catch {
-      setError("That file could not be read as an image.")
+      setError(t("admin.items.imageField.unreadable"))
       setFiles(null)
       setMode("keep")
     } finally {
@@ -162,17 +164,17 @@ export function ImageField({
             onClick={() => fileRef.current?.click()}
           >
             <Upload />
-            {busy ? "Processing…" : preview ? "Replace" : "Upload"}
+            {busy ? t("admin.items.imageField.processing") : preview ? t("admin.items.imageField.replace") : t("admin.items.imageField.upload")}
           </Button>
           {preview && (
             <Button type="button" variant="ghost" size="sm" onClick={onRemove}>
               <X />
-              Remove
+              {t("admin.items.imageField.remove")}
             </Button>
           )}
         </div>
         <p className="text-muted-foreground text-xs">
-          JPG, PNG or WebP. Large photos are resized automatically.
+          {t("admin.items.imageField.hint")}
         </p>
         {error && <p className="text-destructive text-xs">{error}</p>}
       </div>

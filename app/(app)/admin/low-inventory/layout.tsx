@@ -1,5 +1,6 @@
 import { PageHeader } from "@/components/page-header"
 import { TabNav } from "@/components/tab-nav"
+import { getT } from "@/lib/i18n/server"
 
 /**
  * Two views of "low inventory" that people flip between:
@@ -12,18 +13,19 @@ import { TabNav } from "@/components/tab-nav"
  * Separate routes rather than client tabs, so each keeps its own search and
  * pagination in the URL.
  */
-export default function LowInventoryLayout({ children }: { children: React.ReactNode }) {
+export default async function LowInventoryLayout({ children }: { children: React.ReactNode }) {
+  const t = await getT()
   return (
     <>
       <PageHeader
-        title="Low inventory"
-        description="What growers have flagged, and what is actually below threshold right now."
+        title={t("admin.lowInventory.title")}
+        description={t("admin.lowInventory.description")}
       />
       <TabNav
         tabs={[
-          { href: "/admin/low-inventory/flags", label: "Raised flags" },
-          { href: "/admin/low-inventory/current", label: "Currently low" },
-          { href: "/admin/low-inventory/history", label: "Flag history" },
+          { href: "/admin/low-inventory/flags", label: t("admin.lowInventory.tabFlags") },
+          { href: "/admin/low-inventory/current", label: t("admin.lowInventory.tabCurrent") },
+          { href: "/admin/low-inventory/history", label: t("admin.lowInventory.tabHistory") },
         ]}
       />
       <div className="mt-4">{children}</div>

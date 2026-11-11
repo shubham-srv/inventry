@@ -4,6 +4,7 @@ import { ACTIVE_ITEM } from "@/lib/items/active"
 import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { parseListParams } from "@/lib/query"
+import { getT } from "@/lib/i18n/server"
 import { createThreshold, updateThreshold, deleteThreshold } from "@/lib/actions/settings"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
@@ -28,6 +29,7 @@ export default async function ThresholdsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.ACCESS_SETTINGS)
+  const t = await getT()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
 
   const where = raw.q ? { OR: [{ itemId: { contains: raw.q } }, { item: { itemName: { contains: raw.q } } }] } : {}
@@ -39,15 +41,15 @@ export default async function ThresholdsPage({
   ])
 
   const fields: Field[] = [
-    { name: "itemId", label: "Item", type: "select", required: true, placeholder: "Select item", options: items.map((i) => ({ label: `${i.id} — ${i.itemName}`, value: i.id })), colSpan: 2 },
-    { name: "growerId", label: "Scope", type: "select", placeholder: "Global", options: [{ label: "Global (all growers)", value: "0" }, ...growers.map((g) => ({ label: g.growerName, value: String(g.id) }))] },
-    { name: "thresholdQuantity", label: "Threshold qty", type: "number", required: true, step: "any" },
+    { name: "itemId", label: t("admin.common.item"), type: "select", required: true, placeholder: t("admin.settings.thresholds.selectItem"), options: items.map((i) => ({ label: `${i.id} — ${i.itemName}`, value: i.id })), colSpan: 2 },
+    { name: "growerId", label: t("admin.settings.thresholds.scope"), type: "select", placeholder: t("admin.settings.thresholds.global"), options: [{ label: t("admin.settings.thresholds.globalAllGrowers"), value: "0" }, ...growers.map((g) => ({ label: g.growerName, value: String(g.id) }))] },
+    { name: "thresholdQuantity", label: t("admin.settings.thresholds.thresholdQty"), type: "number", required: true, step: "any" },
     // Read-only and derived. A quantity is counted in the item's material
     // category, so the threshold and the counts it is compared against are in
     // the same terms by construction. Never posted.
     {
       name: "categoryName",
-      label: "Counted in",
+      label: t("admin.settings.thresholds.countedIn"),
       type: "preview",
       dependsOn: "itemId",
       derive: Object.fromEntries(
@@ -55,14 +57,14 @@ export default async function ThresholdsPage({
           .filter((i) => i.materialCategory)
           .map((i) => [i.id, i.materialCategory!.name])
       ),
-      placeholder: "The item's category",
+      placeholder: t("admin.settings.thresholds.itemCategory"),
     },
   ]
 
   const columns: Column<Row>[] = [
     {
       key: "item",
-      header: "Item",
+      header: t("admin.common.item"),
       cell: (r) => (
         <>
           <span className="font-medium">{r.item.itemName}</span>
@@ -70,8 +72,8 @@ export default async function ThresholdsPage({
         </>
       ),
     },
-    { key: "scope", header: "Scope", cell: (r) => (r.grower ? <Badge variant="secondary">{r.grower.growerName}</Badge> : <Badge variant="outline">Global</Badge>) },
-    { key: "qty", header: "Threshold", className: "tabular-nums", cell: (r) => `${Number(r.thresholdQuantity)} ${r.item.materialCategory?.name ?? ""}` },
+    { key: "scope", header: t("admin.settings.thresholds.scope"), cell: (r) => (r.grower ? <Badge variant="secondary">{r.grower.growerName}</Badge> : <Badge variant="outline">{t("admin.settings.thresholds.global")}</Badge>) },
+    { key: "qty", header: t("admin.settings.thresholds.threshold"), className: "tabular-nums", cell: (r) => `${Number(r.thresholdQuantity)} ${r.item.materialCategory?.name ?? ""}` },
     {
       key: "actions",
       header: "",
@@ -79,8 +81,8 @@ export default async function ThresholdsPage({
       className: "text-right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
-          <EntityFormDialog title="Edit threshold" fields={fields} action={updateThreshold} values={{ id: r.id, itemId: r.itemId, growerId: r.growerId ? String(r.growerId) : "0", thresholdQuantity: Number(r.thresholdQuantity) }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
-          <ConfirmButton title="Delete threshold" description="Delete this threshold?" confirmLabel="Delete" typeToConfirm action={deleteThreshold.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
+          <EntityFormDialog title={t("admin.settings.thresholds.editThreshold")} fields={fields} action={updateThreshold} values={{ id: r.id, itemId: r.itemId, growerId: r.growerId ? String(r.growerId) : "0", thresholdQuantity: Number(r.thresholdQuantity) }} submitLabel={t("admin.common.saveChanges")} trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.common.edit")}><Pencil /></Button>} />
+          <ConfirmButton title={t("admin.settings.thresholds.deleteThreshold")} description={t("admin.settings.thresholds.deleteConfirm")} confirmLabel={t("admin.common.delete")} typeToConfirm action={deleteThreshold.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.common.delete")}><Trash2 /></Button>} />
         </div>
       ),
     },
@@ -88,10 +90,10 @@ export default async function ThresholdsPage({
 
   return (
     <>
-      <PageHeader title="Item thresholds" description="Low-stock thresholds. Grower-specific values override the global default. Quantities are always in the item's material category." />
+      <PageHeader title={t("admin.settings.thresholds.title")} description={t("admin.settings.thresholds.description")} />
       <div className="space-y-4">
-        <DataTableToolbar searchPlaceholder="Search items…">
-          <EntityFormDialog title="New threshold" fields={fields} action={createThreshold} submitLabel="Create" trigger={<Button size="sm"><Plus className="size-4" /> Add threshold</Button>} />
+        <DataTableToolbar searchPlaceholder={t("admin.settings.thresholds.searchPlaceholder")}>
+          <EntityFormDialog title={t("admin.settings.thresholds.newThreshold")} fields={fields} action={createThreshold} submitLabel={t("admin.common.create")} trigger={<Button size="sm"><Plus className="size-4" /> {t("admin.settings.thresholds.addThreshold")}</Button>} />
         </DataTableToolbar>
         <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} page={page} pageCount={Math.ceil(total / pageSize)} total={total} searchParams={raw} />
       </div>

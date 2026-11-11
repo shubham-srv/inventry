@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
+import { useT } from "@/lib/i18n/client"
 
 export type Tab = { href: string; label: string; badge?: number }
 
@@ -12,8 +13,9 @@ export type Tab = { href: string; label: string; badge?: number }
  */
 export function TabNav({ tabs }: { tabs: Tab[] }) {
   const pathname = usePathname()
+  const t = useT()
   return (
-    <nav className="border-b" aria-label="Sections">
+    <nav className="border-b" aria-label={t("admin.dashboard.sectionsNav")}>
       <ul className="-mb-px flex flex-wrap gap-1">
         {tabs.map((t) => {
           const active = pathname === t.href || pathname.startsWith(t.href + "/")

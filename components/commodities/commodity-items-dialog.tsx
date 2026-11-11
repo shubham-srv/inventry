@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { StatusBadge } from "@/components/status-badge"
+import { useT } from "@/lib/i18n/client"
 
 export type CommodityItemRow = {
   id: string
@@ -36,6 +37,7 @@ export function CommodityItemsDialog({
   count: number
   isActive: boolean
 }) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const [rows, setRows] = useState<CommodityItemRow[] | null>(null)
   const [failed, setFailed] = useState(false)
@@ -77,8 +79,8 @@ export function CommodityItemsDialog({
         type="button"
         variant="ghost"
         size="icon-sm"
-        aria-label={`View items in ${code}`}
-        title={count ? "View items" : "No items"}
+        aria-label={t("admin.commodities.itemsDialog.viewItemsIn", { code })}
+        title={count ? t("admin.commodities.itemsDialog.viewItems") : t("admin.commodities.itemsDialog.noItems")}
         disabled={count === 0}
         onClick={() => onOpenChange(true)}
       >
@@ -90,12 +92,15 @@ export function CommodityItemsDialog({
           <DialogContent className="sm:max-w-3xl">
             <DialogHeader>
               <DialogTitle>
-                Items in {code} — {name}
+                {t("admin.commodities.itemsDialog.title", { code, name })}
               </DialogTitle>
               <DialogDescription>
-                {isActive
-                  ? `${count} item(s). Status is each item's own setting.`
-                  : `${count} item(s). This commodity is disabled, so all of them are hidden from growers and vendors until it is enabled again. Status is each item's own setting.`}
+                {t(
+                  isActive
+                    ? "admin.commodities.itemsDialog.descriptionActive"
+                    : "admin.commodities.itemsDialog.descriptionDisabled",
+                  { count }
+                )}
               </DialogDescription>
             </DialogHeader>
 
@@ -103,11 +108,11 @@ export function CommodityItemsDialog({
               <Input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Search ID, legacy ID or name…"
+                placeholder={t("admin.commodities.itemsDialog.searchPlaceholder")}
                 className="h-8 max-w-xs"
               />
               <Button asChild variant="link" size="sm" className="h-auto p-0">
-                <Link href={`/admin/items?commodity=${encodeURIComponent(code)}`}>Open in Items</Link>
+                <Link href={`/admin/items?commodity=${encodeURIComponent(code)}`}>{t("admin.commodities.itemsDialog.openInItems")}</Link>
               </Button>
             </div>
 
@@ -115,28 +120,28 @@ export function CommodityItemsDialog({
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Item ID</TableHead>
-                    <TableHead>Legacy ID</TableHead>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Sub-category</TableHead>
-                    <TableHead>Status</TableHead>
+                    <TableHead>{t("admin.items.itemId")}</TableHead>
+                    <TableHead>{t("admin.items.legacyId")}</TableHead>
+                    <TableHead>{t("admin.common.name")}</TableHead>
+                    <TableHead>{t("admin.common.category")}</TableHead>
+                    <TableHead>{t("admin.common.subCategory")}</TableHead>
+                    <TableHead>{t("admin.common.status")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {rows == null && !failed && (
                     <TableRow>
                       <TableCell colSpan={6} className="text-muted-foreground h-20 text-center">
-                        <Loader2 className="mr-2 inline size-4 animate-spin" /> Loading…
+                        <Loader2 className="mr-2 inline size-4 animate-spin" /> {t("admin.commodities.itemsDialog.loading")}
                       </TableCell>
                     </TableRow>
                   )}
                   {failed && (
                     <TableRow>
                       <TableCell colSpan={6} className="h-20 text-center">
-                        <span className="text-destructive">Could not load the items.</span>{" "}
+                        <span className="text-destructive">{t("admin.commodities.itemsDialog.loadFailed")}</span>{" "}
                         <Button variant="link" size="sm" className="h-auto p-0" onClick={() => void load()}>
-                          Try again
+                          {t("admin.commodities.itemsDialog.tryAgain")}
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -144,7 +149,7 @@ export function CommodityItemsDialog({
                   {rows != null && shown.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={6} className="text-muted-foreground h-20 text-center">
-                        {rows.length ? "No items match your search." : "No items."}
+                        {rows.length ? t("admin.commodities.itemsDialog.noMatch") : t("admin.commodities.itemsDialog.noItemsList")}
                       </TableCell>
                     </TableRow>
                   )}

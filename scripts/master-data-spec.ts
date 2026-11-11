@@ -150,10 +150,8 @@ export const SHEETS: SheetSpec[] = [
       { key: "ApplicationMethod", width: 20, list: APPLICATION_METHODS, help: "Optional" },
       { key: "Status", width: 14, required: true, list: ITEM_STATUSES, help: "" },
       { key: "LegacyItemRef", width: 20, help: "Your existing identifier, carried through for reconciliation. Optional, but unique when filled." },
-      { key: "Notes", width: 40, help: "" },
-      // Appended after Notes rather than slotted beside it, for the same reason
-      // 16-VendorLocations is appended: a client already filling this in should
-      // never have to move columns. See the README's "Item photos" section.
+      // No Notes column: item notes are app-only; an old workbook's Notes column is ignored.
+      // See the README's "Item photos" section.
       {
         key: "ImageFile",
         width: 28,
@@ -162,7 +160,7 @@ export const SHEETS: SheetSpec[] = [
     ],
     example: [
       "AP-BX-000001", "Corrugated Box 40x30", "AP", "BX", "Cardboard Boxes",
-      "USA", "Machine", "Active", "FAM-10023", "", "AP-BX-000001.jpg",
+      "USA", "Machine", "Active", "FAM-10023", "AP-BX-000001.jpg",
     ],
     key: ["ItemID"],
     refs: [

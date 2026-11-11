@@ -1,5 +1,6 @@
 import { PageHeader } from "@/components/page-header"
 import { TabNav } from "@/components/tab-nav"
+import { getT } from "@/lib/i18n/server"
 
 /**
  * Four views of the supply chain:
@@ -28,19 +29,17 @@ import { TabNav } from "@/components/tab-nav"
  * convention across admin, and a layout does not re-run when navigating between
  * sibling routes.
  */
-export default function ReportsLayout({ children }: { children: React.ReactNode }) {
+export default async function ReportsLayout({ children }: { children: React.ReactNode }) {
+  const t = await getT()
   return (
     <>
-      <PageHeader
-        title="Reports"
-        description="Current stock on both sides of the supply chain, the order book between them, and the embedded Power BI analytics. The three are separate views — they are not meant to add up."
-      />
+      <PageHeader title={t("nav.reports")} description={t("admin.reports.description")} />
       <TabNav
         tabs={[
-          { href: "/admin/reports/grower-stock", label: "Grower stock" },
-          { href: "/admin/reports/orders", label: "Orders" },
-          { href: "/admin/reports/vendor-stock", label: "Vendor stock" },
-          { href: "/admin/reports/power-bi", label: "Power BI" },
+          { href: "/admin/reports/grower-stock", label: t("admin.reports.tabs.growerStock") },
+          { href: "/admin/reports/orders", label: t("nav.orders") },
+          { href: "/admin/reports/vendor-stock", label: t("admin.reports.tabs.vendorStock") },
+          { href: "/admin/reports/power-bi", label: t("admin.reports.tabs.powerBi") },
         ]}
       />
       <div className="mt-4">{children}</div>

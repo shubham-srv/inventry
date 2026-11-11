@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
 import { EntityFormDialog, type Field } from "@/components/crud/entity-form-dialog"
+import { getT } from "@/lib/i18n/server"
 import { ConfirmButton } from "@/components/crud/confirm-button"
 
 type Row = {
@@ -26,6 +27,7 @@ export default async function SubCategoriesPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.MANAGE_MASTER_DATA)
+  const t = await getT()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
   const where = subCategoriesWhere(raw)
   const [rows, total, categories] = await Promise.all([
@@ -36,14 +38,14 @@ export default async function SubCategoriesPage({
 
   const categoryOptions = categories.map((c) => ({ label: `${c.code} — ${c.name}`, value: c.code }))
   const fields: Field[] = [
-    { name: "materialCategoryCode", label: "Category", type: "select", required: true, placeholder: "Select category", options: categoryOptions, colSpan: 2 },
-    { name: "name", label: "Name", type: "text", required: true, colSpan: 2 },
+    { name: "materialCategoryCode", label: t("admin.common.category"), type: "select", required: true, placeholder: t("admin.subCategories.selectCategory"), options: categoryOptions, colSpan: 2 },
+    { name: "name", label: t("admin.common.name"), type: "text", required: true, colSpan: 2 },
   ]
 
   const columns: Column<Row>[] = [
-    { key: "name", header: "Name", cell: (r) => <span className="font-medium">{r.name}</span> },
-    { key: "category", header: "Category", cell: (r) => r.materialCategory.name },
-    { key: "items", header: "Items", cell: (r) => r._count.items },
+    { key: "name", header: t("admin.common.name"), cell: (r) => <span className="font-medium">{r.name}</span> },
+    { key: "category", header: t("admin.common.category"), cell: (r) => r.materialCategory.name },
+    { key: "items", header: t("admin.common.items"), cell: (r) => r._count.items },
     {
       key: "actions",
       header: "",
@@ -51,8 +53,8 @@ export default async function SubCategoriesPage({
       className: "text-right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
-          <EntityFormDialog title="Edit sub-category" fields={fields} action={updateSubCategory} values={{ id: r.id, materialCategoryCode: r.materialCategoryCode, name: r.name }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
-          <ConfirmButton title="Delete sub-category" description={`Delete ${r.name}?`} confirmLabel="Delete" typeToConfirm action={deleteSubCategory.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
+          <EntityFormDialog title={t("admin.subCategories.editSubCategory")} fields={fields} action={updateSubCategory} values={{ id: r.id, materialCategoryCode: r.materialCategoryCode, name: r.name }} submitLabel={t("admin.common.saveChanges")} trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.common.edit")}><Pencil /></Button>} />
+          <ConfirmButton title={t("admin.subCategories.deleteSubCategory")} description={t("admin.subCategories.deleteDescription", { name: r.name })} confirmLabel={t("admin.common.delete")} typeToConfirm action={deleteSubCategory.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.common.delete")}><Trash2 /></Button>} />
         </div>
       ),
     },
@@ -60,14 +62,14 @@ export default async function SubCategoriesPage({
 
   return (
     <>
-      <PageHeader title="Sub-categories" description="Finer grouping within a material category." />
+      <PageHeader title={t("nav.subCategories")} description={t("admin.subCategories.description")} />
       <div className="space-y-4">
         <DataTableToolbar
-          searchPlaceholder="Search sub-categories…"
+          searchPlaceholder={t("admin.subCategories.searchPlaceholder")}
           exportEntity="sub-categories"
-          filters={[{ key: "category", label: "Category", options: categories.map((c) => ({ label: c.name, value: c.code })) }]}
+          filters={[{ key: "category", label: t("admin.common.category"), options: categories.map((c) => ({ label: c.name, value: c.code })) }]}
         >
-          <EntityFormDialog title="New sub-category" fields={fields} action={createSubCategory} submitLabel="Create" trigger={<Button size="sm"><Plus className="size-4" /> Add sub-category</Button>} />
+          <EntityFormDialog title={t("admin.subCategories.newSubCategory")} fields={fields} action={createSubCategory} submitLabel={t("admin.common.create")} trigger={<Button size="sm"><Plus className="size-4" /> {t("admin.subCategories.addSubCategory")}</Button>} />
         </DataTableToolbar>
         <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} page={page} pageCount={Math.ceil(total / pageSize)} total={total} searchParams={raw} />
       </div>

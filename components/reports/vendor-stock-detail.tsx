@@ -1,6 +1,7 @@
 import { formatDate } from "@/lib/dates"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { NotesCell } from "@/components/data-table/notes-cell"
+import { getLocale, getT } from "@/lib/i18n/server"
 import { getVendorStock, type VendorStockFilters } from "@/lib/admin/vendor-stock"
 
 /** One vendor's items, opened under its row in the vendor-stock report. */
@@ -11,9 +12,11 @@ export async function VendorStockDetail({
   vendorId: number
   filters: VendorStockFilters
 }) {
+  const t = await getT()
+  const locale = await getLocale()
   const { rows } = await getVendorStock({ ...filters, vendorId })
   if (rows.length === 0)
-    return <p className="text-muted-foreground px-1 text-sm">No items match these filters.</p>
+    return <p className="text-muted-foreground px-1 text-sm">{t("admin.reports.noItemsMatch")}</p>
 
   const dash = <span className="text-muted-foreground">—</span>
 
@@ -22,15 +25,15 @@ export async function VendorStockDetail({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Item</TableHead>
-            <TableHead>Legacy ID</TableHead>
-            <TableHead>Category</TableHead>
-            <TableHead className="text-right">Reported</TableHead>
-            <TableHead className="text-right">Allocated</TableHead>
-            <TableHead className="text-right">Unallocated</TableHead>
-            <TableHead className="text-right">Growers</TableHead>
-            <TableHead>Last reported</TableHead>
-            <TableHead>Notes</TableHead>
+            <TableHead>{t("admin.common.item")}</TableHead>
+            <TableHead>{t("admin.reports.legacyId")}</TableHead>
+            <TableHead>{t("admin.common.category")}</TableHead>
+            <TableHead className="text-right">{t("admin.reports.vendorStock.reported")}</TableHead>
+            <TableHead className="text-right">{t("admin.reports.vendorStock.allocated")}</TableHead>
+            <TableHead className="text-right">{t("admin.reports.vendorStock.unallocated")}</TableHead>
+            <TableHead className="text-right">{t("nav.growers")}</TableHead>
+            <TableHead>{t("admin.reports.vendorStock.lastReported")}</TableHead>
+            <TableHead>{t("admin.common.notes")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -51,7 +54,7 @@ export async function VendorStockDetail({
                 </TableCell>
                 <TableCell className="text-right font-medium tabular-nums">
                   {r.reported == null ? (
-                    <span className="text-muted-foreground text-xs">Never reported</span>
+                    <span className="text-muted-foreground text-xs">{t("admin.reports.vendorStock.neverReported")}</span>
                   ) : (
                     `${r.reported} ${r.categoryName ?? ""}`
                   )}
@@ -68,8 +71,8 @@ export async function VendorStockDetail({
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{r.growersServed ?? dash}</TableCell>
                 <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
-                  {r.asOf ? formatDate(r.asOf, "MMM d") : "—"}
-                  {older && <p>not in latest report</p>}
+                  {r.asOf ? formatDate(r.asOf, "MMM d", locale) : "—"}
+                  {older && <p>{t("admin.reports.vendorStock.notInLatest")}</p>}
                 </TableCell>
                 <TableCell>
                   <NotesCell notes={r.notes} />

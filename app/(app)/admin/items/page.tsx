@@ -19,6 +19,7 @@ import { ItemImage } from "@/components/item-image"
 import { imageVersion, itemImageUrl } from "@/lib/items/image"
 import { NotesCell } from "@/components/data-table/notes-cell"
 import { TranslationBadge } from "@/components/translation-badge"
+import { getT } from "@/lib/i18n/server"
 
 type ItemRow = Awaited<ReturnType<typeof getItems>>["rows"][number]
 
@@ -50,6 +51,7 @@ export default async function ItemsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.MANAGE_MASTER_DATA)
+  const t = await getT()
   const sp = await searchParams
   const { page, pageSize, skip, take, raw } = parseListParams(sp)
   const where = itemsWhere(raw)
@@ -69,61 +71,66 @@ export default async function ItemsPage({
       prisma.vendor.findMany({ where: { status: "Active" }, orderBy: { vendorName: "asc" } }),
     ])
   const pageCount = Math.ceil(total / pageSize)
+  const statusOptions = [ENTITY_STATUS.ACTIVE, ENTITY_STATUS.INACTIVE, ENTITY_STATUS.REVIEW].map((s) => ({
+    label: t(`status.${s}`),
+    value: s,
+  }))
+  const APPLICATION_KEYS: Record<string, string> = { Machine: "machine", Hand: "hand", "Machine/Hand": "machineHand", "N/A": "na" }
+  const applicationLabel = (m: string) => t(`admin.items.applicationMethods.${APPLICATION_KEYS[m] ?? m}`)
 
   // Shared by the create and edit dialogs. The item ID is NOT here: it is
   // generated from commodity + category on create (see lib/items/item-id.ts)
   // and immutable afterwards, so only the edit dialog shows it (read-only).
   const fields: Field[] = [
-    { name: "itemName", label: "Name", type: "text", required: true, colSpan: 2 },
+    { name: "itemName", label: t("admin.common.name"), type: "text", required: true, colSpan: 2 },
     {
       name: "itemNameEs",
-      label: "Spanish name",
+      label: t("admin.items.spanishName"),
       type: "text",
       translationOf: "itemName",
       colSpan: 2,
-      description: "Shown to growers and vendors who use Spanish. Leave blank to machine-translate on save.",
+      description: t("admin.items.spanishNameHelp"),
     },
     {
       name: "legacyFamousId",
-      label: "Legacy ID",
+      label: t("admin.items.legacyId"),
       type: "text",
-      placeholder: "Famous ID",
+      placeholder: t("admin.items.famousId"),
       colSpan: 2,
-      description: "Optional. The item's ID in the legacy (Famous) system — no two items can share one.",
+      description: t("admin.items.legacyIdHelp"),
     },
     {
       name: "image",
-      label: "Photo",
+      label: t("admin.items.photo"),
       type: "image",
       colSpan: 2,
-      description:
-        "Optional. Shown in the items list and to the growers and vendors who work with this item.",
+      description: t("admin.items.photoHelp"),
     },
     {
       name: "commodityCode",
-      label: "Commodity",
+      label: t("admin.common.commodity"),
       type: "select",
       required: true,
-      placeholder: "Select commodity",
+      placeholder: t("admin.items.selectCommodity"),
       options: commodities.map((c) => ({
-        label: `${c.code} — ${c.name}${c.isActive ? "" : " (disabled)"}`,
+        label: `${c.code} — ${c.name}${c.isActive ? "" : ` (${t("admin.items.disabledSuffix")})`}`,
         value: c.code,
       })),
     },
     {
       name: "materialCategoryCode",
-      label: "Category",
+      label: t("admin.common.category"),
       type: "select",
       required: true,
-      placeholder: "Select category",
+      placeholder: t("admin.items.selectCategory"),
       options: categories.map((c) => ({ label: `${c.code} — ${c.name}`, value: c.code })),
     },
     {
       name: "subCategoryId",
-      label: "Sub-category",
+      label: t("admin.common.subCategory"),
       type: "select",
       required: true,
-      placeholder: "Select category first",
+      placeholder: t("admin.items.selectCategoryFirst"),
       dependsOn: "materialCategoryCode",
       options: subCategories.map((s) => ({
         label: s.name,
@@ -133,55 +140,54 @@ export default async function ItemsPage({
     },
     {
       name: "countryOfOriginId",
-      label: "Country of origin",
+      label: t("admin.items.countryOfOrigin"),
       type: "select",
       required: true,
-      placeholder: "Select country",
+      placeholder: t("admin.items.selectCountry"),
       options: countries.map((c) => ({ label: c.name, value: String(c.id) })),
     },
     {
       name: "applicationMethod",
-      label: "Application",
+      label: t("admin.items.application"),
       type: "select",
-      placeholder: "Method",
-      options: APPLICATION_METHODS.map((m) => ({ label: m, value: m })),
+      placeholder: t("admin.items.method"),
+      options: APPLICATION_METHODS.map((m) => ({ label: applicationLabel(m), value: m })),
     },
     {
       name: "status",
-      label: "Status",
+      label: t("admin.common.status"),
       type: "select",
       required: true,
-      options: [ENTITY_STATUS.ACTIVE, ENTITY_STATUS.INACTIVE, ENTITY_STATUS.REVIEW].map((s) => ({ label: s, value: s })),
+      options: statusOptions,
     },
     {
       name: "growerIds",
-      label: "Growers (who use this item)",
+      label: t("admin.items.growers"),
       type: "multiselect",
-      placeholder: "Select growers",
+      placeholder: t("admin.items.selectGrowers"),
       colSpan: 2,
       options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })),
     },
     {
       name: "vendorIds",
-      label: "Vendors (source this item from)",
+      label: t("admin.items.vendors"),
       type: "multiselect",
-      placeholder: "Select vendors",
+      placeholder: t("admin.items.selectVendors"),
       colSpan: 2,
       options: vendors.map((v) => ({ label: v.vendorName, value: String(v.id) })),
     },
     {
       name: "notes",
-      label: "Notes",
+      label: t("admin.common.notes"),
       type: "textarea",
-      description: "Shown to growers and vendors under the item, in their language.",
+      description: t("admin.items.notesHelp"),
     },
     {
       name: "notesEs",
-      label: "Spanish notes",
+      label: t("admin.items.spanishNotes"),
       type: "textarea",
       translationOf: "notes",
-      description:
-        "Leave blank to machine-translate on save; changing the English notes re-translates. Anything typed here is used as-is and marked reviewed.",
+      description: t("admin.items.spanishNotesHelp"),
     },
   ]
 
@@ -190,17 +196,17 @@ export default async function ItemsPage({
   const createFields: Field[] = [
     {
       name: "idPreview",
-      label: "Item ID",
+      label: t("admin.items.itemId"),
       type: "preview",
       colSpan: 2,
       pattern: `{commodityCode}-{materialCategoryCode}-${padSequence(nextSequence)}`,
-      placeholder: "Pick a commodity and a category to see the ID",
-      description: "Generated on save — the number is the next one available.",
+      placeholder: t("admin.items.itemIdPlaceholder"),
+      description: t("admin.items.itemIdHelp"),
     },
     ...fields,
   ]
   const editFields: Field[] = [
-    { name: "id", label: "Item ID", type: "text", lockOnEdit: true, colSpan: 2 },
+    { name: "id", label: t("admin.items.itemId"), type: "text", lockOnEdit: true, colSpan: 2 },
     ...fields,
   ]
 
@@ -212,16 +218,16 @@ export default async function ItemsPage({
       className: "w-0",
       cell: (r) => <ItemImage itemId={r.id} version={imageVersion(r.imageKey)} alt={r.itemName} />,
     },
-    { key: "id", header: "Item ID", className: "font-mono text-xs", cell: (r) => r.id },
+    { key: "id", header: t("admin.items.itemId"), className: "font-mono text-xs", cell: (r) => r.id },
     {
       key: "legacy",
-      header: "Legacy ID",
+      header: t("admin.items.legacyId"),
       className: "font-mono text-xs",
       cell: (r) => r.legacyFamousId ?? <span className="text-muted-foreground">—</span>,
     },
     {
       key: "itemName",
-      header: "Name",
+      header: t("admin.common.name"),
       cell: (r) => (
         <div className="space-y-1">
           <span className="font-medium">{r.itemName}</span>
@@ -231,12 +237,12 @@ export default async function ItemsPage({
         </div>
       ),
     },
-    { key: "commodity", header: "Commodity", cell: (r) => r.commodity?.name ?? "—" },
-    { key: "category", header: "Category", cell: (r) => r.materialCategory?.name ?? "—" },
-    { key: "coo", header: "Origin", cell: (r) => r.countryOfOrigin?.name ?? "—" },
+    { key: "commodity", header: t("admin.common.commodity"), cell: (r) => r.commodity?.name ?? "—" },
+    { key: "category", header: t("admin.common.category"), cell: (r) => r.materialCategory?.name ?? "—" },
+    { key: "coo", header: t("admin.items.origin"), cell: (r) => r.countryOfOrigin?.name ?? "—" },
     {
       key: "notes",
-      header: "Notes",
+      header: t("admin.common.notes"),
       cell: (r) => {
         if (!r.notes) return <NotesCell notes={null} />
         return (
@@ -249,14 +255,14 @@ export default async function ItemsPage({
     },
     {
       key: "status",
-      header: "Status",
+      header: t("admin.common.status"),
       cell: (r) => (
         <div className="flex flex-wrap items-center gap-1">
           <StatusBadge status={r.status} />
           {/* Own status untouched, but hidden everywhere while this lasts. */}
           {r.commodity && !r.commodity.isActive && (
             <Badge variant="outline" className="text-muted-foreground whitespace-nowrap">
-              Commodity disabled
+              {t("admin.items.commodityDisabled")}
             </Badge>
           )}
         </div>
@@ -270,7 +276,7 @@ export default async function ItemsPage({
       cell: (r) => (
         <div className="flex justify-end gap-1">
           <EntityFormDialog
-            title="Edit item"
+            title={t("admin.items.editItem")}
             description={r.id}
             fields={editFields}
             action={updateItem}
@@ -292,21 +298,21 @@ export default async function ItemsPage({
               notes: r.notes ?? "",
               notesEs: r.translations.find((t) => t.field === "notes")?.text ?? "",
             }}
-            submitLabel="Save changes"
+            submitLabel={t("admin.common.saveChanges")}
             trigger={
-              <Button variant="ghost" size="icon-sm" aria-label="Edit">
+              <Button variant="ghost" size="icon-sm" aria-label={t("admin.common.edit")}>
                 <Pencil />
               </Button>
             }
           />
           <ConfirmButton
-            title="Delete item"
-            description={`Delete ${r.id}? This cannot be undone. If it has history, deactivate it instead.`}
-            confirmLabel="Delete"
+            title={t("admin.items.deleteItem")}
+            description={t("admin.items.deleteDescription", { id: r.id })}
+            confirmLabel={t("admin.common.delete")}
             typeToConfirm
             action={deleteItem.bind(null, r.id)}
             trigger={
-              <Button variant="ghost" size="icon-sm" aria-label="Delete">
+              <Button variant="ghost" size="icon-sm" aria-label={t("admin.common.delete")}>
                 <Trash2 />
               </Button>
             }
@@ -318,39 +324,39 @@ export default async function ItemsPage({
 
   return (
     <>
-      <PageHeader title="Items" description="Master list of inventory items." />
+      <PageHeader title={t("nav.items")} description={t("admin.items.description")} />
 
       <div className="space-y-4">
         <DataTableToolbar
-          searchPlaceholder="Search by ID, name or legacy ref…"
+          searchPlaceholder={t("admin.items.searchPlaceholder")}
           exportEntity="items"
           filters={[
             {
               key: "status",
-              label: "Status",
-              options: [ENTITY_STATUS.ACTIVE, ENTITY_STATUS.INACTIVE, ENTITY_STATUS.REVIEW].map((s) => ({ label: s, value: s })),
+              label: t("admin.common.status"),
+              options: statusOptions,
             },
             {
               key: "commodity",
-              label: "Commodity",
+              label: t("admin.common.commodity"),
               options: commodities.map((c) => ({ label: c.name, value: c.code })),
             },
             {
               key: "category",
-              label: "Category",
+              label: t("admin.common.category"),
               options: categories.map((c) => ({ label: c.name, value: c.code })),
             },
           ]}
         >
           <EntityFormDialog
-            title="New item"
-            description="The item ID is generated from the commodity and category."
+            title={t("admin.items.newItem")}
+            description={t("admin.items.newItemHelp")}
             fields={createFields}
             action={createItem}
-            submitLabel="Create item"
+            submitLabel={t("admin.items.createItem")}
             trigger={
               <Button size="sm">
-                <Plus className="size-4" /> Add item
+                <Plus className="size-4" /> {t("admin.items.addItem")}
               </Button>
             }
           />
@@ -364,7 +370,7 @@ export default async function ItemsPage({
           pageCount={pageCount}
           total={total}
           searchParams={raw}
-          emptyMessage="No items match your filters."
+          emptyMessage={t("admin.items.empty")}
         />
       </div>
     </>

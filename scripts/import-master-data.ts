@@ -913,7 +913,7 @@ async function main() {
       applicationMethod: r.get("ApplicationMethod") || null,
       status: r.get("Status") || "Active",
       legacyFamousId: r.get("LegacyItemRef") || null,
-      notes: r.get("Notes") || null,
+      // notes deliberately untouched: managed in the app; a Notes column is ignored.
       // imageKey is deliberately untouched: this script does not upload photos,
       // and writing null would wipe one set through the app.
     }

@@ -12,6 +12,7 @@ import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
 import { EntityFormDialog, type Field } from "@/components/crud/entity-form-dialog"
 import { ConfirmButton } from "@/components/crud/confirm-button"
 import { TranslationBadge } from "@/components/translation-badge"
+import { getT } from "@/lib/i18n/server"
 
 type Row = {
   code: string
@@ -26,6 +27,7 @@ export default async function CategoriesPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.MANAGE_MASTER_DATA)
+  const t = await getT()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
   const where = categoriesWhere(raw)
   const [rows, total, allCategories] = await Promise.all([
@@ -47,32 +49,32 @@ export default async function CategoriesPage({
   const fields: Field[] = [
     {
       name: "code",
-      label: "Code",
+      label: t("admin.common.code"),
       type: "suggest",
       required: true,
       placeholder: "BX",
       lockOnEdit: true,
       colSpan: 2,
-      suggestTitle: "Existing codes",
+      suggestTitle: t("admin.categories.existingCodes"),
       options: allCategories.map((c) => ({ label: `${c.code} — ${c.name}`, value: c.code })),
-      description: "Material category code, e.g. BX. Pick one that isn't in the list.",
+      description: t("admin.categories.codeHelp"),
     },
-    { name: "name", label: "Name", type: "text", required: true, colSpan: 2 },
+    { name: "name", label: t("admin.common.name"), type: "text", required: true, colSpan: 2 },
     {
       name: "nameEs",
-      label: "Spanish name",
+      label: t("admin.categories.spanishName"),
       type: "text",
       translationOf: "name",
       colSpan: 2,
-      description: "The unit growers and vendors who use Spanish see (\"350 Cajas\"). Leave blank to machine-translate on save.",
+      description: t("admin.categories.spanishNameHelp"),
     },
   ]
 
   const columns: Column<Row>[] = [
-    { key: "code", header: "Code", className: "font-mono text-xs", cell: (r) => r.code },
+    { key: "code", header: t("admin.common.code"), className: "font-mono text-xs", cell: (r) => r.code },
     {
       key: "name",
-      header: "Name",
+      header: t("admin.common.name"),
       cell: (r) => (
         <div className="space-y-1">
           <span className="font-medium">{r.name}</span>
@@ -82,8 +84,8 @@ export default async function CategoriesPage({
         </div>
       ),
     },
-    { key: "subs", header: "Sub-categories", cell: (r) => r._count.subCategories },
-    { key: "items", header: "Items", cell: (r) => r._count.items },
+    { key: "subs", header: t("nav.subCategories"), cell: (r) => r._count.subCategories },
+    { key: "items", header: t("admin.common.items"), cell: (r) => r._count.items },
     {
       key: "actions",
       header: "",
@@ -91,8 +93,8 @@ export default async function CategoriesPage({
       className: "text-right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
-          <EntityFormDialog title="Edit category" fields={fields} action={updateCategory} values={{ code: r.code, name: r.name, nameEs: r.translations[0]?.name ?? "" }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
-          <ConfirmButton title="Delete category" description={`Delete ${r.code}?`} confirmLabel="Delete" typeToConfirm action={deleteCategory.bind(null, r.code)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
+          <EntityFormDialog title={t("admin.categories.editCategory")} fields={fields} action={updateCategory} values={{ code: r.code, name: r.name, nameEs: r.translations[0]?.name ?? "" }} submitLabel={t("admin.common.saveChanges")} trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.common.edit")}><Pencil /></Button>} />
+          <ConfirmButton title={t("admin.categories.deleteCategory")} description={t("admin.categories.deleteDescription", { code: r.code })} confirmLabel={t("admin.common.delete")} typeToConfirm action={deleteCategory.bind(null, r.code)} trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.common.delete")}><Trash2 /></Button>} />
         </div>
       ),
     },
@@ -100,10 +102,10 @@ export default async function CategoriesPage({
 
   return (
     <>
-      <PageHeader title="Material categories" description="Categories that group items (boxes, bags, labels…)." />
+      <PageHeader title={t("admin.categories.title")} description={t("admin.categories.description")} />
       <div className="space-y-4">
-        <DataTableToolbar searchPlaceholder="Search categories…" exportEntity="categories">
-          <EntityFormDialog title="New category" fields={fields} action={createCategory} submitLabel="Create" trigger={<Button size="sm"><Plus className="size-4" /> Add category</Button>} />
+        <DataTableToolbar searchPlaceholder={t("admin.categories.searchPlaceholder")} exportEntity="categories">
+          <EntityFormDialog title={t("admin.categories.newCategory")} fields={fields} action={createCategory} submitLabel={t("admin.common.create")} trigger={<Button size="sm"><Plus className="size-4" /> {t("admin.categories.addCategory")}</Button>} />
         </DataTableToolbar>
         <DataTable columns={columns} rows={rows} getRowKey={(r) => r.code} page={page} pageCount={Math.ceil(total / pageSize)} total={total} searchParams={raw} />
       </div>

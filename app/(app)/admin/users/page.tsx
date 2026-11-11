@@ -4,6 +4,7 @@ import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { usersWhere } from "@/lib/admin/queries"
 import { parseListParams } from "@/lib/query"
+import { getT } from "@/lib/i18n/server"
 import { createUser, updateUser, deleteUser } from "@/lib/actions/users"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
@@ -34,6 +35,7 @@ export default async function UsersPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.MANAGE_USERS)
+  const t = await getT()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
   const where = usersWhere(raw)
   const [rows, total, roles, growers, vendors] = await Promise.all([
@@ -44,22 +46,28 @@ export default async function UsersPage({
     prisma.vendor.findMany({ orderBy: { vendorName: "asc" } }),
   ])
 
+  const roleLabel = (name: string) => {
+    const key = `common.roles.${name}`
+    const label = t(key)
+    return label === key ? name : label
+  }
+  const roleOptions = roles.map((r) => ({ label: roleLabel(r.roleName), value: String(r.id) }))
   const fields: Field[] = [
-    { name: "firstName", label: "First name", type: "text", required: true },
-    { name: "lastName", label: "Last name", type: "text", required: true },
-    { name: "email", label: "Email", type: "text", required: true, colSpan: 2 },
-    { name: "roleId", label: "Role", type: "select", required: true, placeholder: "Select role", options: roles.map((r) => ({ label: r.roleName, value: String(r.id) })) },
-    { name: "isActive", label: "Active", type: "switch" },
-    { name: "growerId", label: "Grower", type: "select", placeholder: "No grower", options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })), description: "Required for grower users. Leave empty for any other role." },
-    { name: "vendorId", label: "Vendor", type: "select", placeholder: "No vendor", options: vendors.map((v) => ({ label: v.vendorName, value: String(v.id) })), description: "Required for vendor users. Leave empty for any other role." },
+    { name: "firstName", label: t("admin.users.firstName"), type: "text", required: true },
+    { name: "lastName", label: t("admin.users.lastName"), type: "text", required: true },
+    { name: "email", label: t("admin.common.email"), type: "text", required: true, colSpan: 2 },
+    { name: "roleId", label: t("admin.common.role"), type: "select", required: true, placeholder: t("admin.users.selectRole"), options: roleOptions },
+    { name: "isActive", label: t("admin.common.active"), type: "switch" },
+    { name: "growerId", label: t("admin.common.grower"), type: "select", placeholder: t("admin.users.noGrower"), options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })), description: t("admin.users.growerDescription") },
+    { name: "vendorId", label: t("admin.common.vendor"), type: "select", placeholder: t("admin.users.noVendor"), options: vendors.map((v) => ({ label: v.vendorName, value: String(v.id) })), description: t("admin.users.vendorDescription") },
   ]
 
   const columns: Column<Row>[] = [
-    { key: "name", header: "Name", cell: (r) => <span className="font-medium">{r.firstName} {r.lastName}</span> },
-    { key: "email", header: "Email", cell: (r) => r.email },
-    { key: "role", header: "Role", cell: (r) => <Badge variant="secondary">{r.role.roleName}</Badge> },
-    { key: "mapping", header: "Mapped to", cell: (r) => r.grower?.growerName ?? r.vendor?.vendorName ?? "—" },
-    { key: "active", header: "Active", cell: (r) => <StatusBadge status={r.isActive ? "Yes" : "No"} /> },
+    { key: "name", header: t("admin.common.name"), cell: (r) => <span className="font-medium">{r.firstName} {r.lastName}</span> },
+    { key: "email", header: t("admin.common.email"), cell: (r) => r.email },
+    { key: "role", header: t("admin.common.role"), cell: (r) => <Badge variant="secondary">{roleLabel(r.role.roleName)}</Badge> },
+    { key: "mapping", header: t("admin.users.mappedTo"), cell: (r) => r.grower?.growerName ?? r.vendor?.vendorName ?? "—" },
+    { key: "active", header: t("admin.common.active"), cell: (r) => <StatusBadge status={r.isActive ? "Yes" : "No"} /> },
     {
       key: "actions",
       header: "",
@@ -67,8 +75,8 @@ export default async function UsersPage({
       className: "text-right",
       cell: (r) => (
         <div className="flex justify-end gap-1">
-          <EntityFormDialog title="Edit user" fields={fields} action={updateUser} values={{ id: r.id, firstName: r.firstName, lastName: r.lastName, email: r.email, roleId: r.roleId, isActive: r.isActive, growerId: r.growerId ?? "", vendorId: r.vendorId ?? "" }} submitLabel="Save changes" trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>} />
-          <ConfirmButton title="Delete user" description={`Delete ${r.firstName} ${r.lastName}? If they have submission history, set Active off instead.`} confirmLabel="Delete" typeToConfirm action={deleteUser.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>} />
+          <EntityFormDialog title={t("admin.users.editTitle")} fields={fields} action={updateUser} values={{ id: r.id, firstName: r.firstName, lastName: r.lastName, email: r.email, roleId: r.roleId, isActive: r.isActive, growerId: r.growerId ?? "", vendorId: r.vendorId ?? "" }} submitLabel={t("admin.common.saveChanges")} trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.common.edit")}><Pencil /></Button>} />
+          <ConfirmButton title={t("admin.users.deleteTitle")} description={t("admin.users.deleteConfirm", { name: `${r.firstName} ${r.lastName}` })} confirmLabel={t("admin.common.delete")} typeToConfirm action={deleteUser.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.common.delete")}><Trash2 /></Button>} />
         </div>
       ),
     },
@@ -76,17 +84,17 @@ export default async function UsersPage({
 
   return (
     <>
-      <PageHeader title="Users" description="Onboard internal users and map external users to a grower or vendor." />
+      <PageHeader title={t("nav.users")} description={t("admin.users.description")} />
       <div className="space-y-4">
         <DataTableToolbar
-          searchPlaceholder="Search users…"
+          searchPlaceholder={t("admin.users.searchPlaceholder")}
           exportEntity="users"
           filters={[
-            { key: "role", label: "Role", options: roles.map((r) => ({ label: r.roleName, value: String(r.id) })) },
-            { key: "status", label: "Status", options: [{ label: "Active", value: "active" }, { label: "Inactive", value: "inactive" }] },
+            { key: "role", label: t("admin.common.role"), options: roleOptions },
+            { key: "status", label: t("admin.common.status"), options: [{ label: t("admin.common.active"), value: "active" }, { label: t("admin.common.inactive"), value: "inactive" }] },
           ]}
         >
-          <EntityFormDialog title="New user" fields={fields} action={createUser} submitLabel="Create user" trigger={<Button size="sm"><Plus className="size-4" /> Add user</Button>} />
+          <EntityFormDialog title={t("admin.users.newTitle")} fields={fields} action={createUser} values={{ isActive: true }} submitLabel={t("admin.users.createUser")} trigger={<Button size="sm"><Plus className="size-4" /> {t("admin.users.addButton")}</Button>} />
         </DataTableToolbar>
         <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} page={page} pageCount={Math.ceil(total / pageSize)} total={total} searchParams={raw} />
       </div>

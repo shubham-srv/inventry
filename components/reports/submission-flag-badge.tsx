@@ -1,5 +1,6 @@
 import { formatDate } from "@/lib/dates"
 import { AlertTriangle, CircleAlert } from "lucide-react"
+import { getLocale, getT } from "@/lib/i18n/server"
 import { Badge } from "@/components/ui/badge"
 import type { SubmissionFlag } from "@/lib/reports/submission-flag"
 
@@ -9,26 +10,27 @@ const TONE: Record<Exclude<SubmissionFlag, "Ok">, string> = {
   Never: "border-transparent bg-red-500/15 text-red-700 dark:text-red-400",
 }
 
-const LABEL: Record<Exclude<SubmissionFlag, "Ok">, string> = {
-  ThreeDays: "3+ days",
-  Week: "1 week+",
-  Never: "Never submitted",
+const LABEL_KEY: Record<Exclude<SubmissionFlag, "Ok">, string> = {
+  ThreeDays: "admin.reports.flag.days3",
+  Week: "admin.reports.flag.week",
+  Never: "admin.reports.flag.never",
 }
 
 /** The overdue flag on its own: nothing when up to date. */
-export function SubmissionFlagBadge({ flag }: { flag: SubmissionFlag }) {
+export async function SubmissionFlagBadge({ flag }: { flag: SubmissionFlag }) {
   if (flag === "Ok") return null
+  const t = await getT()
   const Icon = flag === "ThreeDays" ? AlertTriangle : CircleAlert
   return (
     <Badge variant="outline" className={`whitespace-nowrap ${TONE[flag]}`}>
       <Icon className="mr-1 size-3" />
-      {LABEL[flag]}
+      {t(LABEL_KEY[flag])}
     </Badge>
   )
 }
 
 /** Last-submitted cell: full timestamp, how long ago, and the flag. */
-export function LastSubmittedCell({
+export async function LastSubmittedCell({
   at,
   daysSince,
   flag,
@@ -38,11 +40,17 @@ export function LastSubmittedCell({
   flag: SubmissionFlag
 }) {
   if (!at) return <SubmissionFlagBadge flag={flag} />
+  const t = await getT()
+  const locale = await getLocale()
   return (
     <div className="flex flex-col items-start gap-1 text-xs">
-      <span className="whitespace-nowrap">{formatDate(at, "MMM d, yyyy HH:mm")}</span>
+      <span className="whitespace-nowrap">{formatDate(at, "MMM d, yyyy HH:mm", locale)}</span>
       <span className="text-muted-foreground flex items-center gap-1.5 whitespace-nowrap">
-        {daysSince === 0 ? "today" : daysSince === 1 ? "yesterday" : `${daysSince} days ago`}
+        {daysSince === 0
+          ? t("admin.reports.today")
+          : daysSince === 1
+            ? t("admin.reports.yesterday")
+            : t("admin.reports.daysAgo", { count: daysSince ?? 0 })}
         <SubmissionFlagBadge flag={flag} />
       </span>
     </div>

@@ -5,6 +5,7 @@ import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { parseListParams } from "@/lib/query"
 import { AUDIT_ACTIONS } from "@/lib/constants"
+import { getLocale, getT } from "@/lib/i18n/server"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { DataTable, type Column } from "@/components/data-table/data-table"
@@ -32,6 +33,8 @@ export default async function AuditLogsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.ACCESS_SETTINGS)
+  const t = await getT()
+  const locale = await getLocale()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 20 })
 
   const and: Prisma.AuditLogWhereInput[] = []
@@ -45,27 +48,34 @@ export default async function AuditLogsPage({
     prisma.auditLog.count({ where }),
   ])
 
+  // Unknown values show as stored.
+  const label = (group: "actions" | "entities", value: string) => {
+    const key = `admin.settings.auditLogs.${group}.${value}`
+    const text = t(key)
+    return text === key ? value : text
+  }
+
   const columns: Column<Row>[] = [
-    { key: "time", header: "When", className: "whitespace-nowrap text-xs text-muted-foreground", cell: (r) => formatDate(r.createdAt, "MMM d, HH:mm") },
-    { key: "user", header: "User", cell: (r) => `${r.user.firstName} ${r.user.lastName}` },
-    { key: "action", header: "Action", cell: (r) => <Badge variant="outline">{r.action}</Badge> },
-    { key: "entity", header: "Entity", cell: (r) => <span className="font-medium">{r.entityType}</span> },
-    { key: "entityId", header: "ID", className: "font-mono text-xs", cell: (r) => r.entityId ?? "—" },
-    { key: "changes", header: "Changes", className: "max-w-xs", cell: (r) => <span className="text-muted-foreground line-clamp-1 text-xs">{r.changes ?? "—"}</span> },
+    { key: "time", header: t("admin.settings.auditLogs.when"), className: "whitespace-nowrap text-xs text-muted-foreground", cell: (r) => formatDate(r.createdAt, "MMM d, HH:mm", locale) },
+    { key: "user", header: t("admin.settings.auditLogs.user"), cell: (r) => `${r.user.firstName} ${r.user.lastName}` },
+    { key: "action", header: t("admin.settings.auditLogs.action"), cell: (r) => <Badge variant="outline">{label("actions", r.action)}</Badge> },
+    { key: "entity", header: t("admin.settings.auditLogs.entity"), cell: (r) => <span className="font-medium">{label("entities", r.entityType)}</span> },
+    { key: "entityId", header: t("admin.settings.auditLogs.id"), className: "font-mono text-xs", cell: (r) => r.entityId ?? "—" },
+    { key: "changes", header: t("admin.settings.auditLogs.changes"), className: "max-w-xs", cell: (r) => <span className="text-muted-foreground line-clamp-1 text-xs">{r.changes ?? "—"}</span> },
   ]
 
   return (
     <>
-      <PageHeader title="Audit logs" description="Every create / update / delete / export by internal users." />
+      <PageHeader title={t("admin.settings.auditLogs.title")} description={t("admin.settings.auditLogs.description")} />
       <div className="space-y-4">
         <DataTableToolbar
-          searchPlaceholder="Search entity / id…"
+          searchPlaceholder={t("admin.settings.auditLogs.searchPlaceholder")}
           filters={[
-            { key: "action", label: "Action", options: [...Object.values(AUDIT_ACTIONS), "RunReminders"].map((a) => ({ label: a, value: a })) },
-            { key: "entity", label: "Entity", options: ENTITY_TYPES.map((e) => ({ label: e, value: e })) },
+            { key: "action", label: t("admin.settings.auditLogs.action"), options: [...Object.values(AUDIT_ACTIONS), "RunReminders"].map((a) => ({ label: label("actions", a), value: a })) },
+            { key: "entity", label: t("admin.settings.auditLogs.entity"), options: ENTITY_TYPES.map((e) => ({ label: label("entities", e), value: e })) },
           ]}
         />
-        <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} page={page} pageCount={Math.ceil(total / pageSize)} total={total} searchParams={raw} emptyMessage="No audit entries match your filters." />
+        <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} page={page} pageCount={Math.ceil(total / pageSize)} total={total} searchParams={raw} emptyMessage={t("admin.settings.auditLogs.empty")} />
       </div>
     </>
   )

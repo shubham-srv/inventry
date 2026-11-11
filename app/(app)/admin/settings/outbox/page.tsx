@@ -6,7 +6,7 @@ import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { parseListParams } from "@/lib/query"
 import { NOTIFICATION_TYPES, NOTIFICATION_STATUSES } from "@/lib/constants"
-import { getT } from "@/lib/i18n/server"
+import { getLocale, getT } from "@/lib/i18n/server"
 import { PageHeader } from "@/components/page-header"
 import { Pager } from "@/components/pager"
 import { EmailPreview } from "@/components/email-preview"
@@ -22,6 +22,7 @@ export default async function OutboxPage({
 }) {
   await requireCapability(CAPABILITIES.ACCESS_SETTINGS)
   const t = await getT()
+  const locale = await getLocale()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 20 })
 
   const and: Prisma.NotificationLogWhereInput[] = []
@@ -43,24 +44,31 @@ export default async function OutboxPage({
     prisma.notificationLog.count({ where }),
   ])
 
+  // Unknown types show as stored.
+  const typeLabel = (type: string) => {
+    const key = `admin.settings.outbox.types.${type}`
+    const text = t(key)
+    return text === key ? type : text
+  }
+
   return (
     <>
       <PageHeader
-        title="Outbox"
-        description="Every email the app has queued or sent. Emails are sent in the background, a few at a time."
+        title={t("nav.outbox")}
+        description={t("admin.settings.outbox.description")}
       />
       <div className="space-y-4">
         <DataTableToolbar
-          searchPlaceholder="Search subject / recipient…"
+          searchPlaceholder={t("admin.settings.outbox.searchPlaceholder")}
           filters={[
-            { key: "type", label: "Type", options: Object.values(NOTIFICATION_TYPES).map((t) => ({ label: t, value: t })) },
-            { key: "status", label: "Status", options: NOTIFICATION_STATUSES.map((s) => ({ label: s, value: s })) },
+            { key: "type", label: t("admin.common.type"), options: Object.values(NOTIFICATION_TYPES).map((nt) => ({ label: typeLabel(nt), value: nt })) },
+            { key: "status", label: t("admin.common.status"), options: NOTIFICATION_STATUSES.map((s) => ({ label: t(`status.${s}`), value: s })) },
           ]}
         />
 
         <div className="grid gap-3">
           {messages.length === 0 && (
-            <Card><CardContent className="text-muted-foreground p-6 text-sm">No emails yet.</CardContent></Card>
+            <Card><CardContent className="text-muted-foreground p-6 text-sm">{t("admin.settings.outbox.empty")}</CardContent></Card>
           )}
           {messages.map((m) => (
             <Card key={m.id} className="py-0">
@@ -73,10 +81,10 @@ export default async function OutboxPage({
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{m.subject}</span>
                       <StatusBadge status={m.status} />
-                      <Badge variant="outline" className="text-[10px]">{m.type}</Badge>
+                      <Badge variant="outline" className="text-[10px]">{typeLabel(m.type)}</Badge>
                     </div>
                     <p className="text-muted-foreground mt-0.5 text-xs">
-                      To: {m.toEmail}
+                      {t("admin.settings.outbox.to", { email: m.toEmail })}
                       {m.grower && ` · ${m.grower.growerName}`}
                       {m.vendor && ` · ${m.vendor.vendorName}`}
                     </p>
@@ -95,18 +103,18 @@ export default async function OutboxPage({
                         trying. Without this a "Failed" badge is a dead end. */}
                     {m.lastError && (
                       <p className="text-destructive mt-1.5 text-xs">
-                        {m.attempts > 0 && `Attempt ${m.attempts}: `}
+                        {m.attempts > 0 && t("admin.settings.outbox.attempt", { count: m.attempts })}
                         {m.lastError}
                       </p>
                     )}
                     {!m.lastError && m.nextAttemptAt && (
                       <p className="text-muted-foreground mt-1.5 text-xs">
-                        Retrying {formatDate(m.nextAttemptAt, "MMM d, HH:mm")}
+                        {t("admin.settings.outbox.retrying", { date: formatDate(m.nextAttemptAt, "MMM d, HH:mm", locale) })}
                       </p>
                     )}
                   </div>
                   <span className="text-muted-foreground shrink-0 text-xs">
-                    {formatDate(m.createdAt, "MMM d, HH:mm")}
+                    {formatDate(m.createdAt, "MMM d, HH:mm", locale)}
                   </span>
                 </div>
               </CardContent>

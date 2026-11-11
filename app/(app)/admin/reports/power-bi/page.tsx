@@ -1,6 +1,8 @@
 import { BarChart3, ExternalLink, LogIn, ShieldAlert } from "lucide-react"
 import { prisma } from "@/lib/db"
 import { requireCapability } from "@/lib/auth/session"
+import { getT } from "@/lib/i18n/server"
+import type { TFunction } from "@/lib/i18n/translate"
 import { CAPABILITIES } from "@/lib/rbac"
 import { getPowerBiToken, reportIdFromEmbedUrl, type PowerBiTokenError } from "@/lib/powerbi/token"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -35,6 +37,7 @@ import { PowerBiReport } from "@/components/reports/power-bi-report"
  */
 export default async function PowerBiReportsPage() {
   const user = await requireCapability(CAPABILITIES.VIEW_REPORTS)
+  const t = await getT()
 
   const reports = await prisma.powerBiReport.findMany({
     where: { isActive: true },
@@ -50,13 +53,13 @@ export default async function PowerBiReportsPage() {
 
   return (
     <>
-      {token?.ok === false && <TokenProblem reason={token.reason} />}
+      {token?.ok === false && <TokenProblem reason={token.reason} t={t} />}
 
       {unconfigured > 0 && (
         <Alert className="mb-4">
           <BarChart3 className="size-4" />
           <AlertTitle>
-            {unconfigured} of {reports.length} reports are not available yet
+            {t("admin.reports.powerBi.notAvailableCount", { count: unconfigured, total: reports.length })}
           </AlertTitle>
         </Alert>
       )}
@@ -83,7 +86,7 @@ export default async function PowerBiReportsPage() {
                       target="_blank"
                       rel="noreferrer"
                     >
-                      open <ExternalLink className="inline size-3" aria-hidden />
+                      {t("admin.reports.powerBi.open")} <ExternalLink className="inline size-3" aria-hidden />
                     </a>
                   )}
                 </CardTitle>
@@ -97,11 +100,9 @@ export default async function PowerBiReportsPage() {
                     accessToken={token.token}
                   />
                 ) : kind === "secure" && src && !reportId ? (
-                  <Unavailable>
-                    This report can&rsquo;t be shown right now. Please contact your administrator.
-                  </Unavailable>
+                  <Unavailable>{t("admin.reports.powerBi.cantShow")}</Unavailable>
                 ) : kind === "secure" ? (
-                  <Unavailable>Sign in with Microsoft to view this report.</Unavailable>
+                  <Unavailable>{t("admin.reports.powerBi.signInToView")}</Unavailable>
                 ) : (
                   // Publish-to-web, or not configured — both handled by the iframe
                   // component, which falls back to a placeholder card.
@@ -113,9 +114,7 @@ export default async function PowerBiReportsPage() {
         })}
 
         {reports.length === 0 && (
-          <p className="text-muted-foreground text-sm">
-            No reports are available yet.
-          </p>
+          <p className="text-muted-foreground text-sm">{t("admin.reports.powerBi.none")}</p>
         )}
       </div>
     </>
@@ -134,34 +133,18 @@ function Unavailable({ children }: { children: React.ReactNode }) {
  * Each failure has a different fix and a different person who can apply it, so
  * they are worth telling apart rather than collapsing into "something failed".
  */
-function TokenProblem({ reason }: { reason: PowerBiTokenError }) {
-  const copy: Record<PowerBiTokenError, { title: string; body: React.ReactNode; signIn?: boolean }> =
-    {
-      // Plain wording only; the setup details live in docs/azure-staging-setup.md §10d.
-      "entra-not-configured": {
-        title: "Some reports are not available",
-        body: "Microsoft sign-in is not set up here, so secured reports cannot load. Please contact your administrator.",
-      },
-      "cache-not-configured": {
-        title: "Some reports are not available",
-        body: "Secured reports are not set up yet. Please contact your administrator.",
-      },
-      "no-session": {
-        title: "Sign in with Microsoft to view these reports",
-        body: "You signed in without Microsoft, so secured reports cannot load.",
-        signIn: true,
-      },
-      "consent-required": {
-        title: "Power BI access has not been approved yet",
-        body: "Your administrator needs to approve this app's access to Power BI.",
-      },
-      failed: {
-        title: "Could not reach Power BI",
-        body: "The reports below could not be loaded. Please try again later, or contact your administrator if this continues.",
-      },
-    }
-
-  const { title, body, signIn } = copy[reason]
+function TokenProblem({ reason, t }: { reason: PowerBiTokenError; t: TFunction }) {
+  // Plain wording only; the setup details live in docs/azure-staging-setup.md §10d.
+  const key: Record<PowerBiTokenError, string> = {
+    "entra-not-configured": "entraNotConfigured",
+    "cache-not-configured": "cacheNotConfigured",
+    "no-session": "noSession",
+    "consent-required": "consentRequired",
+    failed: "failed",
+  }
+  const signIn = reason === "no-session"
+  const title = t(`admin.reports.powerBi.problems.${key[reason]}.title`)
+  const body = t(`admin.reports.powerBi.problems.${key[reason]}.body`)
 
   return (
     <Alert variant="destructive" className="mb-4">
@@ -172,7 +155,7 @@ function TokenProblem({ reason }: { reason: PowerBiTokenError }) {
         {signIn && (
           <Button asChild size="sm" variant="outline">
             <a href="/api/auth/login?returnTo=/admin/reports/power-bi">
-              <LogIn /> Sign in with Microsoft
+              <LogIn /> {t("admin.reports.powerBi.signInMicrosoft")}
             </a>
           </Button>
         )}

@@ -2,6 +2,7 @@ import { formatDate } from "@/lib/dates"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { NotesCell } from "@/components/data-table/notes-cell"
+import { getLocale, getT } from "@/lib/i18n/server"
 import {
   getGrowerStockDetail,
   type InventorySnapshotRow,
@@ -13,13 +14,6 @@ export const STOCK_STATUS_TONE: Record<InventorySnapshotRow["state"], string> = 
   Zero: "border-transparent bg-red-500/15 text-red-700 dark:text-red-400",
   Low: "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400",
   OK: "border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-}
-
-export const STOCK_STATUS_LABEL: Record<InventorySnapshotRow["state"], string> = {
-  Uncounted: "Uncounted",
-  Zero: "Zero",
-  Low: "Below threshold",
-  OK: "OK",
 }
 
 /**
@@ -34,9 +28,11 @@ export async function GrowerStockDetail({
   growerId: number
   filters: SnapshotFilters
 }) {
+  const t = await getT()
+  const locale = await getLocale()
   const { locations, rows } = await getGrowerStockDetail(growerId, filters)
   if (rows.length === 0)
-    return <p className="text-muted-foreground px-1 text-sm">No items match these filters.</p>
+    return <p className="text-muted-foreground px-1 text-sm">{t("admin.reports.noItemsMatch")}</p>
 
   const dash = <span className="text-muted-foreground">—</span>
 
@@ -45,25 +41,29 @@ export async function GrowerStockDetail({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Item</TableHead>
-            <TableHead>Legacy ID</TableHead>
-            <TableHead>Category</TableHead>
+            <TableHead>{t("admin.common.item")}</TableHead>
+            <TableHead>{t("admin.reports.legacyId")}</TableHead>
+            <TableHead>{t("admin.common.category")}</TableHead>
             {locations.map((l) => (
               <TableHead key={l.locationId} className="text-right">
                 <div className="leading-tight">
                   {l.locationName}
                   <p className="text-muted-foreground text-[10px] font-normal">
-                    {l.lastSubmittedAt ? `last ${formatDate(l.lastSubmittedAt, "MMM d HH:mm")}` : "never submitted"}
+                    {l.lastSubmittedAt
+                      ? t("admin.reports.growerStock.lastLocation", {
+                          date: formatDate(l.lastSubmittedAt, "MMM d HH:mm", locale),
+                        })
+                      : t("admin.reports.growerStock.neverSubmitted")}
                   </p>
                 </div>
               </TableHead>
             ))}
-            <TableHead className="text-right">On hand</TableHead>
-            <TableHead className="text-right">On order</TableHead>
-            <TableHead>Threshold</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Last counted</TableHead>
-            <TableHead>Notes</TableHead>
+            <TableHead className="text-right">{t("admin.reports.onHand")}</TableHead>
+            <TableHead className="text-right">{t("admin.reports.onOrder")}</TableHead>
+            <TableHead>{t("admin.reports.threshold")}</TableHead>
+            <TableHead>{t("admin.common.status")}</TableHead>
+            <TableHead>{t("admin.reports.lastCounted")}</TableHead>
+            <TableHead>{t("admin.common.notes")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -87,7 +87,7 @@ export async function GrowerStockDetail({
                 )
               })}
               <TableCell className="text-right font-medium tabular-nums">
-                {r.onHand == null ? <span className="text-muted-foreground text-xs">Never counted</span> : `${r.onHand} ${r.categoryName ?? ""}`}
+                {r.onHand == null ? <span className="text-muted-foreground text-xs">{t("admin.reports.growerStock.neverCounted")}</span> : `${r.onHand} ${r.categoryName ?? ""}`}
               </TableCell>
               <TableCell className="text-right tabular-nums">{r.onOrder > 0 ? r.onOrder : dash}</TableCell>
               <TableCell className="text-xs tabular-nums">
@@ -97,18 +97,20 @@ export async function GrowerStockDetail({
                   <span className="flex items-center gap-1.5 whitespace-nowrap">
                     {r.threshold}
                     <Badge variant={r.thresholdScope === "Grower" ? "secondary" : "outline"}>
-                      {r.thresholdScope === "Grower" ? "Override" : "Global"}
+                      {r.thresholdScope === "Grower"
+                        ? t("admin.reports.growerStock.override")
+                        : t("admin.reports.growerStock.global")}
                     </Badge>
                   </span>
                 )}
               </TableCell>
               <TableCell>
                 <Badge variant="outline" className={`whitespace-nowrap ${STOCK_STATUS_TONE[r.state]}`}>
-                  {STOCK_STATUS_LABEL[r.state]}
+                  {t(`admin.reports.stock.${r.state}`)}
                 </Badge>
               </TableCell>
               <TableCell className="text-muted-foreground text-xs whitespace-nowrap">
-                {r.asOf ? formatDate(r.asOf, "MMM d") : "—"}
+                {r.asOf ? formatDate(r.asOf, "MMM d", locale) : "—"}
               </TableCell>
               <TableCell>
                 <NotesCell notes={r.notes} />

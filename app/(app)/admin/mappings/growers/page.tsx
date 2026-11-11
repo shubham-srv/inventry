@@ -5,6 +5,7 @@ import { requireCapability } from "@/lib/auth/session"
 import { CAPABILITIES } from "@/lib/rbac"
 import { authorizationsWhere } from "@/lib/admin/queries"
 import { parseListParams } from "@/lib/query"
+import { getT } from "@/lib/i18n/server"
 import {
   setGrowerAuthorizations,
   setAuthorizationActive,
@@ -32,6 +33,7 @@ export default async function GrowerAuthorizationsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.MANAGE_GROWERS_VENDORS)
+  const t = await getT()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 15 })
   const where = authorizationsWhere(raw)
   const [rows, total, growers, items, allAuths] = await Promise.all([
@@ -56,12 +58,12 @@ export default async function GrowerAuthorizationsPage({
   for (const a of allAuths) (mappedByGrower[String(a.growerId)] ??= []).push(a.itemId)
 
   const fields: Field[] = [
-    { name: "growerId", label: "Grower", type: "select", required: true, placeholder: "Select grower", options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })), colSpan: 2 },
+    { name: "growerId", label: t("admin.common.grower"), type: "select", required: true, placeholder: t("admin.mappings.selectGrower"), options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })), colSpan: 2 },
     {
       name: "itemIds",
-      label: "Items",
+      label: t("admin.common.items"),
       type: "multiselect",
-      placeholder: "Select one or more items",
+      placeholder: t("admin.mappings.selectItems"),
       // Picking a grower ticks what it already has, so this dialog edits the
       // whole set. Options are NOT filtered by grower — the point is to see
       // everything and add to it — hence `presetFrom` without tagged parents.
@@ -69,16 +71,15 @@ export default async function GrowerAuthorizationsPage({
       presetFrom: mappedByGrower,
       options: items.map((i) => ({ label: `${i.id} — ${i.itemName}`, value: i.id })),
       colSpan: 2,
-      description:
-        "Ticked items are the grower's current authorizations. Unticking one deactivates it (kept for history); the row list still shows it as Inactive.",
+      description: t("admin.mappings.growerItemsDescription"),
     },
   ]
 
   const columns: Column<Row>[] = [
-    { key: "grower", header: "Grower", cell: (r) => <span className="font-medium">{r.grower.growerName}</span> },
-    { key: "itemId", header: "Item ID", className: "font-mono text-xs", cell: (r) => r.itemId },
-    { key: "itemName", header: "Item", cell: (r) => r.item.itemName },
-    { key: "active", header: "Status", cell: (r) => <StatusBadge status={r.isActive ? "Active" : "Inactive"} /> },
+    { key: "grower", header: t("admin.common.grower"), cell: (r) => <span className="font-medium">{r.grower.growerName}</span> },
+    { key: "itemId", header: t("admin.mappings.itemId"), className: "font-mono text-xs", cell: (r) => r.itemId },
+    { key: "itemName", header: t("admin.common.item"), cell: (r) => r.item.itemName },
+    { key: "active", header: t("admin.common.status"), cell: (r) => <StatusBadge status={r.isActive ? "Active" : "Inactive"} /> },
     {
       key: "actions",
       header: "",
@@ -87,9 +88,9 @@ export default async function GrowerAuthorizationsPage({
       cell: (r) => (
         <div className="flex justify-end gap-1">
           <ActionButton action={setAuthorizationActive.bind(null, r.id, !r.isActive)}>
-            {r.isActive ? <><ShieldX className="size-4" /> Deactivate</> : <><ShieldCheck className="size-4" /> Activate</>}
+            {r.isActive ? <><ShieldX className="size-4" /> {t("admin.mappings.deactivate")}</> : <><ShieldCheck className="size-4" /> {t("admin.mappings.activate")}</>}
           </ActionButton>
-          <ConfirmButton title="Remove authorization" description={`Remove ${r.itemId} from ${r.grower.growerName}?`} confirmLabel="Remove" typeToConfirm action={deleteAuthorization.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label="Remove"><Trash2 /></Button>} />
+          <ConfirmButton title={t("admin.mappings.removeAuthorization")} description={t("admin.mappings.removeAuthorizationConfirm", { item: r.itemId, name: r.grower.growerName })} confirmLabel={t("admin.mappings.remove")} typeToConfirm action={deleteAuthorization.bind(null, r.id)} trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.mappings.remove")}><Trash2 /></Button>} />
         </div>
       ),
     },
@@ -98,14 +99,14 @@ export default async function GrowerAuthorizationsPage({
   return (
     <div className="space-y-4">
       <DataTableToolbar
-        searchPlaceholder="Search item id / name…"
+        searchPlaceholder={t("admin.mappings.searchItem")}
         exportEntity="authorizations"
         filters={[
-          { key: "grower", label: "Grower", options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })) },
-          { key: "status", label: "Status", options: [{ label: "Active", value: "active" }, { label: "Inactive", value: "inactive" }] },
+          { key: "grower", label: t("admin.common.grower"), options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })) },
+          { key: "status", label: t("admin.common.status"), options: [{ label: t("admin.common.active"), value: "active" }, { label: t("admin.common.inactive"), value: "inactive" }] },
         ]}
       >
-        <EntityFormDialog title="Edit grower authorizations" description="Pick a grower to load what it can access today, then adjust." fields={fields} action={setGrowerAuthorizations} submitLabel="Save authorizations" trigger={<Button size="sm"><Plus className="size-4" /> Authorize items</Button>} />
+        <EntityFormDialog title={t("admin.mappings.growerDialogTitle")} description={t("admin.mappings.growerDialogDescription")} fields={fields} action={setGrowerAuthorizations} submitLabel={t("admin.mappings.saveAuthorizations")} trigger={<Button size="sm"><Plus className="size-4" /> {t("admin.mappings.authorizeItems")}</Button>} />
       </DataTableToolbar>
       <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} page={page} pageCount={Math.ceil(total / pageSize)} total={total} searchParams={raw} />
     </div>

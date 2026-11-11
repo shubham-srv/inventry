@@ -8,11 +8,8 @@ import { CAPABILITIES } from "@/lib/rbac"
 import { parseListParams } from "@/lib/query"
 import {
   ITEM_MESSAGE_TYPES,
-  ITEM_MESSAGE_TYPE_LABELS,
   ITEM_MESSAGE_SEVERITIES,
   ITEM_MESSAGE_RECIPIENTS,
-  ITEM_MESSAGE_RECIPIENT_LABELS,
-  type ItemMessageRecipients,
 } from "@/lib/constants"
 import { createItemMessage, updateItemMessage, deleteItemMessage } from "@/lib/actions/item-messages"
 import { PageHeader } from "@/components/page-header"
@@ -22,6 +19,7 @@ import { DataTable, type Column } from "@/components/data-table/data-table"
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
 import { EntityFormDialog, type Field } from "@/components/crud/entity-form-dialog"
 import { ConfirmButton } from "@/components/crud/confirm-button"
+import { getLocale, getT } from "@/lib/i18n/server"
 
 type Row = {
   id: number
@@ -55,6 +53,8 @@ export default async function AdminItemMessagesPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.MANAGE_GROWERS_VENDORS)
+  const t = await getT()
+  const locale = await getLocale()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
 
   const and: Prisma.ItemMessageWhereInput[] = []
@@ -101,21 +101,28 @@ export default async function AdminItemMessagesPage({
 
   const growerName = new Map(growers.map((g) => [g.id, g.growerName]))
   const vendorName = new Map(vendors.map((v) => [v.id, v.vendorName]))
-  const recipientLabel = (r: string) => ITEM_MESSAGE_RECIPIENT_LABELS[r as ItemMessageRecipients] ?? r
+  // Unknown values show as stored.
+  const label = (key: string, fallback: string) => {
+    const v = t(key)
+    return v === key ? fallback : v
+  }
+  const recipientLabel = (r: string) => label(`admin.itemMessages.recipient.${r}`, r)
+  const typeLabel = (v: string) => label(`itemMessage.type.${v}`, v)
+  const severityLabel = (s: string) => label(`admin.itemMessages.severity.${s}`, cap(s))
 
   const fields: Field[] = [
-    { name: "itemId", label: "Item", type: "select", required: true, colSpan: 2, placeholder: "Select item", options: items.map((i) => ({ label: `${i.id} — ${i.itemName}`, value: i.id })) },
-    { name: "type", label: "Type", type: "select", required: true, options: ITEM_MESSAGE_TYPES.map((t) => ({ label: ITEM_MESSAGE_TYPE_LABELS[t], value: t })) },
-    { name: "severity", label: "Severity", type: "select", required: true, options: ITEM_MESSAGE_SEVERITIES.map((s) => ({ label: cap(s), value: s })) },
-    { name: "recipients", label: "Show to", type: "select", required: true, options: ITEM_MESSAGE_RECIPIENTS.map((r) => ({ label: recipientLabel(r), value: r })) },
-    { name: "audience", label: "Audience", type: "select", required: true, options: [{ label: "Everyone (all mapped to the item)", value: "All" }, { label: "Only selected", value: "Selected" }] },
+    { name: "itemId", label: t("admin.common.item"), type: "select", required: true, colSpan: 2, placeholder: t("admin.itemMessages.selectItem"), options: items.map((i) => ({ label: `${i.id} — ${i.itemName}`, value: i.id })) },
+    { name: "type", label: t("admin.common.type"), type: "select", required: true, options: ITEM_MESSAGE_TYPES.map((v) => ({ label: typeLabel(v), value: v })) },
+    { name: "severity", label: t("admin.itemMessages.severityLabel"), type: "select", required: true, options: ITEM_MESSAGE_SEVERITIES.map((s) => ({ label: severityLabel(s), value: s })) },
+    { name: "recipients", label: t("admin.itemMessages.showTo"), type: "select", required: true, options: ITEM_MESSAGE_RECIPIENTS.map((r) => ({ label: recipientLabel(r), value: r })) },
+    { name: "audience", label: t("admin.itemMessages.audience"), type: "select", required: true, options: [{ label: t("admin.itemMessages.audienceAll"), value: "All" }, { label: t("admin.itemMessages.audienceSelected"), value: "Selected" }] },
     {
       name: "growerIds",
-      label: "Growers",
+      label: t("nav.growers"),
       type: "multiselect",
       showWhen: { audience: ["Selected"], recipients: ["Growers", "Both"] },
       colSpan: 2,
-      placeholder: "Select growers",
+      placeholder: t("admin.itemMessages.selectGrowers"),
       // One option per (item, grower) authorization; the dialog filters by the
       // chosen item and collapses the duplicate grower values that leaves.
       dependsOn: "itemId",
@@ -124,43 +131,41 @@ export default async function AdminItemMessagesPage({
         value: String(a.growerId),
         parent: a.itemId,
       })),
-      description:
-        "Only growers authorized for the selected item. Others would never see the message.",
+      description: t("admin.itemMessages.growersHint"),
     },
     {
       name: "vendorIds",
-      label: "Vendors",
+      label: t("nav.vendors"),
       type: "multiselect",
       showWhen: { audience: ["Selected"], recipients: ["Vendors", "Both"] },
       colSpan: 2,
-      placeholder: "Select vendors",
+      placeholder: t("admin.itemMessages.selectVendors"),
       dependsOn: "itemId",
       options: itemVendors.map((m) => ({
         label: vendorName.get(m.vendorId) ?? String(m.vendorId),
         value: String(m.vendorId),
         parent: m.itemId,
       })),
-      description: "Only vendors mapped to the selected item. Others would never see the message.",
+      description: t("admin.itemMessages.vendorsHint"),
     },
-    { name: "body", label: "Note (optional — shown as typed)", type: "textarea", colSpan: 2 },
+    { name: "body", label: t("admin.itemMessages.note"), type: "textarea", colSpan: 2 },
     {
       name: "bodyEs",
-      label: "Spanish note",
+      label: t("admin.itemMessages.spanishNote"),
       type: "textarea",
       colSpan: 2,
       translationOf: "body",
-      description:
-        "Leave blank to machine-translate the note on save; changing the English note re-translates it. Anything typed here is used as-is and marked reviewed. Spanish-language growers and vendors see this instead of the English note.",
+      description: t("admin.itemMessages.spanishNoteHint"),
     },
-    { name: "startsAt", label: "Starts (optional)", type: "date" },
-    { name: "endsAt", label: "Ends (optional)", type: "date" },
-    { name: "isActive", label: "State", type: "select", required: true, options: [{ label: "Active", value: "true" }, { label: "Disabled", value: "false" }] },
+    { name: "startsAt", label: t("admin.itemMessages.starts"), type: "date" },
+    { name: "endsAt", label: t("admin.itemMessages.ends"), type: "date" },
+    { name: "isActive", label: t("admin.itemMessages.state"), type: "select", required: true, options: [{ label: t("admin.common.active"), value: "true" }, { label: t("admin.itemMessages.disabled"), value: "false" }] },
   ]
 
   const columns: Column<Row>[] = [
     {
       key: "item",
-      header: "Item",
+      header: t("admin.common.item"),
       cell: (r) => (
         <div>
           <span className="font-medium">{r.item.itemName}</span>
@@ -168,13 +173,13 @@ export default async function AdminItemMessagesPage({
         </div>
       ),
     },
-    { key: "type", header: "Type", cell: (r) => ITEM_MESSAGE_TYPE_LABELS[r.type as keyof typeof ITEM_MESSAGE_TYPE_LABELS] ?? r.type },
+    { key: "type", header: t("admin.common.type"), cell: (r) => typeLabel(r.type) },
     {
       key: "severity",
-      header: "Severity",
+      header: t("admin.itemMessages.severityLabel"),
       cell: (r) => (
         <Badge variant="outline" className={`border-transparent ${SEVERITY_STYLES[r.severity] ?? ""}`}>
-          {cap(r.severity)}
+          {severityLabel(r.severity)}
         </Badge>
       ),
     },
@@ -188,55 +193,55 @@ export default async function AdminItemMessagesPage({
         if (!es)
           return (
             <Badge variant="outline" className="border-transparent bg-red-500/15 text-red-700 dark:text-red-400">
-              Missing
+              {t("admin.itemMessages.translationMissing")}
             </Badge>
           )
         // Raw machine output nobody has checked. These notes drive behaviour
         // ("clear inventory"), so an unverified translation is worth flagging.
         return es.isMachine ? (
           <Badge variant="outline" className="border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400">
-            <Languages className="mr-1 size-3" /> Auto
+            <Languages className="mr-1 size-3" /> {t("admin.itemMessages.translationAuto")}
           </Badge>
         ) : (
-          <Badge variant="secondary">Reviewed</Badge>
+          <Badge variant="secondary">{t("admin.itemMessages.translationReviewed")}</Badge>
         )
       },
     },
     {
       key: "audience",
-      header: "Audience",
+      header: t("admin.itemMessages.audience"),
       className: "text-xs",
       cell: (r) => {
         if (r.audience === "All")
-          return r.recipients === "Vendors" ? "All vendors" : r.recipients === "Both" ? "All growers & vendors" : "All growers"
+          return r.recipients === "Vendors" ? t("admin.itemMessages.allVendors") : r.recipients === "Both" ? t("admin.itemMessages.allGrowersVendors") : t("admin.itemMessages.allGrowers")
         const names = [
           ...r.targets.map((t) => growerName.get(t.growerId) ?? String(t.growerId)),
           ...r.vendorTargets.map((t) => vendorName.get(t.vendorId) ?? String(t.vendorId)),
         ]
         return (
           <div>
-            <span className="text-muted-foreground">{recipientLabel(r.recipients)}:</span> {names.join(", ") || "— none —"}
+            <span className="text-muted-foreground">{recipientLabel(r.recipients)}:</span> {names.join(", ") || t("admin.itemMessages.noneSelected")}
           </div>
         )
       },
     },
     {
       key: "window",
-      header: "Window",
+      header: t("admin.itemMessages.window"),
       className: "text-muted-foreground whitespace-nowrap text-xs",
       cell: (r) =>
         r.startsAt || r.endsAt
-          ? `${r.startsAt ? formatDate(r.startsAt, "MMM d") : "…"} – ${r.endsAt ? formatDate(r.endsAt, "MMM d") : "…"}`
-          : "Always",
+          ? `${r.startsAt ? formatDate(r.startsAt, "MMM d", locale) : "…"} – ${r.endsAt ? formatDate(r.endsAt, "MMM d", locale) : "…"}`
+          : t("admin.itemMessages.always"),
     },
     {
       key: "state",
-      header: "State",
+      header: t("admin.itemMessages.state"),
       cell: (r) =>
         r.isActive ? (
-          <Badge variant="outline" className="border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">Active</Badge>
+          <Badge variant="outline" className="border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">{t("admin.common.active")}</Badge>
         ) : (
-          <Badge variant="outline" className="text-muted-foreground">Disabled</Badge>
+          <Badge variant="outline" className="text-muted-foreground">{t("admin.itemMessages.disabled")}</Badge>
         ),
     },
     {
@@ -247,7 +252,7 @@ export default async function AdminItemMessagesPage({
       cell: (r) => (
         <div className="flex justify-end gap-1">
           <EntityFormDialog
-            title="Edit item message"
+            title={t("admin.itemMessages.editTitle")}
             description={`${r.item.itemName} — ${r.itemId}`}
             fields={fields}
             action={updateItemMessage}
@@ -266,15 +271,15 @@ export default async function AdminItemMessagesPage({
               endsAt: toDateInput(r.endsAt),
               isActive: String(r.isActive),
             }}
-            submitLabel="Save changes"
-            trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>}
+            submitLabel={t("admin.common.saveChanges")}
+            trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.common.edit")}><Pencil /></Button>}
           />
           <ConfirmButton
-            title="Delete item message"
-            description={`Delete this ${ITEM_MESSAGE_TYPE_LABELS[r.type as keyof typeof ITEM_MESSAGE_TYPE_LABELS] ?? r.type} message for ${r.item.itemName}?`}
-            confirmLabel="Delete" typeToConfirm
+            title={t("admin.itemMessages.deleteTitle")}
+            description={t("admin.itemMessages.deleteDesc", { type: typeLabel(r.type), item: r.item.itemName })}
+            confirmLabel={t("admin.common.delete")} typeToConfirm
             action={deleteItemMessage.bind(null, r.id)}
-            trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>}
+            trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.common.delete")}><Trash2 /></Button>}
           />
         </div>
       ),
@@ -283,23 +288,23 @@ export default async function AdminItemMessagesPage({
 
   return (
     <>
-      <PageHeader title="Item messages" description="Notices shown under a specific item to growers, vendors or both — everyone mapped to the item, or a selected few." />
+      <PageHeader title={t("admin.itemMessages.title")} description={t("admin.itemMessages.description")} />
       <div className="space-y-4">
         <DataTableToolbar
-          searchPlaceholder="Search item or note…"
+          searchPlaceholder={t("admin.itemMessages.searchPlaceholder")}
           filters={[
-            { key: "type", label: "Type", options: ITEM_MESSAGE_TYPES.map((t) => ({ label: ITEM_MESSAGE_TYPE_LABELS[t], value: t })) },
-            { key: "recipients", label: "Show to", options: ITEM_MESSAGE_RECIPIENTS.map((r) => ({ label: recipientLabel(r), value: r })) },
-            { key: "state", label: "State", options: [{ label: "Active", value: "active" }, { label: "Disabled", value: "disabled" }] },
+            { key: "type", label: t("admin.common.type"), options: ITEM_MESSAGE_TYPES.map((v) => ({ label: typeLabel(v), value: v })) },
+            { key: "recipients", label: t("admin.itemMessages.showTo"), options: ITEM_MESSAGE_RECIPIENTS.map((r) => ({ label: recipientLabel(r), value: r })) },
+            { key: "state", label: t("admin.itemMessages.state"), options: [{ label: t("admin.common.active"), value: "active" }, { label: t("admin.itemMessages.disabled"), value: "disabled" }] },
           ]}
         >
           <EntityFormDialog
-            title="New item message"
+            title={t("admin.itemMessages.newTitle")}
             fields={fields}
             action={createItemMessage}
             values={{ type: "Info", severity: "info", recipients: "Growers", audience: "All", isActive: "true", itemId: "", growerIds: "", vendorIds: "", body: "", bodyEs: "", startsAt: "", endsAt: "" }}
-            submitLabel="Create"
-            trigger={<Button size="sm"><Plus className="size-4" /> Add message</Button>}
+            submitLabel={t("admin.common.create")}
+            trigger={<Button size="sm"><Plus className="size-4" /> {t("admin.itemMessages.addMessage")}</Button>}
           />
         </DataTableToolbar>
         <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} page={page} pageCount={Math.ceil(total / pageSize)} total={total} searchParams={raw} />

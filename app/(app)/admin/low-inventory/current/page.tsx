@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
+import { getLocale, getT } from "@/lib/i18n/server"
 
 export default async function CurrentlyLowPage({
   searchParams,
@@ -16,6 +17,8 @@ export default async function CurrentlyLowPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.MANAGE_GROWERS_VENDORS)
+  const t = await getT()
+  const locale = await getLocale()
   const { raw } = parseListParams(await searchParams)
 
   const [rows, growers] = await Promise.all([
@@ -29,7 +32,7 @@ export default async function CurrentlyLowPage({
   const columns: Column<CurrentlyLowRow>[] = [
     {
       key: "item",
-      header: "Item",
+      header: t("admin.common.item"),
       cell: (r) => (
         <div>
           <span className="font-medium">{r.itemName}</span>
@@ -37,10 +40,10 @@ export default async function CurrentlyLowPage({
         </div>
       ),
     },
-    { key: "grower", header: "Grower", cell: (r) => r.growerName },
+    { key: "grower", header: t("admin.common.grower"), cell: (r) => r.growerName },
     {
       key: "level",
-      header: "On hand vs threshold",
+      header: t("admin.lowInventory.onHandVsThreshold"),
       cell: (r) => {
         const pct = r.threshold > 0 ? Math.min(100, (r.onHand / r.threshold) * 100) : 0
         return (
@@ -58,20 +61,20 @@ export default async function CurrentlyLowPage({
     },
     {
       key: "scope",
-      header: "Threshold",
+      header: t("admin.lowInventory.threshold"),
       cell: (r) => (
         <Badge variant={r.thresholdScope === "Grower" ? "outline" : "secondary"}>
-          {r.thresholdScope === "Grower" ? "Grower override" : "Global"}
+          {r.thresholdScope === "Grower" ? t("admin.lowInventory.growerOverride") : t("admin.lowInventory.global")}
         </Badge>
       ),
     },
     {
       key: "flagged",
-      header: "Flagged",
+      header: t("admin.lowInventory.flagged"),
       cell: (r) =>
         r.flagged ? (
           <Badge variant="outline" className="border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400">
-            <Flag className="mr-1 size-3" /> Raised
+            <Flag className="mr-1 size-3" /> {t("admin.lowInventory.raised")}
           </Badge>
         ) : (
           <span className="text-muted-foreground text-xs">—</span>
@@ -79,23 +82,21 @@ export default async function CurrentlyLowPage({
     },
     {
       key: "asOf",
-      header: "Last counted",
+      header: t("admin.lowInventory.lastCounted"),
       className: "text-muted-foreground whitespace-nowrap text-xs",
-      cell: (r) => formatDate(r.asOf, "MMM d"),
+      cell: (r) => formatDate(r.asOf, "MMM d", locale),
     },
   ]
 
   return (
     <div className="space-y-4">
       <p className="text-muted-foreground text-sm">
-        Computed live from the latest count per item and location against the effective threshold
-        (a grower override where one exists, otherwise the global one). Nothing here needs
-        clearing — rows leave on their own once the next count comes in above threshold.
+        {t("admin.lowInventory.currentIntro")}
       </p>
       <DataTableToolbar
-        searchPlaceholder="Search item id / name…"
+        searchPlaceholder={t("admin.lowInventory.searchItemIdName")}
         filters={[
-          { key: "grower", label: "Grower", options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })) },
+          { key: "grower", label: t("admin.common.grower"), options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })) },
         ]}
       />
       <DataTable

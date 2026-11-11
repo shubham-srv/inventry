@@ -1286,7 +1286,9 @@ referenced by every count, order and ledger row, and can never be changed afterw
 | `ApplicationMethod` | | list | `Machine`, `Hand`, `Machine/Hand`, `N/A` |
 | `Status` | ✅ | list | `Active`, `Inactive`, `Review` |
 | `LegacyItemRef` | | text | Your own identifier from the previous system. Carried through for reconciliation; not used as a key, but unique when filled (duplicates are rejected) and editable later on the item form |
-| `Notes` | | text | |
+
+There is no `Notes` column: item notes are entered in the app, and the importer never
+changes them. An older workbook with a `Notes` column still imports — the column is ignored.
 
 #### The ItemID format
 

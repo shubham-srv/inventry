@@ -1,4 +1,5 @@
 import { requireCapability } from "@/lib/auth/session"
+import { getT } from "@/lib/i18n/server"
 import { CAPABILITIES } from "@/lib/rbac"
 import { parseListParams } from "@/lib/query"
 import {
@@ -23,13 +24,6 @@ import {
 import { LastSubmittedCell } from "@/components/reports/submission-flag-badge"
 import { GrowerStockDetail } from "@/components/reports/grower-stock-detail"
 
-const STOCK_STATUSES = [
-  { label: "Uncounted", value: "uncounted" },
-  { label: "Zero", value: "zero" },
-  { label: "Below threshold", value: "low" },
-  { label: "OK", value: "ok" },
-]
-
 /**
  * One row per grower — when they last submitted, how overdue that is, and a
  * summary of their stock — opening to that grower's items and per-location
@@ -41,6 +35,7 @@ export default async function GrowerStockPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.VIEW_REPORTS)
+  const t = await getT()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 15 })
   const sort = parsePartnerSort(raw.sort)
 
@@ -65,19 +60,28 @@ export default async function GrowerStockPage({
   const count = (n: number, label: string, tone: string) =>
     n > 0 && (
       <Badge variant="outline" className={`whitespace-nowrap ${tone}`}>
-        {n} {label}
+        {label}
       </Badge>
     )
+
+  const STOCK_STATUSES = [
+    { label: t("admin.reports.stock.Uncounted"), value: "uncounted" },
+    { label: t("admin.reports.stock.Zero"), value: "zero" },
+    { label: t("admin.reports.stock.Low"), value: "low" },
+    { label: t("admin.reports.stock.OK"), value: "ok" },
+  ]
 
   const columns: ReportColumn<GrowerStockSummaryRow>[] = [
     {
       key: "grower",
-      header: <SortHeader label="Grower" searchParams={raw} current={sort} primary="name" defaultSort="stale" />,
+      header: <SortHeader label={t("admin.common.grower")} searchParams={raw} current={sort} primary="name" defaultSort="stale" />,
       cell: (r) => (
         <div>
           <span className="font-medium">{r.growerName}</span>
           <p className="text-muted-foreground text-xs">
-            {r.locations} location{r.locations === 1 ? "" : "s"}
+            {t(r.locations === 1 ? "admin.reports.growerStock.locationOne" : "admin.reports.growerStock.locationOther", {
+              count: r.locations,
+            })}
           </p>
         </div>
       ),
@@ -86,7 +90,7 @@ export default async function GrowerStockPage({
       key: "last",
       header: (
         <SortHeader
-          label="Last submitted"
+          label={t("admin.reports.lastSubmitted")}
           searchParams={raw}
           current={sort}
           primary="stale"
@@ -98,14 +102,14 @@ export default async function GrowerStockPage({
     },
     {
       key: "items",
-      header: "Items",
+      header: t("admin.common.items"),
       cell: (r) => (
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <span className="tabular-nums">{r.items}</span>
-          {count(r.low, "low", "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400")}
-          {count(r.zero, "zero", "border-transparent bg-red-500/15 text-red-700 dark:text-red-400")}
-          {count(r.uncounted, "uncounted", "text-muted-foreground")}
-          {count(r.onOrderItems, "on order", "border-transparent bg-sky-500/15 text-sky-700 dark:text-sky-400")}
+          {count(r.low, t("admin.reports.growerStock.badgeLow", { count: r.low }), "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400")}
+          {count(r.zero, t("admin.reports.growerStock.badgeZero", { count: r.zero }), "border-transparent bg-red-500/15 text-red-700 dark:text-red-400")}
+          {count(r.uncounted, t("admin.reports.growerStock.badgeUncounted", { count: r.uncounted }), "text-muted-foreground")}
+          {count(r.onOrderItems, t("admin.reports.growerStock.badgeOnOrder", { count: r.onOrderItems }), "border-transparent bg-sky-500/15 text-sky-700 dark:text-sky-400")}
         </div>
       ),
     },
@@ -114,15 +118,19 @@ export default async function GrowerStockPage({
   return (
     <div className="space-y-4">
       <DataTableToolbar
-        searchPlaceholder="Search grower / item / legacy ID…"
+        searchPlaceholder={t("admin.reports.growerStock.search")}
         exportEntity="inventory-snapshot"
         filters={[
-          { key: "grower", label: "Grower", options: growers },
-          { key: "flag", label: "Last submitted", options: [...SUBMISSION_FLAG_FILTERS] },
-          { key: "location", label: "Location", options: locations },
-          { key: "commodity", label: "Commodity", options: commodities },
-          { key: "category", label: "Category", options: categories },
-          { key: "stock", label: "Status", options: STOCK_STATUSES },
+          { key: "grower", label: t("admin.common.grower"), options: growers },
+          {
+            key: "flag",
+            label: t("admin.reports.lastSubmitted"),
+            options: SUBMISSION_FLAG_FILTERS.map((f) => ({ ...f, label: t(`admin.reports.flag.${f.value}`) })),
+          },
+          { key: "location", label: t("admin.common.location"), options: locations },
+          { key: "commodity", label: t("admin.common.commodity"), options: commodities },
+          { key: "category", label: t("admin.common.category"), options: categories },
+          { key: "stock", label: t("admin.common.status"), options: STOCK_STATUSES },
         ]}
       />
       <ExpandableReportTable
@@ -134,7 +142,7 @@ export default async function GrowerStockPage({
         page={page}
         pageCount={Math.ceil(total / pageSize)}
         total={total}
-        emptyMessage="No growers have authorized items matching these filters."
+        emptyMessage={t("admin.reports.growerStock.empty")}
       />
     </div>
   )

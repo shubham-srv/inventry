@@ -22,27 +22,7 @@ import {
 import { ConfirmButton } from "@/components/crud/confirm-button"
 import { CommodityItemsDialog } from "@/components/commodities/commodity-items-dialog"
 import { TranslationBadge } from "@/components/translation-badge"
-
-const fields: Field[] = [
-  {
-    name: "code",
-    label: "Code",
-    type: "text",
-    required: true,
-    placeholder: "AP",
-    lockOnEdit: true,
-    description: "Short commodity code, e.g. AP",
-  },
-  { name: "name", label: "Name", type: "text", required: true, colSpan: 2 },
-  {
-    name: "nameEs",
-    label: "Spanish name",
-    type: "text",
-    translationOf: "name",
-    colSpan: 2,
-    description: "Shown to growers and vendors who use Spanish. Leave blank to machine-translate on save.",
-  },
-]
+import { getT } from "@/lib/i18n/server"
 
 type Row = {
   code: string
@@ -58,6 +38,7 @@ export default async function CommoditiesPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.MANAGE_MASTER_DATA)
+  const t = await getT()
   const { page, pageSize, skip, take, raw } = parseListParams(
     await searchParams
   )
@@ -76,16 +57,37 @@ export default async function CommoditiesPage({
     prisma.commodity.count({ where }),
   ])
 
+  const fields: Field[] = [
+    {
+      name: "code",
+      label: t("admin.common.code"),
+      type: "text",
+      required: true,
+      placeholder: "AP",
+      lockOnEdit: true,
+      description: t("admin.commodities.codeHelp"),
+    },
+    { name: "name", label: t("admin.common.name"), type: "text", required: true, colSpan: 2 },
+    {
+      name: "nameEs",
+      label: t("admin.commodities.spanishName"),
+      type: "text",
+      translationOf: "name",
+      colSpan: 2,
+      description: t("admin.commodities.spanishNameHelp"),
+    },
+  ]
+
   const columns: Column<Row>[] = [
     {
       key: "code",
-      header: "Code",
+      header: t("admin.common.code"),
       className: "font-mono text-xs",
       cell: (r) => r.code,
     },
     {
       key: "name",
-      header: "Name",
+      header: t("admin.common.name"),
       cell: (r) => (
         <div className="space-y-1">
           <span className="font-medium">{r.name}</span>
@@ -97,14 +99,14 @@ export default async function CommoditiesPage({
     },
     {
       key: "items",
-      header: "Items",
+      header: t("admin.common.items"),
       cell: (r) => (
         <CommodityItemsDialog code={r.code} name={r.name} count={r._count.items} isActive={r.isActive} />
       ),
     },
     {
       key: "status",
-      header: "Status",
+      header: t("admin.common.status"),
       cell: (r) => <StatusBadge status={r.isActive ? "Active" : "Inactive"} />,
     },
     {
@@ -115,42 +117,41 @@ export default async function CommoditiesPage({
       cell: (r) => (
         <div className="flex justify-end gap-1">
           <ConfirmButton
-            title={r.isActive ? `Disable ${r.code}?` : `Enable ${r.code}?`}
-            description={
-              r.isActive
-                ? `Its ${r._count.items} item(s) disappear from grower and vendor screens, pickers and current reports until it is enabled again. The items themselves are not changed.`
-                : `Its ${r._count.items} item(s) come back exactly as they were — items that were inactive on their own stay inactive.`
-            }
-            confirmLabel={r.isActive ? "Disable" : "Enable"}
+            title={t(r.isActive ? "admin.commodities.disableTitle" : "admin.commodities.enableTitle", { code: r.code })}
+            description={t(
+              r.isActive ? "admin.commodities.disableDescription" : "admin.commodities.enableDescription",
+              { count: r._count.items }
+            )}
+            confirmLabel={t(r.isActive ? "admin.commodities.disable" : "admin.commodities.enable")}
             variant={r.isActive ? "destructive" : "default"}
             typeToConfirm={r.isActive}
             confirmWord="disable"
             action={setCommodityActive.bind(null, r.code, !r.isActive)}
             trigger={
-              <Button variant="ghost" size="icon-sm" aria-label={r.isActive ? "Disable" : "Enable"}>
+              <Button variant="ghost" size="icon-sm" aria-label={t(r.isActive ? "admin.commodities.disable" : "admin.commodities.enable")}>
                 {r.isActive ? <PowerOff /> : <Power />}
               </Button>
             }
           />
           <EntityFormDialog
-            title="Edit commodity"
+            title={t("admin.commodities.editCommodity")}
             fields={fields}
             action={updateCommodity}
             values={{ code: r.code, name: r.name, nameEs: r.translations[0]?.name ?? "" }}
-            submitLabel="Save changes"
+            submitLabel={t("admin.common.saveChanges")}
             trigger={
-              <Button variant="ghost" size="icon-sm" aria-label="Edit">
+              <Button variant="ghost" size="icon-sm" aria-label={t("admin.common.edit")}>
                 <Pencil />
               </Button>
             }
           />
           <ConfirmButton
-            title="Delete commodity"
-            description={`Delete ${r.code}?`}
-            confirmLabel="Delete" typeToConfirm
+            title={t("admin.commodities.deleteCommodity")}
+            description={t("admin.commodities.deleteDescription", { code: r.code })}
+            confirmLabel={t("admin.common.delete")} typeToConfirm
             action={deleteCommodity.bind(null, r.code)}
             trigger={
-              <Button variant="ghost" size="icon-sm" aria-label="Delete">
+              <Button variant="ghost" size="icon-sm" aria-label={t("admin.common.delete")}>
                 <Trash2 />
               </Button>
             }
@@ -163,32 +164,32 @@ export default async function CommoditiesPage({
   return (
     <>
       <PageHeader
-        title="Commodities"
-        description="Top-level commodity codes."
+        title={t("nav.commodities")}
+        description={t("admin.commodities.description")}
       />
       <div className="space-y-4">
         <DataTableToolbar
-          searchPlaceholder="Search commodities…"
+          searchPlaceholder={t("admin.commodities.searchPlaceholder")}
           exportEntity="commodities"
           filters={[
             {
               key: "status",
-              label: "Status",
+              label: t("admin.common.status"),
               options: [
-                { label: "Active", value: "active" },
-                { label: "Disabled", value: "inactive" },
+                { label: t("status.Active"), value: "active" },
+                { label: t("admin.commodities.disabled"), value: "inactive" },
               ],
             },
           ]}
         >
           <EntityFormDialog
-            title="New commodity"
+            title={t("admin.commodities.newCommodity")}
             fields={fields}
             action={createCommodity}
-            submitLabel="Create"
+            submitLabel={t("admin.common.create")}
             trigger={
               <Button size="sm">
-                <Plus className="size-4" /> Add commodity
+                <Plus className="size-4" /> {t("admin.commodities.addCommodity")}
               </Button>
             }
           />

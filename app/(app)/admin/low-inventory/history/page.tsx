@@ -7,12 +7,7 @@ import { allGrowerOptions } from "@/lib/admin/filter-options"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
 import { FlagOutcomeBadge } from "@/components/low-inventory/flag-outcome-badge"
-
-const OUTCOME_LABEL: Record<FlagOutcome, string> = {
-  Open: "Open",
-  ClearedByGrower: "Unflagged by grower",
-  Reviewed: "Reviewed by admin",
-}
+import { getLocale, getT } from "@/lib/i18n/server"
 
 /** Every flag ever raised — the audit trail behind the "Raised flags" queue. */
 export default async function FlagHistoryPage({
@@ -21,6 +16,13 @@ export default async function FlagHistoryPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.MANAGE_GROWERS_VENDORS)
+  const t = await getT()
+  const locale = await getLocale()
+  const OUTCOME_LABEL: Record<FlagOutcome, string> = {
+    Open: t("status.Open"),
+    ClearedByGrower: t("admin.lowInventory.outcomeClearedByGrower"),
+    Reviewed: t("admin.lowInventory.outcomeReviewedByAdmin"),
+  }
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 15 })
 
   const [{ rows, total }, growers] = await Promise.all([
@@ -33,15 +35,15 @@ export default async function FlagHistoryPage({
     v == null ? <span className="text-muted-foreground">—</span> : `${v} ${unit ?? ""}`
   const stamp = (d: Date, who: string | null) => (
     <div>
-      {formatDate(d, "MMM d, yyyy HH:mm")}
-      {who && <p className="text-muted-foreground">by {who}</p>}
+      {formatDate(d, "MMM d, yyyy HH:mm", locale)}
+      {who && <p className="text-muted-foreground">{t("admin.lowInventory.by", { name: who })}</p>}
     </div>
   )
 
   const columns: Column<FlagHistoryRow>[] = [
     {
       key: "item",
-      header: "Item",
+      header: t("admin.common.item"),
       cell: (r) => (
         <div>
           <span className="font-medium">{r.itemName}</span>
@@ -49,20 +51,20 @@ export default async function FlagHistoryPage({
         </div>
       ),
     },
-    { key: "grower", header: "Grower", cell: (r) => r.growerName },
-    { key: "raised", header: "Raised", className: "text-xs whitespace-nowrap", cell: (r) => stamp(r.raisedAt, r.raisedBy) },
-    { key: "then", header: "On hand then", className: "tabular-nums", cell: (r) => qty(r.onHandAtFlag, r.categoryName) },
-    { key: "now", header: "On hand now", className: "tabular-nums", cell: (r) => qty(r.onHandNow, r.categoryName) },
-    { key: "status", header: "Status", cell: (r) => <FlagOutcomeBadge outcome={r.outcome} label={OUTCOME_LABEL[r.outcome]} /> },
+    { key: "grower", header: t("admin.common.grower"), cell: (r) => r.growerName },
+    { key: "raised", header: t("admin.lowInventory.raised"), className: "text-xs whitespace-nowrap", cell: (r) => stamp(r.raisedAt, r.raisedBy) },
+    { key: "then", header: t("admin.lowInventory.onHandThen"), className: "tabular-nums", cell: (r) => qty(r.onHandAtFlag, r.categoryName) },
+    { key: "now", header: t("admin.lowInventory.onHandNow"), className: "tabular-nums", cell: (r) => qty(r.onHandNow, r.categoryName) },
+    { key: "status", header: t("admin.common.status"), cell: (r) => <FlagOutcomeBadge outcome={r.outcome} label={OUTCOME_LABEL[r.outcome]} /> },
     {
       key: "cleared",
-      header: "Cleared",
+      header: t("admin.lowInventory.cleared"),
       className: "text-xs whitespace-nowrap",
       cell: (r) => (r.clearedAt ? stamp(r.clearedAt, r.clearedBy) : <span className="text-muted-foreground">—</span>),
     },
     {
       key: "notes",
-      header: "Review notes",
+      header: t("admin.lowInventory.reviewNotes"),
       className: "text-muted-foreground text-xs",
       cell: (r) => r.reviewNotes ?? "—",
     },
@@ -71,22 +73,21 @@ export default async function FlagHistoryPage({
   return (
     <div className="space-y-4">
       <p className="text-muted-foreground text-sm">
-        Every flag growers have raised with the &ldquo;Low&rdquo; toggle — still open, unflagged by the grower, or
-        cleared by an admin review — with the on-hand total when it was raised next to the total now.
+        {t("admin.lowInventory.historyIntro")}
       </p>
       <DataTableToolbar
-        searchPlaceholder="Search item…"
+        searchPlaceholder={t("admin.lowInventory.searchItem")}
         filters={[
           {
             key: "outcome",
-            label: "Status",
+            label: t("admin.common.status"),
             options: [
               { label: OUTCOME_LABEL.Open, value: "open" },
               { label: OUTCOME_LABEL.ClearedByGrower, value: "grower" },
               { label: OUTCOME_LABEL.Reviewed, value: "reviewed" },
             ],
           },
-          { key: "grower", label: "Grower", options: growers },
+          { key: "grower", label: t("admin.common.grower"), options: growers },
         ]}
       />
       <DataTable
@@ -97,7 +98,7 @@ export default async function FlagHistoryPage({
         pageCount={Math.ceil(total / pageSize)}
         total={total}
         searchParams={raw}
-        emptyMessage="No flags match these filters."
+        emptyMessage={t("admin.lowInventory.noFlagsMatch")}
       />
     </div>
   )

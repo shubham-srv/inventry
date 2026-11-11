@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Maximize2, Minimize2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useT } from "@/lib/i18n/client"
 import { cn } from "@/lib/utils"
 
 /**
@@ -28,6 +29,7 @@ export function ReportFrame({
   className?: string
   children: React.ReactNode
 }) {
+  const t = useT()
   const ref = useRef<HTMLDivElement>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
 
@@ -79,9 +81,13 @@ export function ReportFrame({
         // until hover so it does not compete with the report's own toolbar.
         className="absolute top-2 right-2 z-10 opacity-60 shadow-sm transition-opacity hover:opacity-100 focus-visible:opacity-100"
         aria-label={
-          isFullscreen ? `Exit fullscreen: ${label}` : `View ${label} fullscreen`
+          isFullscreen
+            ? t("admin.reports.powerBi.fullscreenExit", { label })
+            : t("admin.reports.powerBi.fullscreenEnter", { label })
         }
-        title={isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen"}
+        title={
+          isFullscreen ? t("admin.reports.powerBi.fullscreenExitTitle") : t("admin.reports.powerBi.fullscreenTitle")
+        }
       >
         {isFullscreen ? <Minimize2 aria-hidden /> : <Maximize2 aria-hidden />}
       </Button>

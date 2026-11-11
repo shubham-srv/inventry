@@ -15,6 +15,7 @@ import { DataTable, type Column } from "@/components/data-table/data-table"
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
 import { EntityFormDialog, type Field } from "@/components/crud/entity-form-dialog"
 import { ConfirmButton } from "@/components/crud/confirm-button"
+import { getT } from "@/lib/i18n/server"
 
 type Row = {
   id: number
@@ -31,6 +32,7 @@ export default async function ConversionsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.MANAGE_CONVERSIONS)
+  const t = await getT()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
 
   const where = raw.q
@@ -61,30 +63,29 @@ export default async function ConversionsPage({
   const fields: Field[] = [
     {
       name: "materialCategoryCode",
-      label: "Material category",
+      label: t("admin.conversions.materialCategory"),
       type: "select",
       required: true,
-      placeholder: "Select category",
+      placeholder: t("admin.conversions.selectCategory"),
       options: categories.map((c) => ({ label: `${c.code} — ${c.name}`, value: c.code })),
-      description:
-        "The chain starts from this category — it is what the item's quantities are counted in, and it labels the innermost level.",
+      description: t("admin.conversions.materialCategoryHelp"),
     },
-    { name: "name", label: "Name", type: "text", required: true, placeholder: "Bags → Boxes → Cases", colSpan: 2 },
+    { name: "name", label: t("admin.common.name"), type: "text", required: true, placeholder: "Bags → Boxes → Cases", colSpan: 2 },
     {
       name: "levels",
-      label: "Conversion levels",
+      label: t("admin.conversions.levels"),
       type: "text",
       required: true,
       placeholder: "Boxes, Cases",
       colSpan: 2,
-      description: "Comma-separated, innermost first. No quantities here — vendors supply those.",
+      description: t("admin.conversions.levelsHelp"),
     },
   ]
 
   const columns: Column<Row>[] = [
     {
       key: "chain",
-      header: "Chain",
+      header: t("admin.conversions.chain"),
       cell: (r) => (
         <div>
           <span className="flex flex-wrap items-center gap-1 font-medium">
@@ -101,12 +102,15 @@ export default async function ConversionsPage({
         </div>
       ),
     },
-    { key: "category", header: "Category", cell: (r) => r.materialCategory.name },
+    { key: "category", header: t("admin.common.category"), cell: (r) => r.materialCategory.name },
     {
       key: "used",
-      header: "Used by",
+      header: t("admin.conversions.usedBy"),
       className: "tabular-nums",
-      cell: (r) => `${r._count.itemVendors} mapping${r._count.itemVendors === 1 ? "" : "s"}`,
+      cell: (r) =>
+        r._count.itemVendors === 1
+          ? t("admin.conversions.mappingOne")
+          : t("admin.conversions.mappingMany", { count: r._count.itemVendors }),
     },
     {
       key: "actions",
@@ -116,7 +120,7 @@ export default async function ConversionsPage({
       cell: (r) => (
         <div className="flex justify-end gap-1">
           <EntityFormDialog
-            title="Edit conversion chain"
+            title={t("admin.conversions.editChain")}
             fields={fields}
             action={updatePackagingChain}
             values={{
@@ -125,16 +129,16 @@ export default async function ConversionsPage({
               name: r.name,
               levels: r.levels.map((l) => l.unitName).join(", "),
             }}
-            submitLabel="Save changes"
-            trigger={<Button variant="ghost" size="icon-sm" aria-label="Edit"><Pencil /></Button>}
+            submitLabel={t("admin.common.saveChanges")}
+            trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.common.edit")}><Pencil /></Button>}
           />
           <ConfirmButton
-            title="Delete conversion chain"
-            description={`Delete "${r.name}"?`}
-            confirmLabel="Delete"
+            title={t("admin.conversions.deleteChain")}
+            description={t("admin.conversions.deleteDescription", { name: r.name })}
+            confirmLabel={t("admin.common.delete")}
             typeToConfirm
             action={deletePackagingChain.bind(null, r.id)}
-            trigger={<Button variant="ghost" size="icon-sm" aria-label="Delete"><Trash2 /></Button>}
+            trigger={<Button variant="ghost" size="icon-sm" aria-label={t("admin.common.delete")}><Trash2 /></Button>}
           />
         </div>
       ),
@@ -144,17 +148,17 @@ export default async function ConversionsPage({
   return (
     <>
       <PageHeader
-        title="Conversions"
-        description="How a SKU converts into shipping units (Bags → Boxes → Cases). Chains define the structure only — each vendor supplies their own ratios, on the vendor↔item mapping or from their portal."
+        title={t("nav.conversions")}
+        description={t("admin.conversions.description")}
       />
       <div className="space-y-4">
-        <DataTableToolbar searchPlaceholder="Search chains…">
+        <DataTableToolbar searchPlaceholder={t("admin.conversions.searchPlaceholder")}>
           <EntityFormDialog
-            title="New conversion chain"
+            title={t("admin.conversions.newChain")}
             fields={fields}
             action={createPackagingChain}
-            submitLabel="Create"
-            trigger={<Button size="sm"><Plus className="size-4" /> Add conversion chain</Button>}
+            submitLabel={t("admin.common.create")}
+            trigger={<Button size="sm"><Plus className="size-4" /> {t("admin.conversions.addChain")}</Button>}
           />
         </DataTableToolbar>
         <DataTable

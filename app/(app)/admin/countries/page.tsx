@@ -18,31 +18,7 @@ import {
   type Field,
 } from "@/components/crud/entity-form-dialog"
 import { ConfirmButton } from "@/components/crud/confirm-button"
-
-const fields: Field[] = [
-  {
-    name: "name",
-    label: "Country",
-    type: "text",
-    required: true,
-    placeholder: "Mexico",
-    colSpan: 2,
-    description:
-      "Used by an item's country of origin, a location's country, a vendor's home country, and vendor supply-to lists.",
-  },
-  {
-    name: "isSelectable",
-    label: "Selectable as a real country",
-    type: "select",
-    options: [
-      { value: "true", label: "Yes" },
-      { value: "false", label: "No — origin dropdown only" },
-    ],
-    colSpan: 2,
-    description:
-      "Turn off for placeholder rows like N/A. They stay available as an item's country of origin but are hidden from location, vendor and supply-to pickers.",
-  },
-]
+import { getT } from "@/lib/i18n/server"
 
 type Row = {
   id: number
@@ -57,6 +33,7 @@ export default async function CountriesPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.MANAGE_MASTER_DATA)
+  const t = await getT()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
   const where = countriesWhere(raw)
   const [rows, total] = await Promise.all([
@@ -72,26 +49,49 @@ export default async function CountriesPage({
     prisma.country.count({ where }),
   ])
 
+  const fields: Field[] = [
+    {
+      name: "name",
+      label: t("admin.common.country"),
+      type: "text",
+      required: true,
+      placeholder: "Mexico",
+      colSpan: 2,
+      description: t("admin.countries.nameHelp"),
+    },
+    {
+      name: "isSelectable",
+      label: t("admin.countries.selectable"),
+      type: "select",
+      options: [
+        { value: "true", label: t("common.yes") },
+        { value: "false", label: t("admin.countries.notSelectable") },
+      ],
+      colSpan: 2,
+      description: t("admin.countries.selectableHelp"),
+    },
+  ]
+
   const columns: Column<Row>[] = [
     {
       key: "name",
-      header: "Country",
+      header: t("admin.common.country"),
       cell: (r) => (
         <span className="flex items-center gap-2">
           <span className="font-medium">{r.name}</span>
           {!r.isSelectable && (
             <span className="text-muted-foreground text-xs">
-              origin only
+              {t("admin.countries.originOnly")}
             </span>
           )}
         </span>
       ),
     },
-    { key: "items", header: "Items", cell: (r) => r._count.items },
-    { key: "locations", header: "Locations", cell: (r) => r._count.locations },
+    { key: "items", header: t("admin.common.items"), cell: (r) => r._count.items },
+    { key: "locations", header: t("nav.locations"), cell: (r) => r._count.locations },
     {
       key: "supplied",
-      header: "Vendor supply lists",
+      header: t("admin.countries.supplyLists"),
       cell: (r) => r._count.suppliedBy,
     },
     {
@@ -102,7 +102,7 @@ export default async function CountriesPage({
       cell: (r) => (
         <div className="flex justify-end gap-1">
           <EntityFormDialog
-            title="Edit country"
+            title={t("admin.countries.editCountry")}
             fields={fields}
             action={updateCountry}
             values={{
@@ -110,25 +110,30 @@ export default async function CountriesPage({
               name: r.name,
               isSelectable: String(r.isSelectable),
             }}
-            submitLabel="Save changes"
+            submitLabel={t("admin.common.saveChanges")}
             trigger={
-              <Button variant="ghost" size="icon-sm" aria-label="Edit">
+              <Button variant="ghost" size="icon-sm" aria-label={t("admin.common.edit")}>
                 <Pencil />
               </Button>
             }
           />
           <ConfirmButton
-            title="Delete country"
+            title={t("admin.countries.deleteCountry")}
             description={
               r._count.items + r._count.locations + r._count.suppliedBy > 0
-                ? `${r.name} is in use (${r._count.items} item(s), ${r._count.locations} location(s), ${r._count.suppliedBy} vendor supply list(s)) and cannot be deleted until those are changed.`
-                : `Delete ${r.name}?`
+                ? t("admin.countries.inUse", {
+                    name: r.name,
+                    items: r._count.items,
+                    locations: r._count.locations,
+                    lists: r._count.suppliedBy,
+                  })
+                : t("admin.countries.deleteDescription", { name: r.name })
             }
-            confirmLabel="Delete"
+            confirmLabel={t("admin.common.delete")}
             typeToConfirm
             action={deleteCountry.bind(null, r.id)}
             trigger={
-              <Button variant="ghost" size="icon-sm" aria-label="Delete">
+              <Button variant="ghost" size="icon-sm" aria-label={t("admin.common.delete")}>
                 <Trash2 />
               </Button>
             }
@@ -141,22 +146,22 @@ export default async function CountriesPage({
   return (
     <>
       <PageHeader
-        title="Countries"
-        description="Shared lookup behind an item's country of origin, a location's country, a vendor's home country, and vendor supply-to lists."
+        title={t("admin.countries.title")}
+        description={t("admin.countries.description")}
       />
       <div className="space-y-4">
         <DataTableToolbar
-          searchPlaceholder="Search countries…"
+          searchPlaceholder={t("admin.countries.searchPlaceholder")}
           exportEntity="countries"
         >
           <EntityFormDialog
-            title="New country"
+            title={t("admin.countries.newCountry")}
             fields={fields}
             action={createCountry}
-            submitLabel="Create"
+            submitLabel={t("admin.common.create")}
             trigger={
               <Button size="sm">
-                <Plus className="size-4" /> Add country
+                <Plus className="size-4" /> {t("admin.countries.addCountry")}
               </Button>
             }
           />
@@ -170,7 +175,7 @@ export default async function CountriesPage({
           pageCount={Math.ceil(total / pageSize)}
           total={total}
           searchParams={raw}
-          emptyMessage="No countries match your search."
+          emptyMessage={t("admin.countries.empty")}
         />
       </div>
     </>

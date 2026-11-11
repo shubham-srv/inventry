@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { DataTable, type Column } from "@/components/data-table/data-table"
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar"
 import { EntityFormDialog, type Field } from "@/components/crud/entity-form-dialog"
+import { getLocale, getT } from "@/lib/i18n/server"
 
 type Row = {
   id: number
@@ -26,16 +27,14 @@ type Row = {
   item: { itemName: string; materialCategory: { name: string } | null }
 }
 
-const reviewFields: Field[] = [
-  { name: "reviewNotes", label: "Review notes (optional)", type: "textarea", colSpan: 2 },
-]
-
 export default async function AdminLowInventoryPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.MANAGE_GROWERS_VENDORS)
+  const t = await getT()
+  const locale = await getLocale()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams)
 
   const and: Prisma.LowInventoryFlagWhereInput[] = []
@@ -74,10 +73,14 @@ export default async function AdminLowInventoryPage({
     itemIds: [...new Set(rows.map((r) => r.itemId))],
   })
 
+  const reviewFields: Field[] = [
+    { name: "reviewNotes", label: t("admin.lowInventory.reviewNotesOptional"), type: "textarea", colSpan: 2 },
+  ]
+
   const columns: Column<Row>[] = [
     {
       key: "item",
-      header: "Item",
+      header: t("admin.common.item"),
       cell: (r) => (
         <div>
           <span className="font-medium">{r.item.itemName}</span>
@@ -85,14 +88,14 @@ export default async function AdminLowInventoryPage({
         </div>
       ),
     },
-    { key: "grower", header: "Grower", cell: (r) => r.grower.growerName },
+    { key: "grower", header: t("admin.common.grower"), cell: (r) => r.grower.growerName },
     {
       key: "onHand",
-      header: "Current on hand",
+      header: t("admin.lowInventory.currentOnHand"),
       cell: (r) => {
         const unit = r.item.materialCategory?.name ?? ""
         const now = onHand.get(onHandKey(r.growerId, r.itemId))
-        if (!now) return <span className="text-muted-foreground text-xs">Never counted</span>
+        if (!now) return <span className="text-muted-foreground text-xs">{t("admin.lowInventory.neverCounted")}</span>
         return (
           <div className="text-xs">
             <span className="text-sm font-medium tabular-nums">
@@ -105,30 +108,30 @@ export default async function AdminLowInventoryPage({
               </p>
             )}
             <p className="text-muted-foreground">
-              as of {formatDate(now.asOf, "MMM d")}
-              {r.onHandAtFlag != null && ` · ${Number(r.onHandAtFlag)} when flagged`}
+              {t("admin.lowInventory.asOf", { date: formatDate(now.asOf, "MMM d", locale) })}
+              {r.onHandAtFlag != null && ` · ${t("admin.lowInventory.whenFlagged", { qty: Number(r.onHandAtFlag) })}`}
             </p>
           </div>
         )
       },
     },
-    { key: "by", header: "Flagged by", className: "text-muted-foreground text-xs", cell: (r) => flaggerById.get(r.flaggedBy) ?? "—" },
-    { key: "reason", header: "Reason", className: "text-muted-foreground text-xs", cell: (r) => r.reason ?? "—" },
+    { key: "by", header: t("admin.lowInventory.flaggedBy"), className: "text-muted-foreground text-xs", cell: (r) => flaggerById.get(r.flaggedBy) ?? "—" },
+    { key: "reason", header: t("admin.lowInventory.reason"), className: "text-muted-foreground text-xs", cell: (r) => r.reason ?? "—" },
     {
       key: "state",
-      header: "State",
+      header: t("admin.lowInventory.state"),
       cell: (r) =>
         r.isActive ? (
           <Badge variant="outline" className="border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400">
-            Awaiting review
+            {t("admin.lowInventory.awaitingReview")}
           </Badge>
         ) : (
           <Badge variant="outline" className="border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
-            Reviewed
+            {t("status.Reviewed")}
           </Badge>
         ),
     },
-    { key: "when", header: "When", className: "text-muted-foreground whitespace-nowrap text-xs", cell: (r) => formatDate(r.createdAt, "MMM d") },
+    { key: "when", header: t("admin.lowInventory.when"), className: "text-muted-foreground whitespace-nowrap text-xs", cell: (r) => formatDate(r.createdAt, "MMM d", locale) },
     {
       key: "actions",
       header: "",
@@ -137,15 +140,15 @@ export default async function AdminLowInventoryPage({
       cell: (r) =>
         r.isActive ? (
           <EntityFormDialog
-            title="Review low-inventory flag"
+            title={t("admin.lowInventory.reviewFlagTitle")}
             description={`${r.item.itemName} — ${r.grower.growerName}`}
             fields={reviewFields}
             action={reviewLowFlag}
             values={{ id: r.id, reviewNotes: "" }}
-            submitLabel="Review & clear"
+            submitLabel={t("admin.lowInventory.reviewAndClear")}
             trigger={
               <Button variant="outline" size="xs">
-                <CheckCircle2 className="size-3.5" /> Review
+                <CheckCircle2 className="size-3.5" /> {t("admin.lowInventory.review")}
               </Button>
             }
           />
@@ -156,22 +159,21 @@ export default async function AdminLowInventoryPage({
   return (
     <div className="space-y-4">
       <p className="text-muted-foreground text-sm">
-        Flags growers raised by hand. Reviewing one clears it and notifies the grower; it then
-        disappears from their view.
+        {t("admin.lowInventory.flagsIntro")}
       </p>
       <DataTableToolbar
-        searchPlaceholder="Search item…"
+        searchPlaceholder={t("admin.lowInventory.searchItem")}
         filters={[
           {
             key: "state",
-            label: "State",
+            label: t("admin.lowInventory.state"),
             options: [
-              { label: "Awaiting review", value: "active" },
-              { label: "Reviewed", value: "reviewed" },
-              { label: "All", value: "all" },
+              { label: t("admin.lowInventory.awaitingReview"), value: "active" },
+              { label: t("status.Reviewed"), value: "reviewed" },
+              { label: t("common.all"), value: "all" },
             ],
           },
-          { key: "grower", label: "Grower", options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })) },
+          { key: "grower", label: t("admin.common.grower"), options: growers.map((g) => ({ label: g.growerName, value: String(g.id) })) },
         ]}
       />
       <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} page={page} pageCount={Math.ceil(total / pageSize)} total={total} searchParams={raw} />

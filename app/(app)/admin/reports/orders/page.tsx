@@ -1,5 +1,7 @@
 import { formatDate } from "@/lib/dates"
 import { requireCapability } from "@/lib/auth/session"
+import { getLocale, getT } from "@/lib/i18n/server"
+import type { TFunction } from "@/lib/i18n/translate"
 import { CAPABILITIES } from "@/lib/rbac"
 import { parseListParams } from "@/lib/query"
 import { ORDER_STATUSES } from "@/lib/constants"
@@ -11,42 +13,21 @@ import { StatusBadge } from "@/components/status-badge"
 import { Badge } from "@/components/ui/badge"
 import { NotesCell } from "@/components/data-table/notes-cell"
 
-const PERIODS = [
-  { label: "Last 7 days", value: "7" },
-  { label: "Last 30 days", value: "30" },
-  { label: "Last 90 days", value: "90" },
-]
-
-const DELIVERY_STATES = [
-  { label: "Awaiting vendor's date", value: "awaiting" },
-  { label: "Overdue", value: "overdue" },
-  { label: "Not yet due", value: "due" },
-  { label: "Delivered late", value: "late" },
-  { label: "Delivered on time", value: "ontime" },
-  { label: "No ETA set", value: "noeta" },
-]
-
-const RECEIPT_STATES = [
-  { label: "Exact", value: "exact" },
-  { label: "Short", value: "short" },
-  { label: "Over", value: "over" },
-  { label: "Not recorded", value: "unrecorded" },
-]
-
 /** "6 days overdue" / "Due in 2d" / "2 days late" / "3 days early" / "On time". */
-function deliveryLabel(r: OrderReportRow): string {
+function deliveryLabel(r: OrderReportRow, t: TFunction): string {
   const n = r.deliveryDays
+  const k = "admin.reports.orders.delivery"
   switch (r.delivery) {
     case "Overdue":
-      return `${n} day${n === 1 ? "" : "s"} overdue`
+      return t(`${k}.overdue${n === 1 ? "One" : "Other"}`, { n: n ?? 0 })
     case "Due":
-      return n === 0 ? "Due today" : `Due in ${n}d`
+      return n === 0 ? t(`${k}.dueToday`) : t(`${k}.dueIn`, { n: n ?? 0 })
     case "Late":
-      return `${n} day${n === 1 ? "" : "s"} late`
+      return t(`${k}.late${n === 1 ? "One" : "Other"}`, { n: n ?? 0 })
     case "OnTime":
-      return n === 0 ? "On time" : `${-n!} day${n === -1 ? "" : "s"} early`
+      return n === 0 ? t(`${k}.onTime`) : t(`${k}.early${n === -1 ? "One" : "Other"}`, { n: -n! })
     case "Cancelled":
-      return "Cancelled"
+      return t("status.Cancelled")
     default:
       return "—"
   }
@@ -67,6 +48,8 @@ export default async function OrdersReportPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   await requireCapability(CAPABILITIES.VIEW_REPORTS)
+  const t = await getT()
+  const locale = await getLocale()
   const { page, pageSize, skip, take, raw } = parseListParams(await searchParams, { pageSize: 25 })
 
   const filters = {
@@ -87,12 +70,27 @@ export default async function OrdersReportPage({
     allVendorOptions(),
   ])
 
+  const PERIODS = [7, 30, 90].map((days) => ({
+    label: t("admin.reports.orders.lastDays", { days }),
+    value: String(days),
+  }))
+
+  const DELIVERY_STATES = ["awaiting", "overdue", "due", "late", "ontime", "noeta"].map((value) => ({
+    label: t(`admin.reports.orders.deliveryStates.${value}`),
+    value,
+  }))
+
+  const RECEIPT_STATES = ["exact", "short", "over", "unrecorded"].map((value) => ({
+    label: t(`admin.reports.orders.receiptStates.${value}`),
+    value,
+  }))
+
   const columns: Column<OrderReportRow>[] = [
-    { key: "id", header: "Order", className: "font-mono text-xs", cell: (r) => `#${r.id}` },
-    { key: "grower", header: "Grower", cell: (r) => r.growerName },
+    { key: "id", header: t("admin.reports.orders.order"), className: "font-mono text-xs", cell: (r) => `#${r.id}` },
+    { key: "grower", header: t("admin.common.grower"), cell: (r) => r.growerName },
     {
       key: "item",
-      header: "Item",
+      header: t("admin.common.item"),
       cell: (r) => (
         <div>
           <span className="font-medium">{r.itemName}</span>
@@ -102,20 +100,20 @@ export default async function OrdersReportPage({
     },
     {
       key: "legacy",
-      header: "Legacy ID",
+      header: t("admin.reports.legacyId"),
       className: "font-mono text-xs",
       cell: (r) => r.legacyId ?? <span className="text-muted-foreground">—</span>,
     },
-    { key: "vendor", header: "Vendor", cell: (r) => r.vendorName },
+    { key: "vendor", header: t("admin.common.vendor"), cell: (r) => r.vendorName },
     {
       key: "ordered",
-      header: "Ordered",
+      header: t("admin.reports.orders.ordered"),
       className: "tabular-nums",
       cell: (r) => `${r.quantity} ${r.categoryName ?? ""}`,
     },
     {
       key: "received",
-      header: "Received",
+      header: t("admin.reports.orders.received"),
       className: "tabular-nums",
       cell: (r) =>
         r.receivedQuantity == null ? (
@@ -142,40 +140,42 @@ export default async function OrdersReportPage({
     },
     {
       key: "reason",
-      header: "Reason",
+      header: t("admin.reports.orders.reason"),
       className: "text-xs",
       // Blank on a real discrepancy is legitimate — the reason is optional in
       // the receive dialog, which is why the variance above is the source of truth.
       cell: (r) => r.receiptNote ?? <span className="text-muted-foreground">—</span>,
     },
-    { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} /> },
+    { key: "status", header: t("admin.common.status"), cell: (r) => <StatusBadge status={r.status} /> },
     {
       key: "orderDate",
-      header: "Ordered on",
+      header: t("admin.reports.orders.orderedOn"),
       className: "text-xs text-muted-foreground whitespace-nowrap",
-      cell: (r) => formatDate(r.orderDate, "MMM d"),
+      cell: (r) => formatDate(r.orderDate, "MMM d", locale),
     },
     {
       key: "requested",
-      header: "Requested",
+      header: t("admin.reports.orders.requested"),
       className: "text-xs text-muted-foreground whitespace-nowrap",
-      cell: (r) => (r.expectedDeliveryDate ? formatDate(r.expectedDeliveryDate, "MMM d") : "—"),
+      cell: (r) => (r.expectedDeliveryDate ? formatDate(r.expectedDeliveryDate, "MMM d", locale) : "—"),
     },
     {
       key: "confirmed",
-      header: "Vendor's date",
+      header: t("admin.reports.orders.vendorDate"),
       className: "text-xs whitespace-nowrap",
       cell: (r) =>
         r.confirmedDeliveryDate ? (
           <div>
-            <span className="font-medium">{formatDate(r.confirmedDeliveryDate, "MMM d")}</span>
+            <span className="font-medium">{formatDate(r.confirmedDeliveryDate, "MMM d", locale)}</span>
             {r.confirmedAt && (
-              <p className="text-muted-foreground">set {formatDate(r.confirmedAt, "MMM d")}</p>
+              <p className="text-muted-foreground">
+                {t("admin.reports.orders.setOn", { date: formatDate(r.confirmedAt, "MMM d", locale) })}
+              </p>
             )}
           </div>
         ) : r.awaitingVendor ? (
           <Badge variant="outline" className="border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400">
-            Awaiting vendor
+            {t("admin.reports.orders.awaitingVendor")}
           </Badge>
         ) : (
           <span className="text-muted-foreground">—</span>
@@ -183,34 +183,40 @@ export default async function OrdersReportPage({
     },
     {
       key: "delivery",
-      header: "Delivery",
+      header: t("admin.reports.orders.deliveryCol"),
       className: "text-xs",
-      cell: (r) => <span className={DELIVERY_TONE[r.delivery]}>{deliveryLabel(r)}</span>,
+      cell: (r) => <span className={DELIVERY_TONE[r.delivery]}>{deliveryLabel(r, t)}</span>,
     },
     {
       key: "lead",
-      header: "Lead time",
+      header: t("admin.reports.orders.leadTime"),
       className: "text-xs text-muted-foreground tabular-nums",
       cell: (r) =>
         r.actualLeadDays == null
           ? "—"
-          : `${r.actualLeadDays}d${r.slaLeadDays == null ? "" : ` vs ${r.slaLeadDays}d SLA`}`,
+          : r.slaLeadDays == null
+            ? t("admin.reports.orders.leadDays", { n: r.actualLeadDays })
+            : t("admin.reports.orders.leadVsSla", { actual: r.actualLeadDays, sla: r.slaLeadDays }),
     },
-    { key: "notes", header: "Item notes", cell: (r) => <NotesCell notes={r.notes} /> },
+    { key: "notes", header: t("admin.reports.orders.itemNotes"), cell: (r) => <NotesCell notes={r.notes} /> },
   ]
 
   return (
     <div className="space-y-4">
       <DataTableToolbar
-        searchPlaceholder="Search order # / grower / vendor / item…"
+        searchPlaceholder={t("admin.reports.orders.search")}
         exportEntity="orders"
         filters={[
-          { key: "status", label: "Status", options: ORDER_STATUSES.map((s) => ({ label: s, value: s })) },
-          { key: "grower", label: "Grower", options: growers },
-          { key: "vendor", label: "Vendor", options: vendors },
-          { key: "period", label: "Period", options: PERIODS },
-          { key: "delivery", label: "Delivery", options: DELIVERY_STATES },
-          { key: "receipt", label: "Receipt", options: RECEIPT_STATES },
+          {
+            key: "status",
+            label: t("admin.common.status"),
+            options: ORDER_STATUSES.map((s) => ({ label: t(`status.${s}`), value: s })),
+          },
+          { key: "grower", label: t("admin.common.grower"), options: growers },
+          { key: "vendor", label: t("admin.common.vendor"), options: vendors },
+          { key: "period", label: t("admin.reports.orders.period"), options: PERIODS },
+          { key: "delivery", label: t("admin.reports.orders.deliveryCol"), options: DELIVERY_STATES },
+          { key: "receipt", label: t("admin.reports.orders.receipt"), options: RECEIPT_STATES },
         ]}
       />
       <DataTable
@@ -221,7 +227,7 @@ export default async function OrdersReportPage({
         pageCount={Math.ceil(total / pageSize)}
         total={total}
         searchParams={raw}
-        emptyMessage="No orders match these filters."
+        emptyMessage={t("admin.reports.orders.empty")}
       />
     </div>
   )
